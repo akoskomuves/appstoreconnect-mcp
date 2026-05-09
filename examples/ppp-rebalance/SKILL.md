@@ -7,6 +7,8 @@ description: Rebalance per-territory App Store subscription prices using a Purch
 
 You are helping the user rebalance their iOS app's subscription prices across App Store territories using a Purchasing Power Parity index. The `appstoreconnect-mcp` server is connected and provides the necessary tools.
 
+The MCP does the math for you — `ppp_compute_proposal` is the single tool that produces the dry-run table. Your job is to drive the conversation, validate the proposal with the user, and apply it via the write tools.
+
 ## Workflow
 
 Run these phases **in order**. Never skip the dry-run.
@@ -18,84 +20,88 @@ If the user hasn't named the app + subscription:
 1. `asc_list_apps` — find the app (filter by bundle ID if known).
 2. `asc_list_subscription_groups` for that app.
 3. `asc_list_subscriptions` for the relevant group.
-4. Confirm with the user which subscription is being repriced.
+4. Confirm with the user which subscription is being repriced and the **anchor base price** (e.g. `$29.99 USD`).
 
-### 2. Read the current state
-
-1. `asc_list_subscription_prices` for the chosen subscription. Show the current per-territory price schedule as a table.
-2. `asc_list_territories` to map territory IDs to currencies.
-
-### 3. Compute the proposal
-
-For each territory:
-
-- **PPP factor** = `apple_music_individual_price[territory] / apple_music_individual_price[USA]`, normalized to USD via the territory's FX rate.
-- **target_price_usd** = `base_price_usd × ppp_factor`
-- **target_price_local** = `target_price_usd × local_fx_rate`
-- Snap `target_price_local` to the nearest valid Apple price point via `asc_list_subscription_price_points` for that (subscription, territory).
-- Apply a sanity floor: `target_price_local ≥ 0.15 × current_price_local` to guard against bad index data.
-
-If you don't have an Apple Music price table available, ask the user to provide one or fall back to a public source (Big Mac index, World Bank PPP) and flag the substitution.
-
-### 4. Dry-run output
-
-Print a table:
+### 2. Compute the proposal (dry-run)
 
 ```
-  Territory  Current        Proposed       Δ      PPP factor
-  USA        $29.99 USD     $29.99 USD     —      1.00
-  BRA        R$149  BRL     R$39.90 BRL    -73%   0.27
-  ...
+ppp_compute_proposal(
+  subscriptionId: "...",
+  basePriceAnchor: 29.99,
+  anchorTerritory: "USA",
+  roundStrategy: "nearest"   // or "down" / "up"
+)
 ```
 
-End with: total territories changed, average drop, and the start date you'll propose. **Stop and wait for the user to approve** before any writes.
+The tool:
 
-### 5. Apply
+- Fetches the current price schedule for every territory.
+- Loads the bundled Apple Music index (`ppp_load_index` shows the snapshot).
+- Computes a PPP factor per territory using Apple Music ratios as implied PPP-FX.
+- Fetches the valid price points for every territory whose target differs from current, in parallel.
+- Snaps each target to the nearest valid Apple price point.
+- Applies a 15% floor (`floorFactor`) so a bad index entry can't crash the price.
+- Returns a compact table with current, target, snapped, Δ%, factor, and a NOTE column for skipped/no-data rows.
 
-After explicit user approval:
+Show the table to the user. **Stop and wait for explicit approval before any writes.**
 
-- Default `startDate` to today + 7 days (Apple requires ≥24h; 7 is safety buffer).
-- For each territory in the proposal, call `asc_post_subscription_price` with `preserveCurrentPrice: true`.
-- Skip writes for territories with no change.
-- Report each result; on the first failure, **stop and ask** rather than continuing through the list.
+### 3. Iterate the proposal if needed
 
-### 6. Verify
+If the user wants to tweak:
 
-After the apply, call `asc_list_subscription_prices` again and confirm the pending schedule matches the proposal. Tell the user where to view it in App Store Connect web UI.
+- **Different round strategy**: re-run with `roundStrategy: "down"` (more conservative for emerging markets) or `"up"` (more revenue-protective).
+- **Subset of territories**: pass `territories: ["BRA", "MEX", "ARG", "TUR", "IND", "IDN"]` to scope the proposal.
+- **Different base price**: change `basePriceAnchor`.
+- **Show all rows** including unchanged: pass `skipUnchanged: false`.
+- **Surface no-index rows**: pass `skipMissingIndex: false` so the user can see which territories Apple Music data is missing for.
 
-## Gotchas
+### 4. Apply
 
-These are the things that have bitten people doing this before; cite them out loud when relevant:
+Once the user approves:
 
-- **Always pass `preserveCurrentPrice: true`** on `asc_post_subscription_price`. Otherwise existing subscribers re-price at next renewal — Apple sends them a notification and may even block the schedule.
-- **Russia (`RUS`)**: App Store closed. Skip the territory entirely.
-- **USD-only territories**: Some markets (Vietnam, Pakistan, Egypt at times) bill in USD only. The `pricePoints` list per territory is the source of truth — if the only currency offered is USD, treat the territory as fixed-price.
-- **Snap direction**: Rounding to the nearest price point can land *above* your target. If PPP says ARS 1,150 and the available points are ARS 990 / ARS 1,290, you'll snap up to 1,290. Ask the user whether to prefer rounding down for emerging markets.
-- **Start date min lead time**: Apple requires ≥24h. Default to 7 days.
-- **`automaticPrices` flag**: If the subscription currently has automatic FX-based pricing enabled, posting per-territory prices switches it to manual. Surface this explicitly.
-- **JWT expiry**: ES256 tokens last ≤20 min. The MCP refreshes them transparently; if you see a 401, just retry once.
-- **Apple gives no batch endpoint**: each territory is one POST. ~15 territories = ~15 sequential calls.
+- Default `startDate` to **today + 7 days** (Apple requires ≥24h; 7 is a safety buffer).
+- For each row in the proposal with a `POINT_ID`, call:
 
-## Rollback
+  ```
+  asc_post_subscription_price(
+    subscriptionId: "...",
+    territoryId: "<3-letter code>",
+    pricePointId: "<POINT_ID from proposal>",
+    startDate: "<YYYY-MM-DD>",
+    preserveCurrentPrice: true
+  )
+  ```
+
+- **Always** pass `preserveCurrentPrice: true` unless the user explicitly says otherwise. This grandfathers existing subscribers — Apple may otherwise reject the schedule or send mass-renewal notifications.
+- Skip writes for rows with a `NOTE` (no-index, no-current-price, no-price-points, snap-failed, unchanged).
+- Report each result. **On the first failure, stop and ask** — don't continue through the list and end up with a half-applied schedule.
+
+### 5. Verify
+
+After the apply, re-run `asc_list_subscription_prices` and confirm the pending schedule matches the proposal. The new entries will have a non-null `START_DATE`.
+
+### 6. Rollback (if needed)
 
 If the proposal turns out wrong before activation:
 
-1. `asc_list_subscription_prices` — find the pending entries (the `startDate` will be in the future).
-2. For each unwanted entry, `asc_delete_subscription_price` with the price ID.
-3. Confirm with `asc_list_subscription_prices` that the schedule is clean.
+1. `asc_list_subscription_prices` — find the pending entries (future `startDate`).
+2. For each unwanted entry, `asc_delete_subscription_price` with the `PRICE_ID`.
+3. Re-run `asc_list_subscription_prices` to confirm the schedule is clean.
 
-## Configuration the user should pin once
+## Gotchas
 
-Ask once and remember in their project memory:
+These have bitten people doing this before; cite them when relevant:
 
-- **Base territory**: usually `USA`.
-- **Base price**: e.g., `29.99 USD/year`.
-- **PPP index source**: Apple Music (default), Big Mac, World Bank, or a custom JSON file.
-- **Round strategy**: nearest (default), down (more conservative), up (more revenue-protective).
-- **Run cadence**: ad-hoc / quarterly.
+- **Always `preserveCurrentPrice: true`** on writes. Otherwise existing subscribers re-price at next renewal — notifications + possible Apple rejection.
+- **Russia (`RUS`)**: App Store closed. The proposal will likely include it; skip the apply step for `RUS`.
+- **USD-only territories** (e.g. some MENA + Pacific markets): the bundled index shows them with `currency: "USD"`. The proposal will compute correctly but you can't change currency on a USD-billed territory.
+- **Snap direction surprises**: nearest can land *above* target. If the user wants emerging-market prices to drop, recommend `roundStrategy: "down"`.
+- **Start date min lead time**: Apple requires ≥24h. The skill defaults to 7 days.
+- **Apple gives no batch endpoint**: each territory is one POST. ~14 emerging markets = ~14 sequential calls.
+- **Apple Music index is a snapshot** — the bundled `data/apple-music-prices.json` is refreshed manually upstream. Show the snapshot date when presenting the proposal so the user can decide whether to refresh it first.
 
 ## When NOT to use this skill
 
-- Cracking the price for a *new* subscription before launch — use `asc_post_subscription_price` directly without PPP factors; the initial schedule is a one-shot decision.
+- Cracking the price for a *new* subscription before launch — call `asc_post_subscription_price` directly without PPP factors; the initial schedule is a one-shot decision.
 - Reshaping introductory offers, free trials, or promo codes — those are different ASC resources and not covered here.
 - Currency-specific tax adjustments — Apple handles tax automatically per region.

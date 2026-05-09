@@ -89,6 +89,10 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
 
+### PPP rebalancing
+- `ppp_load_index` — return the bundled Apple Music Individual-plan price snapshot used as the PPP signal
+- `ppp_compute_proposal` — compute a proposed per-territory price schedule for a subscription (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor)
+
 ### Response shape
 
 Every list/get tool returns a compact text table by default — designed for an LLM to read without burning context. Every tool also accepts:
