@@ -62,7 +62,7 @@ describe('digestSubscriptionPrices', () => {
           {
             type: 'subscriptionPrices',
             id: 'price-jpn',
-            attributes: { startDate: null, preserveCurrentPrice: false },
+            attributes: { startDate: null, preserved: false },
             relationships: {
               territory: { data: { type: 'territories', id: 'JPN' } },
               subscriptionPricePoint: { data: { type: 'subscriptionPricePoints', id: 'pp-jpn' } },
@@ -71,7 +71,7 @@ describe('digestSubscriptionPrices', () => {
           {
             type: 'subscriptionPrices',
             id: 'price-usa',
-            attributes: { startDate: null, preserveCurrentPrice: false },
+            attributes: { startDate: null, preserved: false },
             relationships: {
               territory: { data: { type: 'territories', id: 'USA' } },
               subscriptionPricePoint: { data: { type: 'subscriptionPricePoints', id: 'pp-usa' } },
@@ -80,7 +80,7 @@ describe('digestSubscriptionPrices', () => {
           {
             type: 'subscriptionPrices',
             id: 'price-gbr-pending',
-            attributes: { startDate: '2026-06-01', preserveCurrentPrice: true },
+            attributes: { startDate: '2026-06-01', preserved: true },
             relationships: {
               territory: { data: { type: 'territories', id: 'GBR' } },
               subscriptionPricePoint: { data: { type: 'subscriptionPricePoints', id: 'pp-gbr' } },

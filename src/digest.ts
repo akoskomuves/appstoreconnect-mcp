@@ -92,7 +92,9 @@ export function digestSubscriptionPrices(pages: CollectedPages): string {
     const territory = lookupIncluded(index, 'territories', territoryRel?.id);
     const pricePoint = lookupIncluded(index, 'subscriptionPricePoints', pricePointRel?.id);
     const startDate = attr<string | null>(price, 'startDate');
-    const preserve = attr<boolean>(price, 'preserveCurrentPrice');
+    // ASC's SubscriptionPrice attribute is `preserved` (read-side); the POST
+    // body uses `preserveCurrentPrice` (write-side). Different names, same idea.
+    const preserve = attr<boolean>(price, 'preserved');
     const state = startDate ? 'pending' : 'active';
     return [
       s(territoryRel?.id),
