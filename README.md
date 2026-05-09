@@ -89,6 +89,15 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
 
+### Response shape
+
+Every list/get tool returns a compact text table by default — designed for an LLM to read without burning context. Every tool also accepts:
+
+- `raw: true` — return the full JSON:API payload (`data`, `included`, `links`, `meta`) for debugging or advanced use.
+- `maxItems: number` — cap auto-pagination (default 500–1000 depending on the tool). The MCP follows `links.next` and merges + dedupes `included` resources across pages.
+
+Sparse fieldsets (`fields[type]=...`) are applied per tool to avoid pulling unused attributes. The whole 175-territory price schedule comes back in one paginated call (200/page) at roughly 1/10th the size of the unfiltered payload.
+
 ## PPP rebalancing skill
 
 The `examples/ppp-rebalance/` directory contains a [Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) that wraps these tools into a Purchasing Power Parity workflow (dry-run → schedule → rollback) with the gotchas baked in.
