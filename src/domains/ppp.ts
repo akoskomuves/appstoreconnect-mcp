@@ -278,7 +278,21 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
   };
 }
 
-function renderProposalTable(ctx: ProposalContext, subscriptionId: string): string {
+type PointIdMode = 'short' | 'full' | 'none';
+
+function shortPointId(id: string | undefined): string {
+  if (!id) return '';
+  return id.length <= 10 ? id : `…${id.slice(-8)}`;
+}
+
+function renderProposalTable(
+  ctx: ProposalContext,
+  subscriptionId: string,
+  options: { pointIdMode?: PointIdMode } = {},
+): string {
+  const pointIdMode = options.pointIdMode ?? 'short';
+  const showPointId = pointIdMode !== 'none';
+
   const columns: Column[] = [
     { header: 'TERR' },
     { header: 'CCY' },
@@ -287,20 +301,24 @@ function renderProposalTable(ctx: ProposalContext, subscriptionId: string): stri
     { header: 'SNAPPED', align: 'right' },
     { header: 'Δ', align: 'right' },
     { header: 'FACTOR', align: 'right' },
-    { header: 'POINT_ID' },
+    ...(showPointId ? [{ header: 'POINT_ID' } as Column] : []),
     { header: 'NOTE' },
   ];
-  const tableRows = ctx.rows.map((r) => [
-    r.territory,
-    r.currency,
-    fmtMoney(r.currentLocal),
-    fmtMoney(r.targetLocal),
-    fmtMoney(r.snappedAmount),
-    fmtPct(r.changePct),
-    r.factor !== undefined ? r.factor.toFixed(3) : '',
-    r.snappedPointId ?? '',
-    r.reason === 'change' ? '' : r.reason,
-  ]);
+  const tableRows = ctx.rows.map((r) => {
+    const pointIdCell =
+      pointIdMode === 'full' ? (r.snappedPointId ?? '') : shortPointId(r.snappedPointId);
+    return [
+      r.territory,
+      r.currency,
+      fmtMoney(r.currentLocal),
+      fmtMoney(r.targetLocal),
+      fmtMoney(r.snappedAmount),
+      fmtPct(r.changePct),
+      r.factor !== undefined ? r.factor.toFixed(3) : '',
+      ...(showPointId ? [pointIdCell] : []),
+      r.reason === 'change' ? '' : r.reason,
+    ];
+  });
 
   const changes = ctx.rows.filter((r) => r.reason === 'change').length;
   const drops = ctx.rows.filter((r) => (r.changePct ?? 0) < 0).length;
@@ -568,7 +586,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           const elicit = await server.server.elicitInput({
             message: `Apply ${changes} subscription price change${
               changes === 1 ? '' : 's'
-            } (${drops} drop${drops === 1 ? '' : 's'}, ${lifts} lift${lifts === 1 ? '' : 's'})?\n\nSubscription: ${args.subscriptionId}\nStart date:    ${startDate}\nPreserve:      ${args.preserveCurrentPrice}\nLargest drop:  ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\n${renderProposalTable(ctx, args.subscriptionId)}`,
+            } (${drops} drop${drops === 1 ? '' : 's'}, ${lifts} lift${lifts === 1 ? '' : 's'})?\n\nSubscription: ${args.subscriptionId}\nStart date:    ${startDate}\nPreserve:      ${args.preserveCurrentPrice}\nLargest drop:  ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\n${renderProposalTable(ctx, args.subscriptionId, { pointIdMode: 'none' })}`,
             requestedSchema: {
               type: 'object',
               properties: {
