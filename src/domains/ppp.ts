@@ -182,6 +182,26 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
       });
       continue;
     }
+    // Currency-mismatch guard. The Apple Music ratio is only a valid
+    // PPP-FX signal when its denominator and the ASC billing currency
+    // are the same — otherwise we'd multiply $X by a (foreign-currency
+    // / USD) ratio and write the result back as USD, which is
+    // dimensionally wrong. (Hit by USD-billed Gulf markets where Apple
+    // Music is sold in BHD/KWD/OMR.)
+    if (current.currency && indexEntry.currency && current.currency !== indexEntry.currency) {
+      rows.push({
+        territory: territoryId,
+        currency: current.currency,
+        currentLocal: current.amount,
+        factor: undefined,
+        targetLocal: undefined,
+        snappedAmount: undefined,
+        snappedPointId: undefined,
+        changePct: undefined,
+        reason: `currency-mismatch (asc=${current.currency}, am=${indexEntry.currency})`,
+      });
+      continue;
+    }
     const factor = computeFactor(indexEntry.individualPrice, anchorEntry.individualPrice);
     const target = computeTarget(args.basePriceAnchor, factor);
     const flooredTarget = applyFloor(target, current.amount, args.floorFactor);

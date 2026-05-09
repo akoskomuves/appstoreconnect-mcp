@@ -119,7 +119,7 @@ These have bitten people doing this before; cite them when relevant:
 
 - **Always `preserveCurrentPrice: true`** on writes. Otherwise existing subscribers re-price at next renewal — notifications + possible Apple rejection.
 - **Russia (`RUS`)**: App Store closed. The proposal will likely include it; skip the apply step for `RUS`.
-- **USD-only territories** (e.g. some MENA + Pacific markets): the bundled index shows them with `currency: "USD"`. The proposal will compute correctly but you can't change currency on a USD-billed territory.
+- **USD-only territories** (e.g. some MENA + Pacific markets): the proposal will mark them as `currency-mismatch (asc=USD, am=BHD)` etc. and skip them from the apply set. This is intentional — multiplying a USD anchor by a (BHD/USD) ratio and writing the result back as USD is dimensionally wrong, so the formula doesn't apply. If you want to set prices for those markets, do it manually via `asc_post_subscription_price` after deciding on a number outside the PPP formula.
 - **Snap direction surprises**: nearest can land *above* target. If the user wants emerging-market prices to drop, recommend `roundStrategy: "down"`.
 - **Start date min lead time**: Apple requires ≥24h. The skill defaults to 7 days.
 - **Apple gives no batch endpoint**: each territory is one POST. ~14 emerging markets = ~14 sequential calls.
