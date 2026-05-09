@@ -87,16 +87,14 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
       },
     },
     async ({ subscriptionId, maxItems, raw }) => {
-      const params = new URLSearchParams();
-      params.set('include', 'subscriptionPricePoint,territory');
-      params.set('fields[subscriptionPricePoints]', PRICE_POINT_FIELDS);
-      params.set('fields[territories]', TERRITORY_FIELDS);
-      params.set('limit', '200');
-      const pages = await paginate(
-        client,
-        `/v1/subscriptions/${encodeURIComponent(subscriptionId)}/prices?${params.toString()}`,
-        maxItems,
-      );
+      // Apple's /v1/subscriptions/{id}/prices is picky about extra query params:
+      // adding fields[subscriptionPricePoints], fields[territories], or limit=200
+      // produces a 400 with no detail. Stick to the include and let paginate()
+      // walk links.next at the server's default page size.
+      const path = `/v1/subscriptions/${encodeURIComponent(
+        subscriptionId,
+      )}/prices?include=subscriptionPricePoint,territory`;
+      const pages = await paginate(client, path, maxItems);
       const text = raw ? JSON.stringify(pages, null, 2) : digestSubscriptionPrices(pages);
       return { content: [{ type: 'text', text }] };
     },
