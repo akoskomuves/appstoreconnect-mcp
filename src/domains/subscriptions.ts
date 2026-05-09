@@ -17,7 +17,9 @@ import {
 
 const GROUP_FIELDS = 'referenceName';
 const SUB_FIELDS = 'name,productId,subscriptionPeriod,state,groupLevel';
-const PRICE_FIELDS = 'startDate,preserveCurrentPrice';
+// SubscriptionPrice has only `startDate` as an attribute; `preserveCurrentPrice`
+// is a write-only field on the POST body, not a queryable resource attribute.
+// We don't apply fields[subscriptionPrices] at all — Apple rejects unknown names.
 const PRICE_POINT_FIELDS = 'customerPrice,proceeds,proceedsYear2';
 const TERRITORY_FIELDS = 'currency';
 
@@ -87,7 +89,6 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
     async ({ subscriptionId, maxItems, raw }) => {
       const params = new URLSearchParams();
       params.set('include', 'subscriptionPricePoint,territory');
-      params.set('fields[subscriptionPrices]', PRICE_FIELDS);
       params.set('fields[subscriptionPricePoints]', PRICE_POINT_FIELDS);
       params.set('fields[territories]', TERRITORY_FIELDS);
       params.set('limit', '200');
