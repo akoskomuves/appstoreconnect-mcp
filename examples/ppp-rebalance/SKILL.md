@@ -55,26 +55,51 @@ If the user wants to tweak:
 - **Show all rows** including unchanged: pass `skipUnchanged: false`.
 - **Surface no-index rows**: pass `skipMissingIndex: false` so the user can see which territories Apple Music data is missing for.
 
-### 4. Apply
+### 4. Apply (preferred path)
 
-Once the user approves:
+Use the single-tool flow whenever possible:
 
-- Default `startDate` to **today + 7 days** (Apple requires ≥24h; 7 is a safety buffer).
-- For each row in the proposal with a `POINT_ID`, call:
+```
+ppp_apply_proposal(
+  subscriptionId: "...",
+  basePriceAnchor: 29.99,
+  anchorTerritory: "USA",
+  roundStrategy: "down",
+  // Optional. Defaults shown.
+  // startDate: "<YYYY-MM-DD>",       // default: today + 7 days
+  // preserveCurrentPrice: true,
+  // maxConcurrency: 5,
+  // maxDropPct: 90,
+)
+```
 
-  ```
-  asc_post_subscription_price(
-    subscriptionId: "...",
-    territoryId: "<3-letter code>",
-    pricePointId: "<POINT_ID from proposal>",
-    startDate: "<YYYY-MM-DD>",
-    preserveCurrentPrice: true
-  )
-  ```
+What it does:
 
-- **Always** pass `preserveCurrentPrice: true` unless the user explicitly says otherwise. This grandfathers existing subscribers — Apple may otherwise reject the schedule or send mass-renewal notifications.
-- Skip writes for rows with a `NOTE` (no-index, no-current-price, no-price-points, snap-failed, unchanged).
-- Report each result. **On the first failure, stop and ask** — don't continue through the list and end up with a half-applied schedule.
+1. Re-computes the proposal with the same inputs (so what you confirm is what gets written).
+2. Refuses if any row drops by more than `maxDropPct` (default 90%) — guards against bad index data.
+3. Asks the user to confirm via **MCP elicitation** — the client renders a confirmation form with the diff. The user clicks "Apply" or "Cancel".
+4. On confirm, POSTs all changes in parallel (default 5 at a time, well under Apple's 50/min limit).
+5. Returns a per-row status table (applied / failed with error).
+
+If the client doesn't support elicitation, the tool returns the proposal and instructs the caller to re-run with `confirm: true`.
+
+### 4b. Apply (manual fallback)
+
+If you specifically need per-row control (debugging, partial apply, etc.), call `asc_post_subscription_price` for each row from the proposal:
+
+```
+asc_post_subscription_price(
+  subscriptionId: "...",
+  territoryId: "<3-letter code>",
+  pricePointId: "<POINT_ID from proposal>",
+  startDate: "<YYYY-MM-DD>",
+  preserveCurrentPrice: true
+)
+```
+
+- **Always** pass `preserveCurrentPrice: true` unless the user explicitly says otherwise — grandfathers existing subscribers.
+- Skip rows with a `NOTE` (no-index, no-current-price, no-price-points, snap-failed, unchanged).
+- On the first failure, stop and ask the user — don't continue through the list.
 
 ### 5. Verify
 

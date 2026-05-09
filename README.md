@@ -92,6 +92,7 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 ### PPP rebalancing
 - `ppp_load_index` — return the bundled Apple Music Individual-plan price snapshot used as the PPP signal
 - `ppp_compute_proposal` — compute a proposed per-territory price schedule for a subscription (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor)
+- `ppp_apply_proposal` — same computation, then schedule the changes against ASC after confirming via MCP elicitation (or `confirm:true` for clients without elicitation). Refuses to apply if any row drops by more than `maxDropPct` (default 90%); POSTs in parallel (default 5 concurrent) within Apple's rate limits.
 
 ### Response shape
 
