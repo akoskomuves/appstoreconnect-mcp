@@ -8,13 +8,29 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server for the [Appl
 
 > Status: early — `v0.1.0` covers the subscription-pricing surface (the PPP rebalancing use case). New domains are added one file at a time; see [Roadmap](#roadmap).
 
-## Install
+## Install (zero-config)
 
 ```sh
-claude mcp add appstoreconnect -- npx -y appstoreconnect-mcp
+npx appstoreconnect-mcp init
 ```
 
-Or add to `~/.claude.json` (user scope) / `.mcp.json` (project scope) by hand:
+The wizard:
+
+1. Opens [App Store Connect → Keys](https://appstoreconnect.apple.com/access/integrations/api) so you can download a `.p8` (skipped if you already have one).
+2. Copies the key to `~/.appstore/` with `chmod 600`.
+3. Asks for your Issuer ID and (auto-detected) Key ID.
+4. Verifies auth with a real API call before writing anything.
+5. Detects which MCP clients you have installed — Claude Code, Claude Desktop, Cursor, Windsurf — and registers itself in the ones you pick.
+
+When something looks off later, run a read-only diagnostic:
+
+```sh
+npx appstoreconnect-mcp doctor
+```
+
+### Manual install
+
+If you'd rather wire it up by hand, add to `~/.claude.json` (Claude Code), `claude_desktop_config.json` (Claude Desktop), or your client's equivalent:
 
 ```json
 {
@@ -30,6 +46,16 @@ Or add to `~/.claude.json` (user scope) / `.mcp.json` (project scope) by hand:
     }
   }
 }
+```
+
+Or via Claude Code's CLI:
+
+```sh
+claude mcp add appstoreconnect \
+  -e ASC_ISSUER_ID=... \
+  -e ASC_KEY_ID=... \
+  -e ASC_PRIVATE_KEY_PATH=~/.appstore/AuthKey_XXXXXXXXXX.p8 \
+  -- npx -y appstoreconnect-mcp
 ```
 
 ## Configure

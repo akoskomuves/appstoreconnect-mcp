@@ -60,8 +60,10 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@inquirer/prompts": "^8.4.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "jose": "^6.2.0",
+    "open": "^11.0.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
