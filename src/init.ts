@@ -1,7 +1,15 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
-import { checkbox, confirm, input } from '@inquirer/prompts';
+import { checkbox, confirm, input, select } from '@inquirer/prompts';
 import open from 'open';
 import { TokenProvider } from './auth.js';
 import {
@@ -35,46 +43,141 @@ function maybeAutoDetectKeyId(p8Path: string): string | undefined {
   return match?.[1]?.toUpperCase();
 }
 
-async function ensureP8(): Promise<{ path: string; keyId: string }> {
-  const hasKey = await confirm({
-    message: 'Do you already have an App Store Connect API key (.p8) downloaded?',
-    default: true,
-  });
+interface FoundKey {
+  path: string;
+  mtime: Date;
+  keyId?: string;
+}
 
-  if (!hasKey) {
-    console.log(`\nOpening App Store Connect → Users and Access → Integrations → Keys`);
-    console.log(`Create a key with role 'Admin' (pricing writes) or 'App Manager' (read-only).`);
-    console.log(`You can only download the .p8 once — save it somewhere safe.\n`);
+const SCAN_DIRS = [KEY_DIR, join(HOME, 'Downloads'), join(HOME, 'Desktop')];
+
+function findP8Files(): FoundKey[] {
+  const results: FoundKey[] = [];
+  const seen = new Set<string>();
+  for (const dir of SCAN_DIRS) {
+    if (!existsSync(dir)) continue;
+    let entries: string[];
     try {
-      await open(ASC_KEYS_URL);
+      entries = readdirSync(dir);
     } catch {
-      console.log(`Browser open failed — visit this manually: ${ASC_KEYS_URL}\n`);
+      continue;
     }
-    await confirm({
-      message: 'Press Enter when you have downloaded the .p8 file.',
-      default: true,
-    });
+    for (const name of entries) {
+      if (!name.toLowerCase().endsWith('.p8')) continue;
+      const path = join(dir, name);
+      if (seen.has(path)) continue;
+      try {
+        const stat = statSync(path);
+        if (!stat.isFile()) continue;
+        const keyId = maybeAutoDetectKeyId(path);
+        results.push(keyId ? { path, mtime: stat.mtime, keyId } : { path, mtime: stat.mtime });
+        seen.add(path);
+      } catch {
+        // ignore unreadable
+      }
+    }
   }
+  results.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  return results;
+}
 
-  let p8Path: string;
+function formatTimeAgo(d: Date): string {
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const mon = Math.floor(day / 30);
+  if (mon < 12) return `${mon}mo ago`;
+  return `${Math.floor(mon / 12)}y ago`;
+}
+
+function tildify(p: string): string {
+  return p.startsWith(`${HOME}/`) ? `~/${p.slice(HOME.length + 1)}` : p;
+}
+
+async function promptManualPath(): Promise<string> {
   while (true) {
     const raw = await input({
       message: 'Path to your .p8 file:',
       default: '~/Downloads/AuthKey_XXXXXXXXXX.p8',
       validate: (v) => v.trim().length > 0 || 'A path is required',
     });
-    p8Path = expandPath(raw.trim());
-    if (!existsSync(p8Path)) {
-      console.log(`  ✗ File not found: ${p8Path}\n`);
+    const expanded = expandPath(raw.trim());
+    if (!existsSync(expanded)) {
+      console.log(`  ✗ File not found: ${expanded}\n`);
       continue;
     }
-    const text = readFileSync(p8Path, 'utf-8');
-    if (!looksLikePKCS8(text)) {
+    if (!looksLikePKCS8(readFileSync(expanded, 'utf-8'))) {
       console.log(`  ✗ Doesn't look like a PKCS8 .p8 (no BEGIN PRIVATE KEY header)\n`);
       continue;
     }
-    break;
+    return expanded;
   }
+}
+
+async function pickFromFound(found: FoundKey[]): Promise<string | 'manual'> {
+  const choices = [
+    ...found.map((f) => {
+      const tag = f.keyId ? `Key ID ${f.keyId}` : 'unknown key id';
+      return {
+        name: `${tildify(f.path)}  (${tag}, ${formatTimeAgo(f.mtime)})`,
+        value: f.path,
+      };
+    }),
+    { name: 'Enter a different path…', value: '__manual__' as const },
+  ];
+  const choice = await select({
+    message: `Found ${found.length} .p8 ${found.length === 1 ? 'file' : 'files'} — pick one:`,
+    choices,
+  });
+  return choice === '__manual__' ? 'manual' : choice;
+}
+
+async function locateP8(): Promise<string> {
+  let found = findP8Files();
+
+  if (found.length === 0) {
+    console.log(`No .p8 files found in ~/.appstore, ~/Downloads, or ~/Desktop.`);
+    const wantsBrowser = await confirm({
+      message: 'Open App Store Connect now to create a key?',
+      default: true,
+    });
+    if (wantsBrowser) {
+      try {
+        await open(ASC_KEYS_URL);
+      } catch {
+        console.log(`Browser open failed — visit this manually: ${ASC_KEYS_URL}\n`);
+      }
+      console.log(`Create a key with role 'Admin' (pricing writes) or 'App Manager' (read-only).`);
+      console.log(`You can only download the .p8 once — save it somewhere safe.\n`);
+      await confirm({
+        message: 'Press Enter when you have downloaded the .p8 file.',
+        default: true,
+      });
+      found = findP8Files();
+    }
+  }
+
+  while (true) {
+    if (found.length > 0) {
+      const picked = await pickFromFound(found);
+      if (picked !== 'manual') {
+        if (looksLikePKCS8(readFileSync(picked, 'utf-8'))) return picked;
+        console.log(`  ✗ ${picked} doesn't look like a PKCS8 .p8 — try another.\n`);
+        found = found.filter((f) => f.path !== picked);
+        continue;
+      }
+    }
+    return await promptManualPath();
+  }
+}
+
+async function ensureP8(): Promise<{ path: string; keyId: string }> {
+  let p8Path = await locateP8();
 
   // Copy into ~/.appstore/ unless it's already there.
   if (!p8Path.startsWith(KEY_DIR)) {
