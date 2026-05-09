@@ -51,3 +51,22 @@ Conventional Commits encouraged but not enforced (changesets handles changelog g
 ## Code of Conduct
 
 Be kind. Issues and PRs that aren't are closed without further engagement.
+
+## Release process (maintainer notes)
+
+Releases are driven by [changesets](https://github.com/changesets/changesets) and [`changesets/action`](https://github.com/changesets/action). The flow:
+
+1. Every PR that changes user-visible behaviour adds a `.changeset/*.md` (`patch` / `minor` / `major`) describing the change.
+2. When changesets are present on `main`, the release workflow opens a "chore: release" PR that bumps `package.json` version, regenerates `CHANGELOG.md`, and consumes the changesets.
+3. Merging the release PR triggers the publish step:
+   - `npm run build` produces the `dist/` artifacts.
+   - `changeset publish` pushes the new version to npm with provenance enabled.
+   - `createGithubReleases: true` auto-creates a GitHub Release for the new tag with the changelog notes.
+
+Required repo secret: `NPM_TOKEN` — an npm Automation token with publish access to the `appstoreconnect-mcp` package. Set with:
+
+```sh
+gh secret set NPM_TOKEN -R akoskomuves/appstoreconnect-mcp
+```
+
+(Settings → Actions → General → Workflow permissions must be set to "Read and write" with "Allow GitHub Actions to create and approve pull requests" for the version-PR step to work.)

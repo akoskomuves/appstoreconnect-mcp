@@ -30,14 +30,19 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Only opens "Release PRs" when changesets are pending; does not publish.
-      # To enable npm publish later: add an NPM_TOKEN repo secret and add
-      # `publish: npm run release` back to the `with:` block below.
-      - name: Create Release PR
+      # When changesets are pending: opens a "Release PR" bumping the version + CHANGELOG.
+      # When the Release PR is merged: runs `npm run release` (build + changeset publish),
+      # which publishes to npm and creates a GitHub Release per published package.
+      # Requires NPM_TOKEN repo secret with publish access to the package.
+      - name: Create Release PR or publish
         uses: changesets/action@v1
         with:
+          publish: npm run release
           version: npm run version
           commit: 'chore: release'
           title: 'chore: release'
+          createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'

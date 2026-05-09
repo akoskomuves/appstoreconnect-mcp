@@ -4,9 +4,9 @@
 [![CI](https://github.com/akoskomuves/appstoreconnect-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/akoskomuves/appstoreconnect-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server for the [Apple App Store Connect API](https://developer.apple.com/documentation/appstoreconnectapi). Drives apps, subscriptions, pricing, and more from any MCP-compatible client (Claude Code, Claude Desktop, etc.).
+A [Model Context Protocol](https://modelcontextprotocol.io) server for the [Apple App Store Connect API](https://developer.apple.com/documentation/appstoreconnectapi). Drives apps, subscriptions, pricing, and more from any MCP-compatible client (Claude Code, Claude Desktop, Cursor, Windsurf).
 
-> Status: early — `v0.1.0` covers the subscription-pricing surface (the PPP rebalancing use case). New domains are added one file at a time; see [Roadmap](#roadmap).
+The first published surface is **subscription pricing** — including a Purchasing Power Parity rebalance flow that's already been used to schedule 120 production price changes across 65 territories on a real iOS app. New ASC domains (TestFlight, sales, screenshots, IAPs) are designed to plug in one file at a time; see [Roadmap](#roadmap).
 
 ## Install (zero-config)
 
@@ -92,7 +92,7 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 ### PPP rebalancing
 - `ppp_load_index` — return the bundled Apple Music Individual-plan price snapshot used as the PPP signal
 - `ppp_compute_proposal` — compute a proposed per-territory price schedule for a subscription (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor)
-- `ppp_apply_proposal` — same computation, then schedule the changes against ASC after confirming via MCP elicitation (or `confirm:true` for clients without elicitation). Refuses to apply if any row drops by more than `maxDropPct` (default 90%); POSTs in parallel (default 5 concurrent) within Apple's rate limits.
+- `ppp_apply_proposal` — same computation, then schedule the changes against ASC after confirming via MCP elicitation (or `confirm: true` for unattended use). Refuses to apply if any row drops by more than `maxDropPct` (default 90%); paces writes at `maxConcurrency` (default 2) and retries 429s automatically; skips territories where ASC billing currency ≠ Apple Music currency.
 
 ### Response shape
 
@@ -102,6 +102,16 @@ Every list/get tool returns a compact text table by default — designed for an 
 - `maxItems: number` — cap auto-pagination (default 500–1000 depending on the tool). The MCP follows `links.next` and merges + dedupes `included` resources across pages.
 
 Sparse fieldsets (`fields[type]=...`) are applied per tool to avoid pulling unused attributes. The whole 175-territory price schedule comes back in one paginated call (200/page) at roughly 1/10th the size of the unfiltered payload.
+
+## Production behavior
+
+A few details worth knowing before running `ppp_apply_proposal` against a live App Store Connect account:
+
+- **Rate limit handling.** Apple throttles POST endpoints around 50/min. `client.request` honours `Retry-After` headers and falls back to exponential backoff (2s → 60s, capped, up to 6 retries). A 60-territory rebalance pacing through retries finishes in about 2 minutes wall time with zero manual intervention.
+- **Currency-mismatch skip.** If the bundled Apple Music index lists a territory in one currency (say BHD) but ASC bills your subscription in another (USD), the PPP-FX ratio breaks dimensionally. The proposal marks those rows `currency-mismatch (asc=USD, am=BHD)` and excludes them from the apply set. Common in Gulf USD-billed markets (BHR, KWT, OMN). Set those manually if you want to.
+- **Sanity floor.** `floorFactor` (default 0.15) is a hard lower bound on per-territory drops as a fraction of the current price — guards against a stale index entry collapsing a price to near-zero. For a more conservative rebalance, pass 0.30 or 0.50.
+- **Sanity ceiling on drops.** `maxDropPct` (default 90%) refuses to apply *any* run where a single row drops more than this. If you've ever seen Apple Music tank a market price aggressively, this catches the resulting outlier before you write it to ASC.
+- **Refresh the snapshot when you care.** `data/apple-music-prices.json` is a hand-curated snapshot. Each entry is dated; the snapshot date is shown in proposal output. Pull request a refresh when Apple Music prices move and the project will fold it in.
 
 ## PPP rebalancing skill
 
@@ -116,14 +126,15 @@ Then ask Claude: *"Rebalance my subscription prices using the ppp-rebalance skil
 
 ## Roadmap
 
-- [x] Apps + subscription pricing (v0.1)
+- [x] **v0.1** — Apps · subscriptions · subscription pricing · PPP rebalance (with elicitation, 429 retry, currency-mismatch skip, sanity floor/ceiling)
 - [ ] TestFlight (beta groups, testers, builds)
 - [ ] App metadata (screenshots, descriptions, localizations)
 - [ ] Sales reports / analytics
 - [ ] In-app purchases (non-subscription)
 - [ ] Customer reviews
+- [ ] Real-FX support for currency-mismatched territories (today they're skipped; with an FX feed we could compute a correct target)
 
-Each is one new file under `src/domains/` — contributions welcome.
+Each new domain is one file under `src/domains/` plus a `register*` call in `src/index.ts`. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Develop
 
