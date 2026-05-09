@@ -530,7 +530,15 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           .boolean()
           .default(true)
           .describe('Grandfather existing subscribers. Strongly recommended.'),
-        maxConcurrency: z.number().int().min(1).max(20).default(5),
+        maxConcurrency: z
+          .number()
+          .int()
+          .min(1)
+          .max(20)
+          .default(2)
+          .describe(
+            'Parallel POSTs. Apple throttles writes globally (~50/min); the client retries on 429 with exponential backoff, so a low value avoids piling up retries.',
+          ),
         maxDropPct: z
           .number()
           .min(0)
