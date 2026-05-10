@@ -68,7 +68,8 @@ ppp_apply_proposal(
   // Optional. Defaults shown.
   // startDate: "<YYYY-MM-DD>",       // default: today + 7 days
   // preserveCurrentPrice: true,
-  // maxConcurrency: 5,
+  // floorFactor: 0.15,                // hard lower bound vs current local price; 0.30 is more conservative
+  // maxConcurrency: 2,
   // maxDropPct: 90,
 )
 ```
@@ -78,7 +79,8 @@ What it does:
 1. Re-computes the proposal with the same inputs (so what you confirm is what gets written).
 2. Refuses if any row drops by more than `maxDropPct` (default 90%) — guards against bad index data.
 3. Asks the user to confirm via **MCP elicitation** — the client renders a confirmation form with the diff. The user clicks "Apply" or "Cancel".
-4. On confirm, POSTs all changes in parallel (default 5 at a time, well under Apple's 50/min limit).
+4. On confirm, POSTs all changes in parallel at `maxConcurrency` (default 2). The HTTP client transparently retries on Apple's 429 rate limits with exponential backoff.
+5. Skips territories where the ASC billing currency differs from the Apple Music index currency (marked `currency-mismatch`); set those manually if you want to.
 5. Returns a per-row status table (applied / failed with error).
 
 If the client doesn't support elicitation, the tool returns the proposal and instructs the caller to re-run with `confirm: true`.
