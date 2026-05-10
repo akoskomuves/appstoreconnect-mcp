@@ -27,11 +27,6 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
-      # npm Trusted Publishing needs npm 11.5+; Node 22 LTS still ships
-      # 10.x at the time of writing, so pin to a known-good version.
-      - name: Upgrade npm to support Trusted Publishing
-        run: npm install -g npm@latest
-
       - run: npm ci
 
       - name: Build
