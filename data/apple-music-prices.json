@@ -1,6 +1,6 @@
 {
   "$comment": "Apple Music Individual plan price per territory. Used as a Purchasing Power Parity reference: target_local = base_anchor_price * (apple_music_local / apple_music_anchor). Refresh by visiting apple.com/<country-slug>/apple-music/. Territories not listed here are skipped by ppp_compute_proposal.",
-  "snapshot": "2026-05-09",
+  "snapshot": "2026-05-10",
   "anchor": "USA",
   "prices": [
     { "territory": "USA", "currency": "USD", "individualPrice": 10.99 },
@@ -42,7 +42,7 @@
     { "territory": "CYP", "currency": "EUR", "individualPrice": 10.99 },
     { "territory": "MLT", "currency": "EUR", "individualPrice": 10.99 },
     { "territory": "HRV", "currency": "EUR", "individualPrice": 10.99 },
-    { "territory": "BGR", "currency": "BGN", "individualPrice": 19.99 },
+    { "territory": "BGR", "currency": "EUR", "individualPrice": 10.99 },
     { "territory": "POL", "currency": "PLN", "individualPrice": 24.99 },
     { "territory": "ROU", "currency": "RON", "individualPrice": 24.99 },
     { "territory": "HUN", "currency": "HUF", "individualPrice": 1490 },
