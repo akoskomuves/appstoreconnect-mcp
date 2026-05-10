@@ -1,6 +1,6 @@
 # appstoreconnect-mcp
 
-[![npm](https://img.shields.io/npm/v/appstoreconnect-mcp.svg)](https://www.npmjs.com/package/appstoreconnect-mcp)
+[![npm](https://img.shields.io/npm/v/@akoskomuves/appstoreconnect-mcp.svg)](https://www.npmjs.com/package/@akoskomuves/appstoreconnect-mcp)
 [![CI](https://github.com/akoskomuves/appstoreconnect-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/akoskomuves/appstoreconnect-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -11,7 +11,7 @@ The first published surface is **subscription pricing** — including a Purchasi
 ## Install (zero-config)
 
 ```sh
-npx appstoreconnect-mcp init
+npx @akoskomuves/appstoreconnect-mcp init
 ```
 
 The wizard:
@@ -25,7 +25,7 @@ The wizard:
 When something looks off later, run a read-only diagnostic:
 
 ```sh
-npx appstoreconnect-mcp doctor
+npx @akoskomuves/appstoreconnect-mcp doctor
 ```
 
 ### Manual install
@@ -37,7 +37,7 @@ If you'd rather wire it up by hand, add to `~/.claude.json` (Claude Code), `clau
   "mcpServers": {
     "appstoreconnect": {
       "command": "npx",
-      "args": ["-y", "appstoreconnect-mcp"],
+      "args": ["-y", "@akoskomuves/appstoreconnect-mcp"],
       "env": {
         "ASC_ISSUER_ID": "...",
         "ASC_KEY_ID": "...",
@@ -55,7 +55,7 @@ claude mcp add appstoreconnect \
   -e ASC_ISSUER_ID=... \
   -e ASC_KEY_ID=... \
   -e ASC_PRIVATE_KEY_PATH=~/.appstore/AuthKey_XXXXXXXXXX.p8 \
-  -- npx -y appstoreconnect-mcp
+  -- npx -y @akoskomuves/appstoreconnect-mcp
 ```
 
 ## Configure

@@ -1,5 +1,5 @@
 {
-  "name": "appstoreconnect-mcp",
+  "name": "@akoskomuves/appstoreconnect-mcp",
   "version": "0.1.1",
   "description": "Model Context Protocol server for the Apple App Store Connect API.",
   "type": "module",
