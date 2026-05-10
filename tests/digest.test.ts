@@ -258,9 +258,7 @@ describe('digestAppPricePoints', () => {
             relationships: { territory: { data: { type: 'territories', id: 'USA' } } },
           },
         ],
-        included: [
-          { type: 'territories', id: 'USA', attributes: { currency: 'USD' } },
-        ],
+        included: [{ type: 'territories', id: 'USA', attributes: { currency: 'USD' } }],
         total: 2,
       }),
     );

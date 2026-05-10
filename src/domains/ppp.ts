@@ -612,8 +612,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       },
     },
     async (args) => {
-      const resourceId =
-        args.resourceType === 'subscription' ? args.subscriptionId : args.appId;
+      const resourceId = args.resourceType === 'subscription' ? args.subscriptionId : args.appId;
       if (!resourceId) {
         const expected = args.resourceType === 'subscription' ? 'subscriptionId' : 'appId';
         return {
@@ -642,7 +641,8 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           content: [{ type: 'text', text: JSON.stringify(ctx, null, 2) }],
         };
       }
-      const label = args.resourceType === 'subscription' ? `subscription ${resourceId}` : `app ${resourceId}`;
+      const label =
+        args.resourceType === 'subscription' ? `subscription ${resourceId}` : `app ${resourceId}`;
       const table = renderProposalTable(ctx, label);
       const footer =
         args.resourceType === 'subscription'
@@ -664,7 +664,9 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         resourceType: z
           .enum(['subscription', 'app'])
           .default('subscription')
-          .describe('Currently only "subscription" can be applied through this tool. "app" returns a pointer to asc_post_app_price_schedule.'),
+          .describe(
+            'Currently only "subscription" can be applied through this tool. "app" returns a pointer to asc_post_app_price_schedule.',
+          ),
         subscriptionId: SubscriptionIdSchema.optional(),
         appId: AppIdSchema.optional(),
         basePriceAnchor: z.number().positive(),
@@ -764,7 +766,12 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
 
       if (!args.subscriptionId) {
         return {
-          content: [{ type: 'text', text: 'Missing subscriptionId. For resourceType="subscription", pass subscriptionId.' }],
+          content: [
+            {
+              type: 'text',
+              text: 'Missing subscriptionId. For resourceType="subscription", pass subscriptionId.',
+            },
+          ],
           isError: true,
         };
       }

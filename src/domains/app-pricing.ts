@@ -16,7 +16,8 @@ import {
 // the offending field/param) so the LLM can self-correct without a roundtrip.
 function formatASCError(err: unknown): string {
   if (err instanceof ASCError) {
-    const detail = typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2);
+    const detail =
+      typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2);
     return `${err.message}\n\n${detail}`;
   }
   return err instanceof Error ? err.message : String(err);
@@ -111,7 +112,7 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
         'At least one entry MUST target `baseTerritory` with no startDate (= active now). ' +
         'Changing `baseTerritory` from the current value deletes any pending scheduled price changes (Apple behavior); ' +
         'set `acknowledgeDeletesScheduledIfBaseChanges: true` if you intend that. ' +
-        'Apps have NO grandfather mechanism — new prices activate atomically at each entry\'s startDate.',
+        "Apps have NO grandfather mechanism — new prices activate atomically at each entry's startDate.",
       inputSchema: {
         appId: AppIdSchema,
         baseTerritory: TerritoryIdSchema,
@@ -141,7 +142,7 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
           .boolean()
           .optional()
           .describe(
-            'Required `true` if `baseTerritory` differs from the app\'s current base territory. Apple deletes pending scheduled changes when the base changes.',
+            "Required `true` if `baseTerritory` differs from the app's current base territory. Apple deletes pending scheduled changes when the base changes.",
           ),
       },
     },
@@ -180,8 +181,14 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
         const current = await client.request<JSONAPIResponse>(
           `/v1/apps/${encodeURIComponent(appId)}/appPriceSchedule?include=baseTerritory`,
         );
-        const currentBaseId = (current.data as { relationships?: { baseTerritory?: { data?: { id?: string } } } }).relationships?.baseTerritory?.data?.id;
-        if (currentBaseId && currentBaseId !== baseTerritory && !acknowledgeDeletesScheduledIfBaseChanges) {
+        const currentBaseId = (
+          current.data as { relationships?: { baseTerritory?: { data?: { id?: string } } } }
+        ).relationships?.baseTerritory?.data?.id;
+        if (
+          currentBaseId &&
+          currentBaseId !== baseTerritory &&
+          !acknowledgeDeletesScheduledIfBaseChanges
+        ) {
           return {
             content: [
               {
