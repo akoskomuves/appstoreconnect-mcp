@@ -19,7 +19,9 @@ import {
   type RoundStrategy,
   snapToTier,
 } from '../ppp/index.js';
-import { SubscriptionIdSchema } from '../schemas.js';
+import { AppIdSchema, SubscriptionIdSchema } from '../schemas.js';
+
+type ResourceType = 'subscription' | 'app';
 
 interface PricePointInfo {
   id: string;
@@ -113,8 +115,110 @@ async function fetchPricePointsForTerritory(
   return out;
 }
 
+// App pricing equivalent. Apple's appPriceSchedule endpoint does NOT support
+// chained includes, so price-point amounts are not inline — we fetch them
+// per-territory and cross-reference. More expensive than subs (one fetch per
+// unique territory in the schedule), but no other path: chained includes,
+// fields[appPricePoints] selectors, and bulk price-point lookups are all
+// rejected on the schedule endpoint.
+async function fetchCurrentAppPriceMap(
+  client: ASCClient,
+  appId: string,
+): Promise<Map<string, { amount: number; territory: string; currency: string }>> {
+  const params = new URLSearchParams();
+  params.set('include', 'manualPrices,automaticPrices,baseTerritory');
+  const pages = await paginate(
+    client,
+    `/v1/apps/${encodeURIComponent(appId)}/appPriceSchedule?${params.toString()}`,
+    2000,
+  );
+
+  // Collect (territoryId, pricePointId) pairs from the included AppPrice rows.
+  const appPrices = pages.included.filter((r) => r.type === 'appPrices');
+  type Entry = { territoryId: string; pricePointId: string };
+  const entries: Entry[] = [];
+  for (const price of appPrices) {
+    const territoryRel = price.relationships?.['territory']?.data;
+    const pointRel = price.relationships?.['appPricePoint']?.data;
+    const territoryId = territoryRel && !Array.isArray(territoryRel) ? territoryRel.id : undefined;
+    const pricePointId = pointRel && !Array.isArray(pointRel) ? pointRel.id : undefined;
+    if (!territoryId || !pricePointId) continue;
+    entries.push({ territoryId, pricePointId });
+  }
+
+  // Fan out: one fetch per unique territory to resolve point amounts. Apple's
+  // appPriceSchedule endpoint won't return the amounts inline so we have to.
+  const uniqueTerritories = Array.from(new Set(entries.map((e) => e.territoryId)));
+  const pointsByTerritory = new Map<string, Map<string, { amount: number; currency: string }>>();
+  const fetched = await Promise.allSettled(
+    uniqueTerritories.map((t) => fetchAppPricePointsForTerritoryWithCurrency(client, appId, t)),
+  );
+  for (let i = 0; i < uniqueTerritories.length; i++) {
+    const res = fetched[i];
+    if (!res || res.status !== 'fulfilled') continue;
+    const territoryId = uniqueTerritories[i];
+    if (!territoryId) continue;
+    pointsByTerritory.set(territoryId, res.value);
+  }
+
+  const out = new Map<string, { amount: number; territory: string; currency: string }>();
+  for (const e of entries) {
+    const points = pointsByTerritory.get(e.territoryId);
+    const point = points?.get(e.pricePointId);
+    if (!point) continue;
+    out.set(e.territoryId, {
+      amount: point.amount,
+      territory: e.territoryId,
+      currency: point.currency,
+    });
+  }
+  return out;
+}
+
+// Returns a (pricePointId → {amount, currency}) map for one territory. Used
+// both by fetchCurrentAppPriceMap (to resolve current amounts) and by the
+// pending phase (to find the snap targets).
+async function fetchAppPricePointsForTerritoryWithCurrency(
+  client: ASCClient,
+  appId: string,
+  territoryId: string,
+): Promise<Map<string, { amount: number; currency: string }>> {
+  const params = new URLSearchParams();
+  params.set('filter[territory]', territoryId);
+  params.set('include', 'territory');
+  params.set('fields[appPricePoints]', 'customerPrice');
+  params.set('fields[territories]', 'currency');
+  params.set('limit', '200');
+  const pages = await paginate(
+    client,
+    `/v1/apps/${encodeURIComponent(appId)}/appPricePoints?${params.toString()}`,
+    5000,
+  );
+  const territoryResource = pages.included.find(
+    (r) => r.type === 'territories' && r.id === territoryId,
+  );
+  const currency = (territoryResource?.attributes?.['currency'] as string | undefined) ?? '';
+  const out = new Map<string, { amount: number; currency: string }>();
+  for (const p of pages.data) {
+    const amt = parseDecimal(p.attributes?.['customerPrice'] as string | undefined);
+    if (amt === undefined) continue;
+    out.set(p.id, { amount: amt, currency });
+  }
+  return out;
+}
+
+async function fetchAppPricePointsForTerritory(
+  client: ASCClient,
+  appId: string,
+  territoryId: string,
+): Promise<PricePointInfo[]> {
+  const map = await fetchAppPricePointsForTerritoryWithCurrency(client, appId, territoryId);
+  return Array.from(map.entries()).map(([id, { amount }]) => ({ id, amount }));
+}
+
 interface ComputeArgs {
-  subscriptionId: string;
+  resourceType: ResourceType;
+  resourceId: string;
   basePriceAnchor: number;
   anchorTerritory: string;
   roundStrategy: RoundStrategy;
@@ -134,7 +238,19 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
     );
   }
 
-  const currentPriceMap = await fetchCurrentPriceMap(client, args.subscriptionId);
+  // Dispatch the resource-specific fetchers. Subs and apps use different ASC
+  // endpoints and different relationship names; we hide that behind these
+  // closures so the rest of the pipeline doesn't care which it's pricing.
+  const fetchCurrent =
+    args.resourceType === 'subscription'
+      ? () => fetchCurrentPriceMap(client, args.resourceId)
+      : () => fetchCurrentAppPriceMap(client, args.resourceId);
+  const fetchPoints =
+    args.resourceType === 'subscription'
+      ? (t: string) => fetchPricePointsForTerritory(client, args.resourceId, t)
+      : (t: string) => fetchAppPricePointsForTerritory(client, args.resourceId, t);
+
+  const currentPriceMap = await fetchCurrent();
 
   const targetTerritories = args.territories
     ? args.territories.map((t) => t.toUpperCase())
@@ -216,7 +332,7 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
 
   const pricePointResults = await Promise.allSettled(
     pending.map((p) =>
-      fetchPricePointsForTerritory(client, args.subscriptionId, p.territoryId).then((pts) => ({
+      fetchPoints(p.territoryId).then((pts) => ({
         territoryId: p.territoryId,
         points: pts,
       })),
@@ -307,7 +423,7 @@ function shortPointId(id: string | undefined): string {
 
 function renderProposalTable(
   ctx: ProposalContext,
-  subscriptionId: string,
+  resourceLabel: string,
   options: { pointIdMode?: PointIdMode } = {},
 ): string {
   const pointIdMode = options.pointIdMode ?? 'short';
@@ -343,7 +459,7 @@ function renderProposalTable(
   const changes = ctx.rows.filter((r) => r.reason === 'change').length;
   const drops = ctx.rows.filter((r) => (r.changePct ?? 0) < 0).length;
   const lifts = ctx.rows.filter((r) => (r.changePct ?? 0) > 0).length;
-  const summary = `Proposal for subscription ${subscriptionId}: ${changes} change${
+  const summary = `Proposal for ${resourceLabel}: ${changes} change${
     changes === 1 ? '' : 's'
   } (${drops} drops, ${lifts} lifts), anchor ${ctx.anchorTerritory}=${ctx.basePriceAnchor}, round=${
     ctx.roundStrategy
@@ -452,9 +568,20 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
     {
       title: 'Compute PPP rebalance proposal',
       description:
-        'Compute a proposed per-territory price schedule for a subscription, using the bundled Apple Music index as the PPP signal. Read-only — does not write to App Store Connect. Pair with ppp_apply_proposal to schedule the changes.',
+        'Compute a proposed per-territory price schedule using the bundled Apple Music index as the PPP signal. Read-only — does not write to App Store Connect. ' +
+        'Works for subscriptions (resourceType: "subscription", default) and paid apps (resourceType: "app"). ' +
+        'Pair with ppp_apply_proposal to schedule subscription changes; for apps, the proposed prices feed asc_post_app_price_schedule.',
       inputSchema: {
-        subscriptionId: SubscriptionIdSchema,
+        resourceType: z
+          .enum(['subscription', 'app'])
+          .default('subscription')
+          .describe('"subscription" (default) or "app" (paid non-subscription app).'),
+        subscriptionId: SubscriptionIdSchema.optional().describe(
+          'Required when resourceType="subscription".',
+        ),
+        appId: AppIdSchema.optional().describe(
+          'Required when resourceType="app". App pricing fetches one HTTP call per unique territory in the schedule to resolve current amounts; expect ~30s wall time for a paid app with all territories materialized.',
+        ),
         basePriceAnchor: z
           .number()
           .positive()
@@ -485,8 +612,23 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       },
     },
     async (args) => {
+      const resourceId =
+        args.resourceType === 'subscription' ? args.subscriptionId : args.appId;
+      if (!resourceId) {
+        const expected = args.resourceType === 'subscription' ? 'subscriptionId' : 'appId';
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Missing ${expected}. For resourceType="${args.resourceType}", pass ${expected}.`,
+            },
+          ],
+          isError: true,
+        };
+      }
       const ctx = await computeProposal(client, {
-        subscriptionId: args.subscriptionId,
+        resourceType: args.resourceType,
+        resourceId,
         basePriceAnchor: args.basePriceAnchor,
         anchorTerritory: args.anchorTerritory,
         roundStrategy: args.roundStrategy as RoundStrategy,
@@ -500,9 +642,12 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           content: [{ type: 'text', text: JSON.stringify(ctx, null, 2) }],
         };
       }
-      const table = renderProposalTable(ctx, args.subscriptionId);
+      const label = args.resourceType === 'subscription' ? `subscription ${resourceId}` : `app ${resourceId}`;
+      const table = renderProposalTable(ctx, label);
       const footer =
-        '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args, or call asc_post_subscription_price per row using the POINT_IDs above.';
+        args.resourceType === 'subscription'
+          ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args, or call asc_post_subscription_price per row using the POINT_IDs above.'
+          : '\n\nDry-run only. To apply for apps: call asc_post_app_price_schedule with the appId, anchorTerritory as baseTerritory, and one price entry per row above (territory + POINT_ID). ppp_apply_proposal does not yet auto-apply for apps.';
       return { content: [{ type: 'text', text: `${table}${footer}` }] };
     },
   );
@@ -512,9 +657,16 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
     {
       title: 'Apply PPP rebalance proposal',
       description:
-        'Compute a PPP rebalance proposal, then schedule the price changes against App Store Connect. By default, asks the user to confirm via MCP elicitation before any write. Pass confirm:true to bypass elicitation (useful when running under automation, or when the client does not support elicitation).',
+        'Compute a PPP rebalance proposal, then schedule the price changes against App Store Connect. ' +
+        'Subscription-only for now — for apps, use ppp_compute_proposal({resourceType: "app", ...}) to get the table, then pass the rows to asc_post_app_price_schedule. ' +
+        'By default, asks the user to confirm via MCP elicitation before any write. Pass confirm:true to bypass elicitation (useful when running under automation, or when the client does not support elicitation).',
       inputSchema: {
-        subscriptionId: SubscriptionIdSchema,
+        resourceType: z
+          .enum(['subscription', 'app'])
+          .default('subscription')
+          .describe('Currently only "subscription" can be applied through this tool. "app" returns a pointer to asc_post_app_price_schedule.'),
+        subscriptionId: SubscriptionIdSchema.optional(),
+        appId: AppIdSchema.optional(),
         basePriceAnchor: z.number().positive(),
         anchorTerritory: z.string().length(3).default('USA'),
         roundStrategy: z.enum(['nearest', 'down', 'up']).default('nearest'),
@@ -556,9 +708,71 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       },
     },
     async (args) => {
+      // App applies aren't automated yet — the whole-schedule-replace semantics
+      // need a different code path (one POST vs N) and currency-mismatch +
+      // base-territory-change guard rails. Until that ships, compute the
+      // proposal here and return prices in a shape the user can pass directly
+      // to asc_post_app_price_schedule.
+      if (args.resourceType === 'app') {
+        if (!args.appId) {
+          return {
+            content: [{ type: 'text', text: 'Missing appId. For resourceType="app", pass appId.' }],
+            isError: true,
+          };
+        }
+        const ctx = await computeProposal(client, {
+          resourceType: 'app',
+          resourceId: args.appId,
+          basePriceAnchor: args.basePriceAnchor,
+          anchorTerritory: args.anchorTerritory,
+          roundStrategy: args.roundStrategy as RoundStrategy,
+          floorFactor: args.floorFactor,
+          skipUnchanged: true,
+          ...(args.territories ? { territories: args.territories } : {}),
+          skipMissingIndex: args.skipMissingIndex,
+        });
+        const writableRows = ctx.rows.filter(
+          (r) => r.reason === 'change' && r.snappedPointId !== undefined,
+        );
+        const pricesPayload = writableRows.map((r) => ({
+          territory: r.territory,
+          pricePointId: r.snappedPointId as string,
+        }));
+        const table = renderProposalTable(ctx, `app ${args.appId}`);
+        const apply = JSON.stringify(
+          {
+            appId: args.appId,
+            baseTerritory: args.anchorTerritory,
+            prices: pricesPayload,
+            acknowledgeReplacesAll: true,
+          },
+          null,
+          2,
+        );
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `${table}\n\n` +
+                `App PPP auto-apply not yet implemented. To schedule these prices, call asc_post_app_price_schedule with:\n\n${apply}\n\n` +
+                `IMPORTANT: ${args.anchorTerritory} (used as baseTerritory) must appear in prices[] with no startDate, AND must currently be your app's base territory — otherwise add acknowledgeDeletesScheduledIfBaseChanges: true.`,
+            },
+          ],
+        };
+      }
+
+      if (!args.subscriptionId) {
+        return {
+          content: [{ type: 'text', text: 'Missing subscriptionId. For resourceType="subscription", pass subscriptionId.' }],
+          isError: true,
+        };
+      }
+      const subscriptionId = args.subscriptionId;
       const startDate = args.startDate ?? todayPlusDaysISO(7);
       const ctx = await computeProposal(client, {
-        subscriptionId: args.subscriptionId,
+        resourceType: 'subscription',
+        resourceId: subscriptionId,
         basePriceAnchor: args.basePriceAnchor,
         anchorTerritory: args.anchorTerritory,
         roundStrategy: args.roundStrategy as RoundStrategy,
@@ -576,7 +790,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           content: [
             {
               type: 'text',
-              text: `${renderProposalTable(ctx, args.subscriptionId)}\n\nNothing to apply — no eligible rows. (Skipped: no-current-price, no-index, no-price-points, snap-failed, unchanged.)`,
+              text: `${renderProposalTable(ctx, subscriptionId)}\n\nNothing to apply — no eligible rows. (Skipped: no-current-price, no-index, no-price-points, snap-failed, unchanged.)`,
             },
           ],
         };
@@ -592,7 +806,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           content: [
             {
               type: 'text',
-              text: `${renderProposalTable(ctx, args.subscriptionId)}\n\nRefused to apply: ${maxDropRow.territory} drops by ${fmtPct(maxDropRow.changePct)}, which exceeds maxDropPct=${args.maxDropPct}. Either raise maxDropPct, restrict the run to specific territories, or refresh the Apple Music snapshot.`,
+              text: `${renderProposalTable(ctx, subscriptionId)}\n\nRefused to apply: ${maxDropRow.territory} drops by ${fmtPct(maxDropRow.changePct)}, which exceeds maxDropPct=${args.maxDropPct}. Either raise maxDropPct, restrict the run to specific territories, or refresh the Apple Music snapshot.`,
             },
           ],
         };
@@ -614,7 +828,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           const elicit = await server.server.elicitInput({
             message: `Apply ${changes} subscription price change${
               changes === 1 ? '' : 's'
-            } (${drops} drop${drops === 1 ? '' : 's'}, ${lifts} lift${lifts === 1 ? '' : 's'})?\n\nSubscription: ${args.subscriptionId}\nStart date:    ${startDate}\nPreserve:      ${args.preserveCurrentPrice}\nLargest drop:  ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\n${renderProposalTable(ctx, args.subscriptionId, { pointIdMode: 'none' })}`,
+            } (${drops} drop${drops === 1 ? '' : 's'}, ${lifts} lift${lifts === 1 ? '' : 's'})?\n\nSubscription: ${subscriptionId}\nStart date:    ${startDate}\nPreserve:      ${args.preserveCurrentPrice}\nLargest drop:  ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\n${renderProposalTable(ctx, subscriptionId, { pointIdMode: 'none' })}`,
             requestedSchema: {
               type: 'object',
               properties: {
@@ -635,7 +849,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
               content: [
                 {
                   type: 'text',
-                  text: `${renderProposalTable(ctx, args.subscriptionId)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
+                  text: `${renderProposalTable(ctx, subscriptionId)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
                 },
               ],
             };
@@ -647,7 +861,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
             content: [
               {
                 type: 'text',
-                text: `${renderProposalTable(ctx, args.subscriptionId)}\n\nClient does not support MCP elicitation. To apply, re-run with confirm: true (and the same args) — only after a human has reviewed the table above.`,
+                text: `${renderProposalTable(ctx, subscriptionId)}\n\nClient does not support MCP elicitation. To apply, re-run with confirm: true (and the same args) — only after a human has reviewed the table above.`,
               },
             ],
           };
@@ -660,7 +874,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         args.maxConcurrency,
         async (row): Promise<ApplyResult> => {
           const result = await postSubscriptionPrice(client, {
-            subscriptionId: args.subscriptionId,
+            subscriptionId: subscriptionId,
             territoryId: row.territory,
             pricePointId: row.snappedPointId as string,
             startDate,
@@ -697,7 +911,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         r.status === 'applied' ? (r.newPriceId ?? '') : (r.error ?? ''),
       ]);
 
-      const summary = `Applied ${succeeded.length}/${changes} (failed ${failed.length}). Subscription ${args.subscriptionId}, start ${startDate}, confirmation via ${confirmationSource}.`;
+      const summary = `Applied ${succeeded.length}/${changes} (failed ${failed.length}). Subscription ${subscriptionId}, start ${startDate}, confirmation via ${confirmationSource}.`;
       const text = `${summary}\n\n${formatTable(resultColumns, resultRows)}\n\nVerify with asc_list_subscription_prices — pending entries will have a non-null START_DATE.`;
       return { content: [{ type: 'text', text }] };
     },

@@ -138,6 +138,80 @@ export function digestSubscriptionPricePoints(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'price points')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestAppPrices(pages: CollectedPages): string {
+  const index = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'TERR' },
+    { header: 'CCY' },
+    { header: 'AMOUNT', align: 'right' },
+    { header: 'KIND' },
+    { header: 'STATE' },
+    { header: 'START_DATE' },
+    { header: 'PRICE_ID' },
+    { header: 'POINT_ID' },
+  ];
+
+  // The /apps/{id}/appPriceSchedule response returns the schedule resource in
+  // `data` and the AppPrice rows in `included`. To present the price table, we
+  // walk `included` for appPrices, not `pages.data`.
+  const appPrices = pages.included.filter((r) => r.type === 'appPrices');
+  const rows = appPrices.map((price) => {
+    const territoryRel = rel(price, 'territory');
+    const pricePointRel = rel(price, 'appPricePoint');
+    // Apple's /appPriceSchedule endpoint does not let us include the
+    // appPricePoint resource inline (chained includes are rejected), so we
+    // only have the price-point ID here — not the customer price. Use
+    // asc_list_app_price_points(appId, territoryId) to resolve a specific
+    // amount when needed.
+    const territory = lookupIncluded(index, 'territories', territoryRel?.id);
+    const pricePoint = lookupIncluded(index, 'appPricePoints', pricePointRel?.id);
+    const startDate = attr<string | null>(price, 'startDate');
+    const manual = attr<boolean>(price, 'manual');
+    const state = startDate ? 'pending' : 'active';
+    const amount = pricePoint ? s(attr(pricePoint, 'customerPrice')) : '—';
+    return [
+      s(territoryRel?.id),
+      s(territory ? attr(territory, 'currency') : ''),
+      amount,
+      manual ? 'manual' : 'auto',
+      state,
+      s(startDate ?? ''),
+      price.id,
+      s(pricePointRel?.id ?? ''),
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+
+  const pending = rows.filter((r) => r[4] === 'pending').length;
+  const manualCount = rows.filter((r) => r[3] === 'manual').length;
+  const baseTerritoryRel = pages.data[0] ? rel(pages.data[0], 'baseTerritory') : undefined;
+  const baseLine = baseTerritoryRel ? ` — base territory ${baseTerritoryRel.id}` : '';
+  const summary = `${appPrices.length} app prices (${manualCount} manual, ${appPrices.length - manualCount} auto) — ${pending} pending${baseLine}`;
+  return `${summary}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppPricePoints(pages: CollectedPages): string {
+  const index = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'CCY' },
+    { header: 'CUSTOMER_PRICE', align: 'right' },
+    { header: 'PROCEEDS', align: 'right' },
+    { header: 'POINT_ID' },
+  ];
+  const rows = pages.data.map((p) => {
+    const territoryRel = rel(p, 'territory');
+    const territory = lookupIncluded(index, 'territories', territoryRel?.id);
+    return [
+      s(territory ? attr(territory, 'currency') : territoryRel?.id),
+      s(attr(p, 'customerPrice')),
+      s(attr(p, 'proceeds')),
+      p.id,
+    ];
+  });
+  rows.sort((a, b) => Number(a[1] ?? 0) - Number(b[1] ?? 0));
+  return `${summaryFooter(pages, 'app price points')}\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestTerritories(pages: CollectedPages): string {
   const columns: Column[] = [{ header: 'CODE' }, { header: 'CURRENCY' }];
   const rows = pages.data.map((t) => [t.id, s(attr(t, 'currency'))]);

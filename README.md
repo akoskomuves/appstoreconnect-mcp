@@ -82,17 +82,22 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 - `asc_list_subscription_prices` — current price schedule per subscription
 - `asc_list_subscription_price_points` — valid price points for a subscription in a territory
 
-### Pricing (writes)
+### Subscription pricing (writes)
 - `asc_post_subscription_price` — schedule a price change for one territory
 - `asc_delete_subscription_price` — cancel a pending scheduled change
+
+### App pricing (paid non-subscription apps)
+- `asc_list_app_prices` — current price schedule for an app, splitting manual overrides from auto-derived prices and surfacing the base territory
+- `asc_list_app_price_points` — valid Apple price tiers for an app in a given territory (~600+ tiers per territory; pair with a `nearAmount` filter when supported)
+- `asc_post_app_price_schedule` — replace the entire price schedule (whole-schedule replace, NOT a merge — matches Apple's API). Pre-flight refuses unless at least one entry targets the base territory with no `startDate`, and requires explicit `acknowledgeReplacesAll: true`. A separate `acknowledgeDeletesScheduledIfBaseChanges` ack is required when changing the base territory (Apple wipes pending scheduled changes on base-change). Apps have no grandfather mechanism — new schedules activate atomically at each entry's `startDate`.
 
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
 
 ### PPP rebalancing
 - `ppp_load_index` — return the bundled Apple Music Individual-plan price snapshot used as the PPP signal
-- `ppp_compute_proposal` — compute a proposed per-territory price schedule for a subscription (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor)
-- `ppp_apply_proposal` — same computation, then schedule the changes against ASC after confirming via MCP elicitation (or `confirm: true` for unattended use). Refuses to apply if any row drops by more than `maxDropPct` (default 90%); paces writes at `maxConcurrency` (default 2) and retries 429s automatically; skips territories where ASC billing currency ≠ Apple Music currency.
+- `ppp_compute_proposal` — compute a proposed per-territory price schedule (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor). Pass `resourceType: "subscription"` (default) with `subscriptionId`, or `resourceType: "app"` with `appId` for paid apps.
+- `ppp_apply_proposal` — for `resourceType: "subscription"`: recomputes and schedules the changes against ASC after confirming via MCP elicitation (or `confirm: true` for unattended use). Refuses to apply if any row drops by more than `maxDropPct` (default 90%); paces writes at `maxConcurrency` (default 2) and retries 429s automatically; skips territories where ASC billing currency ≠ Apple Music currency. For `resourceType: "app"`: returns the proposal table plus a JSON payload pre-formatted for `asc_post_app_price_schedule` (auto-apply for apps is on the v0.2 follow-up list — Apple's whole-schedule-replace semantics need a different code path).
 
 ### Response shape
 
@@ -126,12 +131,13 @@ Then ask Claude: *"Rebalance my subscription prices using the ppp-rebalance skil
 
 ## Roadmap
 
-What we shipped is roughly 10% of the App Store Connect API. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
+v0.1 and the v0.2.0 slice cover roughly all of monetization pricing reads + subscription writes + paid-app whole-schedule writes. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
 
 | Phase | Domain | What it unlocks |
 | --- | --- | --- |
 | **v0.1** ✓ | Apps · subscriptions · subscription pricing · PPP rebalance | Schedule per-territory price changes by purchasing power. |
-| **v0.2** | App pricing (non-subscription) · IAP CRUD + pricing · introductory offers · promotional offers | One-shot PPP rebalance for *every* paid surface, not just subs. |
+| **v0.2.0** ✓ | App pricing (non-subscription): list / list price points / replace schedule · PPP compute extended to apps | PPP dry-run against paid apps; manual apply via `asc_post_app_price_schedule`. |
+| **v0.2.x** | App-side `ppp_apply_proposal` auto-apply · IAP CRUD + pricing · introductory offers · promotional offers · `nearAmount` filter on price-point listing | One-shot PPP rebalance for *every* paid surface, not just subs. |
 | **v0.3** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
 | **v0.4** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |
 | **v0.5** | Customer reviews (read · respond · filter by sentiment/version) | "Draft a response to every 1-star review on the latest version that mentions the export bug. Show me before posting." |
@@ -141,7 +147,7 @@ What we shipped is roughly 10% of the App Store Connect API. The rest is fertile
 
 **Out of scope** (Fastlane / Xcode already do these well): provisioning profiles, certificates, devices, capabilities, Game Center config.
 
-**Positioning:** the LLM companion for App Store Connect ops. Fastlane is for the build/release pipeline; this is for the post-release knowledge work — translation, pricing, customer feedback, analytics.
+Think of this as the LLM companion for App Store Connect ops. Fastlane is for the build/release pipeline; this is for the post-release knowledge work — translation, pricing, customer feedback, analytics.
 
 Each new domain is one file under `src/domains/<name>.ts` plus a `register*` call in `src/index.ts`. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -157,10 +163,6 @@ npm run build
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor flow (changesets, PR template, branch naming).
-
-## Security
-
-Never commit `.p8` keys. Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
 ## License
 

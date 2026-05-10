@@ -41,3 +41,13 @@ export const StartDateSchema = z
   .describe(
     'Date the price change takes effect, YYYY-MM-DD. Apple requires it to be at least 24h in the future; ≥7 days recommended.',
   );
+
+export const AppPricePointIdSchema = z
+  .string()
+  .min(1)
+  .describe('App price-point ID from /v1/apps/{id}/appPricePoints.');
+
+export const AppPriceScheduleIdSchema = z
+  .string()
+  .min(1)
+  .describe('App price schedule ID from /v1/apps/{id}/appPriceSchedule.');

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  digestAppPricePoints,
+  digestAppPrices,
   digestApps,
   digestSubscriptionPricePoints,
   digestSubscriptionPrices,
@@ -162,5 +164,109 @@ describe('digestTerritories', () => {
     expect(lines[0]).toMatch(/^AUS\s+AUD/);
     expect(lines[1]).toMatch(/^GBR\s+GBP/);
     expect(lines[2]).toMatch(/^USA\s+USD/);
+  });
+});
+
+describe('digestAppPrices', () => {
+  it('renders the price schedule, splits manual vs auto, and notes the base territory', () => {
+    const out = digestAppPrices(
+      pages({
+        data: [
+          {
+            type: 'appPriceSchedules',
+            id: 'sched1',
+            relationships: {
+              baseTerritory: { data: { type: 'territories', id: 'USA' } },
+            },
+          },
+        ],
+        included: [
+          {
+            type: 'appPrices',
+            id: 'p_usa',
+            attributes: { startDate: null, manual: true },
+            relationships: {
+              territory: { data: { type: 'territories', id: 'USA' } },
+              appPricePoint: { data: { type: 'appPricePoints', id: 'pt_usa' } },
+            },
+          },
+          {
+            type: 'appPrices',
+            id: 'p_bra',
+            attributes: { startDate: '2026-05-16', manual: false },
+            relationships: {
+              territory: { data: { type: 'territories', id: 'BRA' } },
+              appPricePoint: { data: { type: 'appPricePoints', id: 'pt_bra' } },
+            },
+          },
+          {
+            type: 'territories',
+            id: 'USA',
+            attributes: { currency: 'USD' },
+          },
+          {
+            type: 'territories',
+            id: 'BRA',
+            attributes: { currency: 'BRL' },
+          },
+          {
+            type: 'appPricePoints',
+            id: 'pt_usa',
+            attributes: { customerPrice: '4.99' },
+          },
+          {
+            type: 'appPricePoints',
+            id: 'pt_bra',
+            attributes: { customerPrice: '12.90' },
+          },
+        ],
+      }),
+    );
+    expect(out).toContain('2 app prices (1 manual, 1 auto)');
+    expect(out).toContain('1 pending');
+    expect(out).toContain('base territory USA');
+    expect(out).toContain('USA');
+    expect(out).toContain('USD');
+    expect(out).toContain('4.99');
+    expect(out).toContain('BRA');
+    expect(out).toContain('BRL');
+    expect(out).toContain('12.90');
+    expect(out).toContain('2026-05-16');
+  });
+
+  it('handles an empty schedule', () => {
+    const out = digestAppPrices(pages({ data: [], included: [] }));
+    expect(out).toContain('0 app prices (0 manual, 0 auto)');
+  });
+});
+
+describe('digestAppPricePoints', () => {
+  it('sorts by customer price ascending and shows currency from the included territory', () => {
+    const out = digestAppPricePoints(
+      pages({
+        data: [
+          {
+            type: 'appPricePoints',
+            id: 'a',
+            attributes: { customerPrice: '9.99', proceeds: '7.00' },
+            relationships: { territory: { data: { type: 'territories', id: 'USA' } } },
+          },
+          {
+            type: 'appPricePoints',
+            id: 'b',
+            attributes: { customerPrice: '0.99', proceeds: '0.70' },
+            relationships: { territory: { data: { type: 'territories', id: 'USA' } } },
+          },
+        ],
+        included: [
+          { type: 'territories', id: 'USA', attributes: { currency: 'USD' } },
+        ],
+        total: 2,
+      }),
+    );
+    const lines = out.split('\n');
+    const dataLines = lines.filter((l) => l.match(/^USD\s/));
+    expect(dataLines[0]).toContain('0.99');
+    expect(dataLines[1]).toContain('9.99');
   });
 });

@@ -9,6 +9,25 @@ coverage
 
 *.log
 .DS_Store
+Thumbs.db
 .vscode
 .idea
+.history
 *.p8
+
+# Local agent / IDE state — keep contributor-specific config out of the repo
+CLAUDE.md
+.claude/
+.cursorrules
+.cursor/
+.windsurfrules
+.windsurf/
+.aider*
+AGENTS.md
+
+# Personal scratch / notes
+scratch/
+notes/
+TODO.local.md
+NOTES.local.md
+*.local.md

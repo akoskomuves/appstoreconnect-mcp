@@ -6,6 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import { createASCClient } from './client.js';
 import { loadConfig } from './config.js';
+import { registerAppPricing } from './domains/app-pricing.js';
 import { registerApps } from './domains/apps.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPricing } from './domains/pricing.js';
@@ -60,6 +61,7 @@ async function runServer(): Promise<void> {
   registerApps(server, client);
   registerSubscriptions(server, client);
   registerPricing(server, client);
+  registerAppPricing(server, client);
   registerTerritories(server, client);
   registerPpp(server, client);
 
