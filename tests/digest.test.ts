@@ -24,17 +24,17 @@ describe('digestApps', () => {
         data: [
           {
             type: 'apps',
-            id: '6758548046',
-            attributes: { name: 'WikiCatch', bundleId: 'com.akoskomuves.WikiCatch', sku: 'WC1' },
+            id: '1234567890',
+            attributes: { name: 'Example App', bundleId: 'com.example.app', sku: 'EX1' },
           },
         ],
         total: 1,
       }),
     );
     expect(out).toContain('1 apps');
-    expect(out).toContain('WikiCatch');
-    expect(out).toContain('com.akoskomuves.WikiCatch');
-    expect(out).toContain('6758548046');
+    expect(out).toContain('Example App');
+    expect(out).toContain('com.example.app');
+    expect(out).toContain('1234567890');
   });
 
   it('signals truncation in the footer', () => {

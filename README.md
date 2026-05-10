@@ -126,15 +126,24 @@ Then ask Claude: *"Rebalance my subscription prices using the ppp-rebalance skil
 
 ## Roadmap
 
-- [x] **v0.1** — Apps · subscriptions · subscription pricing · PPP rebalance (with elicitation, 429 retry, currency-mismatch skip, sanity floor/ceiling)
-- [ ] TestFlight (beta groups, testers, builds)
-- [ ] App metadata (screenshots, descriptions, localizations)
-- [ ] Sales reports / analytics
-- [ ] In-app purchases (non-subscription)
-- [ ] Customer reviews
-- [ ] Real-FX support for currency-mismatched territories (today they're skipped; with an FX feed we could compute a correct target)
+What we shipped is roughly 10% of the App Store Connect API. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
 
-Each new domain is one file under `src/domains/` plus a `register*` call in `src/index.ts`. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+| Phase | Domain | What it unlocks |
+| --- | --- | --- |
+| **v0.1** ✓ | Apps · subscriptions · subscription pricing · PPP rebalance | Schedule per-territory price changes by purchasing power. |
+| **v0.2** | App pricing (non-subscription) · IAP CRUD + pricing · introductory offers · promotional offers | One-shot PPP rebalance for *every* paid surface, not just subs. |
+| **v0.3** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
+| **v0.4** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |
+| **v0.5** | Customer reviews (read · respond · filter by sentiment/version) | "Draft a response to every 1-star review on the latest version that mentions the export bug. Show me before posting." |
+| **v0.6** | Sales/trends · finance reports · app analytics | "Why did MRR drop in Brazil last week? Compare to the rebalance activation date." |
+| **v0.7** | EU DMA: external purchase links · alternative payment systems · compliance reports | Niche but valuable for any app opting out of Apple's commerce in the EU. |
+| **v0.8+** | Real-FX for currency-mismatch territories · screenshot uploads · ASO keyword analysis · custom product pages · A/B tests | Polish + advanced surfaces. |
+
+**Out of scope** (Fastlane / Xcode already do these well): provisioning profiles, certificates, devices, capabilities, Game Center config.
+
+**Positioning:** the LLM companion for App Store Connect ops. Fastlane is for the build/release pipeline; this is for the post-release knowledge work — translation, pricing, customer feedback, analytics.
+
+Each new domain is one file under `src/domains/<name>.ts` plus a `register*` call in `src/index.ts`. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Develop
 

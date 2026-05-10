@@ -63,10 +63,6 @@ Releases are driven by [changesets](https://github.com/changesets/changesets) an
    - `changeset publish` pushes the new version to npm with provenance enabled.
    - `createGithubReleases: true` auto-creates a GitHub Release for the new tag with the changelog notes.
 
-Required repo secret: `NPM_TOKEN` — an npm Automation token with publish access to the `appstoreconnect-mcp` package. Set with:
+**Authentication:** npm Trusted Publishing (OIDC). No static token needed. Configured once at https://www.npmjs.com/package/@akoskomuves/appstoreconnect-mcp/access by listing this repo's `release.yml` workflow as a Trusted Publisher. The `id-token: write` permission in `release.yml` is what mints the short-lived publish credential at runtime.
 
-```sh
-gh secret set NPM_TOKEN -R akoskomuves/appstoreconnect-mcp
-```
-
-(Settings → Actions → General → Workflow permissions must be set to "Read and write" with "Allow GitHub Actions to create and approve pull requests" for the version-PR step to work.)
+**Repo settings:** Settings → Actions → General → Workflow permissions must be set to "Read and write" with "Allow GitHub Actions to create and approve pull requests" for the version-PR step to work.

@@ -11,6 +11,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
+      # `id-token: write` is what npm Trusted Publishing uses to mint a
+      # short-lived OIDC credential — no static NPM_TOKEN needed.
       contents: write
       pull-requests: write
       id-token: write
@@ -25,6 +27,11 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      # npm Trusted Publishing needs npm 11.5+; Node 22 LTS still ships
+      # 10.x at the time of writing, so pin to a known-good version.
+      - name: Upgrade npm to support Trusted Publishing
+        run: npm install -g npm@latest
+
       - run: npm ci
 
       - name: Build
@@ -33,7 +40,8 @@ jobs:
       # When changesets are pending: opens a "Release PR" bumping the version + CHANGELOG.
       # When the Release PR is merged: runs `npm run release` (build + changeset publish),
       # which publishes to npm and creates a GitHub Release per published package.
-      # Requires NPM_TOKEN repo secret with publish access to the package.
+      # Authentication uses npm Trusted Publishing (OIDC) — configure once at
+      # https://www.npmjs.com/package/@akoskomuves/appstoreconnect-mcp/access
       - name: Create Release PR or publish
         uses: changesets/action@v1
         with:
@@ -44,5 +52,4 @@ jobs:
           createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
