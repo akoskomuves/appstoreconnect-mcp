@@ -51,3 +51,15 @@ export const AppPriceScheduleIdSchema = z
   .string()
   .min(1)
   .describe('App price schedule ID from /v1/apps/{id}/appPriceSchedule.');
+
+export const InAppPurchaseIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'In-app purchase ID from /v1/apps/{id}/inAppPurchasesV2 (v2 surface only — legacy v1 IAPs not supported).',
+  );
+
+export const InAppPurchasePricePointIdSchema = z
+  .string()
+  .min(1)
+  .describe('IAP price-point ID from /v2/inAppPurchases/{id}/pricePoints.');

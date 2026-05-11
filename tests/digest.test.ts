@@ -3,6 +3,9 @@ import {
   digestAppPricePoints,
   digestAppPrices,
   digestApps,
+  digestIapPricePoints,
+  digestIapPrices,
+  digestIaps,
   digestSubscriptionPricePoints,
   digestSubscriptionPrices,
   digestTerritories,
@@ -266,5 +269,136 @@ describe('digestAppPricePoints', () => {
     const dataLines = lines.filter((l) => l.match(/^USD\s/));
     expect(dataLines[0]).toContain('0.99');
     expect(dataLines[1]).toContain('9.99');
+  });
+});
+
+describe('digestIaps', () => {
+  it('renders a table with name, product id, type, state', () => {
+    const out = digestIaps(
+      pages({
+        data: [
+          {
+            type: 'inAppPurchases',
+            id: 'iap-1',
+            attributes: {
+              name: 'Premium Unlock',
+              productId: 'com.example.app.premium',
+              inAppPurchaseType: 'NON_CONSUMABLE',
+              state: 'APPROVED',
+              familySharable: true,
+            },
+          },
+          {
+            type: 'inAppPurchases',
+            id: 'iap-2',
+            attributes: {
+              name: 'Coin Pack 100',
+              productId: 'com.example.app.coins100',
+              inAppPurchaseType: 'CONSUMABLE',
+              state: 'READY_TO_SUBMIT',
+              familySharable: false,
+            },
+          },
+        ],
+        total: 2,
+      }),
+    );
+    expect(out).toContain('2 iaps');
+    expect(out).toContain('Premium Unlock');
+    expect(out).toContain('NON_CONSUMABLE');
+    expect(out).toContain('APPROVED');
+    expect(out).toContain('com.example.app.coins100');
+    expect(out).toContain('CONSUMABLE');
+  });
+});
+
+describe('digestIapPrices', () => {
+  it('renders the IAP price schedule like app prices (manual/auto split, base territory)', () => {
+    const out = digestIapPrices(
+      pages({
+        data: [
+          {
+            type: 'inAppPurchasePriceSchedules',
+            id: 'sched1',
+            relationships: {
+              baseTerritory: { data: { type: 'territories', id: 'USA' } },
+            },
+          },
+        ],
+        included: [
+          {
+            type: 'inAppPurchasePrices',
+            id: 'p_usa',
+            attributes: { startDate: null, manual: true },
+            relationships: {
+              territory: { data: { type: 'territories', id: 'USA' } },
+              inAppPurchasePricePoint: {
+                data: { type: 'inAppPurchasePricePoints', id: 'pt_usa' },
+              },
+            },
+          },
+          {
+            type: 'inAppPurchasePrices',
+            id: 'p_jpn',
+            attributes: { startDate: '2026-06-01', manual: false },
+            relationships: {
+              territory: { data: { type: 'territories', id: 'JPN' } },
+              inAppPurchasePricePoint: {
+                data: { type: 'inAppPurchasePricePoints', id: 'pt_jpn' },
+              },
+            },
+          },
+          { type: 'territories', id: 'USA', attributes: { currency: 'USD' } },
+          { type: 'territories', id: 'JPN', attributes: { currency: 'JPY' } },
+          {
+            type: 'inAppPurchasePricePoints',
+            id: 'pt_usa',
+            attributes: { customerPrice: '4.99' },
+          },
+          {
+            type: 'inAppPurchasePricePoints',
+            id: 'pt_jpn',
+            attributes: { customerPrice: '700' },
+          },
+        ],
+      }),
+    );
+    expect(out).toContain('2 iap prices (1 manual, 1 auto)');
+    expect(out).toContain('1 pending');
+    expect(out).toContain('base territory USA');
+    expect(out).toContain('USA');
+    expect(out).toContain('4.99');
+    expect(out).toContain('JPN');
+    expect(out).toContain('700');
+    expect(out).toContain('2026-06-01');
+  });
+});
+
+describe('digestIapPricePoints', () => {
+  it('sorts ascending and shows currency from the included territory', () => {
+    const out = digestIapPricePoints(
+      pages({
+        data: [
+          {
+            type: 'inAppPurchasePricePoints',
+            id: 'b',
+            attributes: { customerPrice: '4.99', proceeds: '3.50' },
+            relationships: { territory: { data: { type: 'territories', id: 'USA' } } },
+          },
+          {
+            type: 'inAppPurchasePricePoints',
+            id: 'a',
+            attributes: { customerPrice: '0.99', proceeds: '0.70' },
+            relationships: { territory: { data: { type: 'territories', id: 'USA' } } },
+          },
+        ],
+        included: [{ type: 'territories', id: 'USA', attributes: { currency: 'USD' } }],
+        total: 2,
+      }),
+    );
+    const lines = out.split('\n');
+    const dataLines = lines.filter((l) => l.match(/^USD\s/));
+    expect(dataLines[0]).toContain('0.99');
+    expect(dataLines[1]).toContain('4.99');
   });
 });

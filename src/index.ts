@@ -8,6 +8,7 @@ import { createASCClient } from './client.js';
 import { loadConfig } from './config.js';
 import { registerAppPricing } from './domains/app-pricing.js';
 import { registerApps } from './domains/apps.js';
+import { registerIaps } from './domains/iap.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPricing } from './domains/pricing.js';
 import { registerSubscriptions } from './domains/subscriptions.js';
@@ -62,6 +63,7 @@ async function runServer(): Promise<void> {
   registerSubscriptions(server, client);
   registerPricing(server, client);
   registerAppPricing(server, client);
+  registerIaps(server, client);
   registerTerritories(server, client);
   registerPpp(server, client);
 
