@@ -144,8 +144,8 @@ v0.1 and the v0.2.0 slice cover roughly all of monetization pricing reads + subs
 | --- | --- | --- |
 | **v0.1** ✓ | Apps · subscriptions · subscription pricing · PPP rebalance | Schedule per-territory price changes by purchasing power. |
 | **v0.2.0** ✓ | App pricing (non-subscription): list / list price points / replace schedule · PPP compute extended to apps | PPP dry-run against paid apps; manual apply via `asc_post_app_price_schedule`. |
-| **v0.2.1** ✓ | In-app purchases (v2): list / get / price schedule reads + writes | Same monetization surface for IAPs (consumables, non-consumables, non-renewing subs). Auto-renewables stay on the Subscriptions tools. |
-| **v0.2.x** | App-side `ppp_apply_proposal` auto-apply · PPP for IAPs · introductory offers · promotional offers · `nearAmount` filter on price-point listing | One-shot PPP rebalance for *every* paid surface, not just subs. |
+| **v0.3.0** ✓ | In-app purchases (v2): list / get / price schedule reads + writes | Same monetization surface for IAPs (consumables, non-consumables, non-renewing subs). Auto-renewables stay on the Subscriptions tools. |
+| **v0.4+** | App-side `ppp_apply_proposal` auto-apply · PPP for IAPs · introductory offers · promotional offers · `nearAmount` filter on price-point listing | One-shot PPP rebalance for *every* paid surface, not just subs. |
 | **v0.3** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
 | **v0.4** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |
 | **v0.5** | Customer reviews (read · respond · filter by sentiment/version) | "Draft a response to every 1-star review on the latest version that mentions the export bug. Show me before posting." |
