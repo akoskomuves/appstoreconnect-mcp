@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ASCClient } from '../src/client.js';
 import {
   buildIncludedIndex,
+  filterPagesByNearAmount,
   formatTable,
   type JSONAPIResource,
   type JSONAPIResponse,
@@ -108,6 +109,54 @@ describe('buildIncludedIndex', () => {
     expect(index.size).toBe(3);
     expect(index.get('territories/USA')?.id).toBe('USA');
     expect(index.get('subscriptionPricePoints/pp1')?.id).toBe('pp1');
+  });
+});
+
+describe('filterPagesByNearAmount', () => {
+  const candidates: JSONAPIResource[] = [
+    { type: 'appPricePoints', id: 'p1', attributes: { customerPrice: '0.99' } },
+    { type: 'appPricePoints', id: 'p2', attributes: { customerPrice: '4.99' } },
+    { type: 'appPricePoints', id: 'p3', attributes: { customerPrice: '9.99' } },
+    { type: 'appPricePoints', id: 'p4', attributes: { customerPrice: '14.99' } },
+    { type: 'appPricePoints', id: 'p5', attributes: { customerPrice: '29.99' } },
+    { type: 'appPricePoints', id: 'p6', attributes: { customerPrice: '49.99' } },
+  ];
+  const pages = {
+    data: candidates,
+    included: [] as JSONAPIResource[],
+    pagesFetched: 1,
+    truncated: false,
+  };
+
+  it('returns the N tiers closest to nearAmount, sorted ascending', () => {
+    // Target 15 vs candidates 0.99, 4.99, 9.99, 14.99, 29.99, 49.99 →
+    // top 3 by |amt-15|: 14.99 (0.01), 9.99 (5.01), 4.99 (10.01).
+    const result = filterPagesByNearAmount(pages, 15, 3);
+    expect(result.data.map((r) => r.id)).toEqual(['p2', 'p3', 'p4']);
+  });
+
+  it('handles nearAmount below the cheapest tier', () => {
+    const result = filterPagesByNearAmount(pages, 0.1, 2);
+    expect(result.data.map((r) => r.id)).toEqual(['p1', 'p2']);
+  });
+
+  it('handles nearAmount above the most expensive tier', () => {
+    const result = filterPagesByNearAmount(pages, 100, 2);
+    expect(result.data.map((r) => r.id)).toEqual(['p5', 'p6']);
+  });
+
+  it('skips entries with missing or non-numeric customerPrice', () => {
+    const mixed = {
+      ...pages,
+      data: [
+        { type: 'appPricePoints', id: 'a', attributes: { customerPrice: '5' } },
+        { type: 'appPricePoints', id: 'b', attributes: {} },
+        { type: 'appPricePoints', id: 'c', attributes: { customerPrice: 'oops' } },
+        { type: 'appPricePoints', id: 'd', attributes: { customerPrice: '10' } },
+      ],
+    };
+    const result = filterPagesByNearAmount(mixed, 7, 5);
+    expect(result.data.map((r) => r.id)).toEqual(['a', 'd']);
   });
 });
 

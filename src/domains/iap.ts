@@ -4,7 +4,7 @@ import type { ASCClient } from '../client.js';
 import { digestIapPricePoints, digestIapPrices, digestIaps, digestSingle } from '../digest.js';
 import { ASCError } from '../errors.js';
 import type { JSONAPIResource, JSONAPIResponse } from '../jsonapi.js';
-import { paginate } from '../jsonapi.js';
+import { filterPagesByNearAmount, paginate } from '../jsonapi.js';
 import {
   AppIdSchema,
   InAppPurchaseIdSchema,
@@ -141,15 +141,30 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
     {
       title: 'List IAP price points',
       description:
-        'List the valid Apple price tiers for an in-app purchase in a given territory. Apple rotates these IDs; cache only within a single run.',
+        'List the valid Apple price tiers for an in-app purchase in a given territory. Apple rotates these IDs; cache only within a single run. ' +
+        'Pass nearAmount when you already know the target price — the response is narrowed to the nearest tiers client-side (Apple does not support a near-amount filter server-side, so the full list is still paginated but only the nearest tiers are surfaced).',
       inputSchema: {
         iapId: InAppPurchaseIdSchema,
         territoryId: TerritoryIdSchema,
         maxItems: z.number().int().positive().max(5000).default(1000),
+        nearAmount: z
+          .number()
+          .positive()
+          .optional()
+          .describe(
+            'Target customer price (in the territory currency). The response is filtered to the nearest tiers.',
+          ),
+        nearCount: z
+          .number()
+          .int()
+          .positive()
+          .max(100)
+          .default(10)
+          .describe('Max tiers to return when nearAmount is set.'),
         raw: z.boolean().default(false),
       },
     },
-    async ({ iapId, territoryId, maxItems, raw }) => {
+    async ({ iapId, territoryId, maxItems, nearAmount, nearCount, raw }) => {
       const params = new URLSearchParams();
       params.set('filter[territory]', territoryId);
       params.set('include', 'territory');
@@ -158,11 +173,15 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
       params.set('limit', '200');
       try {
         // /v2/ prefix again.
-        const pages = await paginate(
+        const fetched = await paginate(
           client,
           `/v2/inAppPurchases/${encodeURIComponent(iapId)}/pricePoints?${params.toString()}`,
           maxItems,
         );
+        const pages =
+          nearAmount !== undefined
+            ? filterPagesByNearAmount(fetched, nearAmount, nearCount)
+            : fetched;
         const text = raw ? JSON.stringify(pages, null, 2) : digestIapPricePoints(pages);
         return { content: [{ type: 'text', text }] };
       } catch (err) {

@@ -7,7 +7,7 @@ import {
   digestSubscriptionPrices,
   digestSubscriptions,
 } from '../digest.js';
-import { paginate } from '../jsonapi.js';
+import { filterPagesByNearAmount, paginate } from '../jsonapi.js';
 import {
   AppIdSchema,
   SubscriptionGroupIdSchema,
@@ -105,26 +105,45 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
     {
       title: 'List subscription price points',
       description:
-        'List the valid price points a subscription can be set to in a given territory. Apple rotates these IDs; cache only within a single run.',
+        'List the valid price points a subscription can be set to in a given territory. Apple rotates these IDs; cache only within a single run. ' +
+        'Pass nearAmount when you already know the target price — the response is narrowed to the nearest candidates client-side (Apple does not support a near-amount filter server-side, so the full list is still paginated but only the nearest tiers are surfaced).',
       inputSchema: {
         subscriptionId: SubscriptionIdSchema,
         territoryId: TerritoryIdSchema,
         maxItems: z.number().int().positive().max(5000).default(1000),
+        nearAmount: z
+          .number()
+          .positive()
+          .optional()
+          .describe(
+            'Target customer price (in the territory currency). The response is filtered to the nearest tiers.',
+          ),
+        nearCount: z
+          .number()
+          .int()
+          .positive()
+          .max(100)
+          .default(10)
+          .describe('Max tiers to return when nearAmount is set.'),
         raw: z.boolean().default(false),
       },
     },
-    async ({ subscriptionId, territoryId, maxItems, raw }) => {
+    async ({ subscriptionId, territoryId, maxItems, nearAmount, nearCount, raw }) => {
       const params = new URLSearchParams();
       params.set('filter[territory]', territoryId);
       params.set('include', 'territory');
       params.set('fields[subscriptionPricePoints]', PRICE_POINT_FIELDS);
       params.set('fields[territories]', TERRITORY_FIELDS);
       params.set('limit', '200');
-      const pages = await paginate(
+      const fetched = await paginate(
         client,
         `/v1/subscriptions/${encodeURIComponent(subscriptionId)}/pricePoints?${params.toString()}`,
         maxItems,
       );
+      const pages =
+        nearAmount !== undefined
+          ? filterPagesByNearAmount(fetched, nearAmount, nearCount)
+          : fetched;
       const text = raw ? JSON.stringify(pages, null, 2) : digestSubscriptionPricePoints(pages);
       return { content: [{ type: 'text', text }] };
     },

@@ -78,6 +78,35 @@ export async function paginate(
   };
 }
 
+/**
+ * Trim a paginated price-points response to the `count` entries closest to
+ * `nearAmount` (by customerPrice). Apple's price-point endpoints don't support
+ * a near-amount filter server-side — this is a client-side narrowing so the
+ * model doesn't have to scan 600+ tiers when it already knows the target.
+ *
+ * The slice is sorted by customerPrice ascending on the way out so downstream
+ * digests still see a stable shape.
+ */
+export function filterPagesByNearAmount(
+  pages: CollectedPages,
+  nearAmount: number,
+  count: number,
+): CollectedPages {
+  const annotated = pages.data
+    .map((r) => {
+      const raw = r.attributes?.['customerPrice'] as string | undefined;
+      const amt = raw === undefined ? Number.NaN : Number.parseFloat(raw);
+      return { r, amt };
+    })
+    .filter((x) => Number.isFinite(x.amt));
+  annotated.sort((a, b) => Math.abs(a.amt - nearAmount) - Math.abs(b.amt - nearAmount));
+  const sliced = annotated.slice(0, count).sort((a, b) => a.amt - b.amt);
+  return {
+    ...pages,
+    data: sliced.map((x) => x.r),
+  };
+}
+
 export function buildIncludedIndex(included: JSONAPIResource[]): Map<string, JSONAPIResource> {
   const map = new Map<string, JSONAPIResource>();
   for (const r of included) {

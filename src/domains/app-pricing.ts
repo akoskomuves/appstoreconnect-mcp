@@ -4,7 +4,7 @@ import type { ASCClient } from '../client.js';
 import { digestAppPricePoints, digestAppPrices } from '../digest.js';
 import { ASCError } from '../errors.js';
 import type { JSONAPIResponse } from '../jsonapi.js';
-import { paginate } from '../jsonapi.js';
+import { filterPagesByNearAmount, paginate } from '../jsonapi.js';
 import {
   AppIdSchema,
   AppPricePointIdSchema,
@@ -73,15 +73,30 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
     {
       title: 'List app price points',
       description:
-        'List the valid price points a paid app can be set to in a given territory. Apple rotates these IDs; cache only within a single run.',
+        'List the valid price points a paid app can be set to in a given territory. Apple rotates these IDs; cache only within a single run. ' +
+        'Pass nearAmount when you already know the target price — the response is narrowed to the nearest tiers client-side (Apple does not support a near-amount filter server-side, so the full list is still paginated but only the nearest tiers are surfaced).',
       inputSchema: {
         appId: AppIdSchema,
         territoryId: TerritoryIdSchema,
         maxItems: z.number().int().positive().max(5000).default(1000),
+        nearAmount: z
+          .number()
+          .positive()
+          .optional()
+          .describe(
+            'Target customer price (in the territory currency). The response is filtered to the nearest tiers.',
+          ),
+        nearCount: z
+          .number()
+          .int()
+          .positive()
+          .max(100)
+          .default(10)
+          .describe('Max tiers to return when nearAmount is set.'),
         raw: z.boolean().default(false),
       },
     },
-    async ({ appId, territoryId, maxItems, raw }) => {
+    async ({ appId, territoryId, maxItems, nearAmount, nearCount, raw }) => {
       const params = new URLSearchParams();
       params.set('filter[territory]', territoryId);
       params.set('include', 'territory');
@@ -89,11 +104,15 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
       params.set('fields[territories]', TERRITORY_FIELDS);
       params.set('limit', '200');
       try {
-        const pages = await paginate(
+        const fetched = await paginate(
           client,
           `/v1/apps/${encodeURIComponent(appId)}/appPricePoints?${params.toString()}`,
           maxItems,
         );
+        const pages =
+          nearAmount !== undefined
+            ? filterPagesByNearAmount(fetched, nearAmount, nearCount)
+            : fetched;
         const text = raw ? JSON.stringify(pages, null, 2) : digestAppPricePoints(pages);
         return { content: [{ type: 'text', text }] };
       } catch (err) {

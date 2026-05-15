@@ -80,7 +80,7 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 - `asc_list_subscription_groups` — groups for an app
 - `asc_list_subscriptions` — auto-renewable subscriptions in a group
 - `asc_list_subscription_prices` — current price schedule per subscription
-- `asc_list_subscription_price_points` — valid price points for a subscription in a territory
+- `asc_list_subscription_price_points` — valid price points for a subscription in a territory. Pass `nearAmount` to narrow the response to the nearest tiers around a target price.
 
 ### Subscription pricing (writes)
 - `asc_post_subscription_price` — schedule a price change for one territory
@@ -88,14 +88,14 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 
 ### App pricing (paid non-subscription apps)
 - `asc_list_app_prices` — current price schedule for an app, splitting manual overrides from auto-derived prices and surfacing the base territory
-- `asc_list_app_price_points` — valid Apple price tiers for an app in a given territory (~600+ tiers per territory; pair with a `nearAmount` filter when supported)
+- `asc_list_app_price_points` — valid Apple price tiers for an app in a given territory (~600+ tiers per territory). Pass `nearAmount` (target price) and optional `nearCount` (default 10) to narrow the response to the nearest tiers — Apple does not support a near-amount filter server-side, so the full list is still paginated but only the nearest tiers are surfaced.
 - `asc_post_app_price_schedule` — replace the entire price schedule (whole-schedule replace, NOT a merge — matches Apple's API). Pre-flight refuses unless at least one entry targets the base territory with no `startDate`, and requires explicit `acknowledgeReplacesAll: true`. A separate `acknowledgeDeletesScheduledIfBaseChanges` ack is required when changing the base territory (Apple wipes pending scheduled changes on base-change). Apps have no grandfather mechanism — new schedules activate atomically at each entry's `startDate`.
 
 ### In-app purchases (consumables, non-consumables, non-renewing subs)
 - `asc_list_iaps` — list IAPs for an app (v2 surface only — auto-renewable subscriptions are covered by the Subscriptions tools above). Filterable by `inAppPurchaseType` and `state`. If this returns zero rows for an app you know has IAPs, the IAPs may be legacy-only and need to be migrated in the App Store Connect web UI before they appear here.
 - `asc_get_iap` — fetch a single IAP by ID.
 - `asc_list_iap_prices` — current price schedule for an IAP (same shape as app prices: manual overrides + auto-derived + base territory).
-- `asc_list_iap_price_points` — valid Apple price tiers for an IAP in a given territory.
+- `asc_list_iap_price_points` — valid Apple price tiers for an IAP in a given territory. Same `nearAmount` / `nearCount` narrowing as the app and subscription price-point tools.
 - `asc_post_iap_price_schedule` — replace the entire IAP price schedule (same whole-schedule replace semantics as `asc_post_app_price_schedule`: `acknowledgeReplacesAll: true`, base-territory entry with no `startDate`, base-change ack required). No grandfather mechanism — same as apps.
 
 ### Territories
@@ -103,8 +103,10 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 
 ### PPP rebalancing
 - `ppp_load_index` — return the bundled Apple Music Individual-plan price snapshot used as the PPP signal
-- `ppp_compute_proposal` — compute a proposed per-territory price schedule (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor). Pass `resourceType: "subscription"` (default) with `subscriptionId`, or `resourceType: "app"` with `appId` for paid apps.
-- `ppp_apply_proposal` — for `resourceType: "subscription"`: recomputes and schedules the changes against ASC after confirming via MCP elicitation (or `confirm: true` for unattended use). Refuses to apply if any row drops by more than `maxDropPct` (default 90%); paces writes at `maxConcurrency` (default 2) and retries 429s automatically; skips territories where ASC billing currency ≠ Apple Music currency. For `resourceType: "app"`: returns the proposal table plus a JSON payload pre-formatted for `asc_post_app_price_schedule` (auto-apply for apps is on the v0.2 follow-up list — Apple's whole-schedule-replace semantics need a different code path).
+- `ppp_compute_proposal` — compute a proposed per-territory price schedule (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor). Pass `resourceType: "subscription"` (default) with `subscriptionId`, `resourceType: "app"` with `appId` for paid apps, or `resourceType: "iap"` with `iapId`.
+- `ppp_apply_proposal` — recompute and apply the proposal against ASC after confirming via MCP elicitation (or `confirm: true` for unattended use). Refuses if any row drops by more than `maxDropPct` (default 90%); skips territories where ASC billing currency ≠ Apple Music currency.
+  - For **subscriptions**: per-territory `subscriptionPrices` POSTs, paced at `maxConcurrency` (default 2), retrying 429s automatically; existing subscribers grandfathered when `preserveCurrentPrice: true` (default).
+  - For **apps** and **IAPs**: a single whole-schedule-replace POST (one HTTP call, atomic). Apps/IAPs have no grandfather mechanism — new prices activate at each entry's `startDate`. Requires `acknowledgeDeletesScheduledIfBaseChanges: true` when changing the base territory (Apple wipes pending scheduled changes on base-change).
 
 ### Response shape
 
@@ -138,20 +140,20 @@ Then ask Claude: *"Rebalance my subscription prices using the ppp-rebalance skil
 
 ## Roadmap
 
-v0.1 and the v0.2.0 slice cover roughly all of monetization pricing reads + subscription writes + paid-app whole-schedule writes. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
+v0.1–v0.4 cover the full monetization-pricing surface: reads + writes + one-shot PPP rebalance across subscriptions, paid apps, and in-app purchases. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
 
 | Phase | Domain | What it unlocks |
 | --- | --- | --- |
 | **v0.1** ✓ | Apps · subscriptions · subscription pricing · PPP rebalance | Schedule per-territory price changes by purchasing power. |
 | **v0.2.0** ✓ | App pricing (non-subscription): list / list price points / replace schedule · PPP compute extended to apps | PPP dry-run against paid apps; manual apply via `asc_post_app_price_schedule`. |
 | **v0.3.0** ✓ | In-app purchases (v2): list / get / price schedule reads + writes | Same monetization surface for IAPs (consumables, non-consumables, non-renewing subs). Auto-renewables stay on the Subscriptions tools. |
-| **v0.4+** | App-side `ppp_apply_proposal` auto-apply · PPP for IAPs · introductory offers · promotional offers · `nearAmount` filter on price-point listing | One-shot PPP rebalance for *every* paid surface, not just subs. |
-| **v0.3** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
-| **v0.4** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |
-| **v0.5** | Customer reviews (read · respond · filter by sentiment/version) | "Draft a response to every 1-star review on the latest version that mentions the export bug. Show me before posting." |
-| **v0.6** | Sales/trends · finance reports · app analytics | "Why did MRR drop in Brazil last week? Compare to the rebalance activation date." |
-| **v0.7** | EU DMA: external purchase links · alternative payment systems · compliance reports | Niche but valuable for any app opting out of Apple's commerce in the EU. |
-| **v0.8+** | Real-FX for currency-mismatch territories · screenshot uploads · ASO keyword analysis · custom product pages · A/B tests | Polish + advanced surfaces. |
+| **v0.4.0** ✓ | `ppp_apply_proposal` auto-apply for apps + IAPs · PPP for IAPs · `nearAmount` filter on price-point listings | One-shot PPP rebalance for *every* paid surface, not just subs. |
+| **v0.5** | Introductory offers · promotional offers · subscription offer codes | Run discount campaigns across territories with the same PPP awareness. |
+| **v0.6** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
+| **v0.7** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |
+| **v0.8** | Customer reviews (read · respond · filter by sentiment/version) | "Draft a response to every 1-star review on the latest version that mentions the export bug. Show me before posting." |
+| **v0.9** | Sales/trends · finance reports · app analytics | "Why did MRR drop in Brazil last week? Compare to the rebalance activation date." |
+| **v1.0+** | EU DMA · real-FX for currency-mismatch territories · screenshot uploads · ASO keyword analysis · custom product pages · A/B tests | Compliance, polish, and advanced surfaces. |
 
 **Out of scope** (Fastlane / Xcode already do these well): provisioning profiles, certificates, devices, capabilities, Game Center config.
 

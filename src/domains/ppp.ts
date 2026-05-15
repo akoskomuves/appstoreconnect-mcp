@@ -19,13 +19,22 @@ import {
   type RoundStrategy,
   snapToTier,
 } from '../ppp/index.js';
-import { AppIdSchema, SubscriptionIdSchema } from '../schemas.js';
+import { AppIdSchema, InAppPurchaseIdSchema, SubscriptionIdSchema } from '../schemas.js';
 
-type ResourceType = 'subscription' | 'app';
+type ResourceType = 'subscription' | 'app' | 'iap';
 
 interface PricePointInfo {
   id: string;
   amount: number;
+}
+
+// Current-price record carries pointId so the apply path can build the
+// active-now base-territory entry without a second read. Compute ignores it.
+interface CurrentPrice {
+  amount: number;
+  territory: string;
+  currency: string;
+  pointId: string;
 }
 
 interface ProposalRow {
@@ -70,13 +79,13 @@ function todayPlusDaysISO(days: number): string {
 async function fetchCurrentPriceMap(
   client: ASCClient,
   subscriptionId: string,
-): Promise<Map<string, { amount: number; territory: string; currency: string }>> {
+): Promise<Map<string, CurrentPrice>> {
   const path = `/v1/subscriptions/${encodeURIComponent(
     subscriptionId,
   )}/prices?include=subscriptionPricePoint,territory`;
   const pages = await paginate(client, path, 2000);
   const index = buildIncludedIndex(pages.included);
-  const out = new Map<string, { amount: number; territory: string; currency: string }>();
+  const out = new Map<string, CurrentPrice>();
   for (const price of pages.data) {
     const territoryRel = price.relationships?.['territory']?.data;
     const pointRel = price.relationships?.['subscriptionPricePoint']?.data;
@@ -88,7 +97,7 @@ async function fetchCurrentPriceMap(
     const amount = parseDecimal(point?.attributes?.['customerPrice'] as string | undefined);
     const currency = (territory?.attributes?.['currency'] as string | undefined) ?? '';
     if (amount === undefined) continue;
-    out.set(territoryId, { amount, territory: territoryId, currency });
+    out.set(territoryId, { amount, territory: territoryId, currency, pointId });
   }
   return out;
 }
@@ -124,35 +133,60 @@ async function fetchPricePointsForTerritory(
 async function fetchCurrentAppPriceMap(
   client: ASCClient,
   appId: string,
-): Promise<Map<string, { amount: number; territory: string; currency: string }>> {
+): Promise<Map<string, CurrentPrice>> {
+  return fetchCurrentScheduleMap(client, {
+    schedulePath: `/v1/apps/${encodeURIComponent(appId)}/appPriceSchedule`,
+    pricesType: 'appPrices',
+    pricePointRelKey: 'appPricePoint',
+    fetchPoints: (t) => fetchAppPricePointsForTerritoryWithCurrency(client, appId, t),
+  });
+}
+
+async function fetchCurrentIapPriceMap(
+  client: ASCClient,
+  iapId: string,
+): Promise<Map<string, CurrentPrice>> {
+  return fetchCurrentScheduleMap(client, {
+    schedulePath: `/v2/inAppPurchases/${encodeURIComponent(iapId)}/iapPriceSchedule`,
+    pricesType: 'inAppPurchasePrices',
+    pricePointRelKey: 'inAppPurchasePricePoint',
+    fetchPoints: (t) => fetchIapPricePointsForTerritoryWithCurrency(client, iapId, t),
+  });
+}
+
+// Shared implementation behind fetchCurrentAppPriceMap / fetchCurrentIapPriceMap.
+// Both Apple endpoints reject chained includes on the schedule resource, so
+// price-point amounts have to be resolved via one fetch per unique territory.
+async function fetchCurrentScheduleMap(
+  client: ASCClient,
+  cfg: {
+    schedulePath: string;
+    pricesType: string;
+    pricePointRelKey: string;
+    fetchPoints: (
+      territoryId: string,
+    ) => Promise<Map<string, { amount: number; currency: string }>>;
+  },
+): Promise<Map<string, CurrentPrice>> {
   const params = new URLSearchParams();
   params.set('include', 'manualPrices,automaticPrices,baseTerritory');
-  const pages = await paginate(
-    client,
-    `/v1/apps/${encodeURIComponent(appId)}/appPriceSchedule?${params.toString()}`,
-    2000,
-  );
+  const pages = await paginate(client, `${cfg.schedulePath}?${params.toString()}`, 2000);
 
-  // Collect (territoryId, pricePointId) pairs from the included AppPrice rows.
-  const appPrices = pages.included.filter((r) => r.type === 'appPrices');
+  const priceResources = pages.included.filter((r) => r.type === cfg.pricesType);
   type Entry = { territoryId: string; pricePointId: string };
   const entries: Entry[] = [];
-  for (const price of appPrices) {
+  for (const price of priceResources) {
     const territoryRel = price.relationships?.['territory']?.data;
-    const pointRel = price.relationships?.['appPricePoint']?.data;
+    const pointRel = price.relationships?.[cfg.pricePointRelKey]?.data;
     const territoryId = territoryRel && !Array.isArray(territoryRel) ? territoryRel.id : undefined;
     const pricePointId = pointRel && !Array.isArray(pointRel) ? pointRel.id : undefined;
     if (!territoryId || !pricePointId) continue;
     entries.push({ territoryId, pricePointId });
   }
 
-  // Fan out: one fetch per unique territory to resolve point amounts. Apple's
-  // appPriceSchedule endpoint won't return the amounts inline so we have to.
   const uniqueTerritories = Array.from(new Set(entries.map((e) => e.territoryId)));
   const pointsByTerritory = new Map<string, Map<string, { amount: number; currency: string }>>();
-  const fetched = await Promise.allSettled(
-    uniqueTerritories.map((t) => fetchAppPricePointsForTerritoryWithCurrency(client, appId, t)),
-  );
+  const fetched = await Promise.allSettled(uniqueTerritories.map((t) => cfg.fetchPoints(t)));
   for (let i = 0; i < uniqueTerritories.length; i++) {
     const res = fetched[i];
     if (!res || res.status !== 'fulfilled') continue;
@@ -161,7 +195,7 @@ async function fetchCurrentAppPriceMap(
     pointsByTerritory.set(territoryId, res.value);
   }
 
-  const out = new Map<string, { amount: number; territory: string; currency: string }>();
+  const out = new Map<string, CurrentPrice>();
   for (const e of entries) {
     const points = pointsByTerritory.get(e.territoryId);
     const point = points?.get(e.pricePointId);
@@ -170,6 +204,7 @@ async function fetchCurrentAppPriceMap(
       amount: point.amount,
       territory: e.territoryId,
       currency: point.currency,
+      pointId: e.pricePointId,
     });
   }
   return out;
@@ -216,6 +251,47 @@ async function fetchAppPricePointsForTerritory(
   return Array.from(map.entries()).map(([id, { amount }]) => ({ id, amount }));
 }
 
+// IAP analog of fetchAppPricePointsForTerritoryWithCurrency. Apple's IAP v2
+// price-points endpoint sits at /v2/inAppPurchases/{id}/pricePoints and uses
+// `inAppPurchasePricePoints` as the field-selector type name.
+async function fetchIapPricePointsForTerritoryWithCurrency(
+  client: ASCClient,
+  iapId: string,
+  territoryId: string,
+): Promise<Map<string, { amount: number; currency: string }>> {
+  const params = new URLSearchParams();
+  params.set('filter[territory]', territoryId);
+  params.set('include', 'territory');
+  params.set('fields[inAppPurchasePricePoints]', 'customerPrice');
+  params.set('fields[territories]', 'currency');
+  params.set('limit', '200');
+  const pages = await paginate(
+    client,
+    `/v2/inAppPurchases/${encodeURIComponent(iapId)}/pricePoints?${params.toString()}`,
+    5000,
+  );
+  const territoryResource = pages.included.find(
+    (r) => r.type === 'territories' && r.id === territoryId,
+  );
+  const currency = (territoryResource?.attributes?.['currency'] as string | undefined) ?? '';
+  const out = new Map<string, { amount: number; currency: string }>();
+  for (const p of pages.data) {
+    const amt = parseDecimal(p.attributes?.['customerPrice'] as string | undefined);
+    if (amt === undefined) continue;
+    out.set(p.id, { amount: amt, currency });
+  }
+  return out;
+}
+
+async function fetchIapPricePointsForTerritory(
+  client: ASCClient,
+  iapId: string,
+  territoryId: string,
+): Promise<PricePointInfo[]> {
+  const map = await fetchIapPricePointsForTerritoryWithCurrency(client, iapId, territoryId);
+  return Array.from(map.entries()).map(([id, { amount }]) => ({ id, amount }));
+}
+
 interface ComputeArgs {
   resourceType: ResourceType;
   resourceId: string;
@@ -238,17 +314,29 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
     );
   }
 
-  // Dispatch the resource-specific fetchers. Subs and apps use different ASC
-  // endpoints and different relationship names; we hide that behind these
-  // closures so the rest of the pipeline doesn't care which it's pricing.
-  const fetchCurrent =
-    args.resourceType === 'subscription'
-      ? () => fetchCurrentPriceMap(client, args.resourceId)
-      : () => fetchCurrentAppPriceMap(client, args.resourceId);
-  const fetchPoints =
-    args.resourceType === 'subscription'
-      ? (t: string) => fetchPricePointsForTerritory(client, args.resourceId, t)
-      : (t: string) => fetchAppPricePointsForTerritory(client, args.resourceId, t);
+  // Dispatch the resource-specific fetchers. Subs, apps, and IAPs use different
+  // ASC endpoints and relationship names; we hide that behind these closures so
+  // the rest of the pipeline doesn't care which it's pricing.
+  const fetchCurrent = (() => {
+    switch (args.resourceType) {
+      case 'subscription':
+        return () => fetchCurrentPriceMap(client, args.resourceId);
+      case 'app':
+        return () => fetchCurrentAppPriceMap(client, args.resourceId);
+      case 'iap':
+        return () => fetchCurrentIapPriceMap(client, args.resourceId);
+    }
+  })();
+  const fetchPoints = (() => {
+    switch (args.resourceType) {
+      case 'subscription':
+        return (t: string) => fetchPricePointsForTerritory(client, args.resourceId, t);
+      case 'app':
+        return (t: string) => fetchAppPricePointsForTerritory(client, args.resourceId, t);
+      case 'iap':
+        return (t: string) => fetchIapPricePointsForTerritory(client, args.resourceId, t);
+    }
+  })();
 
   const currentPriceMap = await fetchCurrent();
 
@@ -534,6 +622,337 @@ interface ApplyResult {
   error?: string;
 }
 
+// JSON:API wire names that differ between app and IAP price schedules. Keeping
+// them in one config object so the body-builder reads as one shape.
+interface ScheduleResourceConfig {
+  // Endpoint to POST the schedule to (one shot, whole-schedule replace).
+  postEndpoint: string;
+  // Endpoint to GET the current schedule (to detect base-territory change).
+  schedulePath: string;
+  // JSON:API type of the schedule resource itself.
+  scheduleType: string;
+  // JSON:API type of the individual price rows.
+  priceType: string;
+  // JSON:API type for the price-point relationship.
+  pointType: string;
+  // Relationship name on the schedule pointing back at its owning resource
+  // (`app` for appPriceSchedule, `inAppPurchase` for iapPriceSchedule).
+  resourceRel: string;
+  // JSON:API type of the owning resource.
+  resourceType: string;
+  // Relationship name on the inline price row pointing at the owning resource.
+  // GOTCHA: IAPs use `inAppPurchaseV2` here even though the top-level rel on the
+  // schedule is `inAppPurchase` (Apple's own spec inconsistency).
+  priceResourceRel: string;
+  // Relationship name on the inline price row pointing at the price-point.
+  pricePointRel: string;
+}
+
+export const APP_SCHEDULE_CONFIG: ScheduleResourceConfig = {
+  postEndpoint: '/v1/appPriceSchedules',
+  schedulePath: '/v1/apps/{id}/appPriceSchedule',
+  scheduleType: 'appPriceSchedules',
+  priceType: 'appPrices',
+  pointType: 'appPricePoints',
+  resourceRel: 'app',
+  resourceType: 'apps',
+  priceResourceRel: 'app',
+  pricePointRel: 'appPricePoint',
+};
+
+export const IAP_SCHEDULE_CONFIG: ScheduleResourceConfig = {
+  postEndpoint: '/v1/inAppPurchasePriceSchedules',
+  schedulePath: '/v2/inAppPurchases/{id}/iapPriceSchedule',
+  scheduleType: 'inAppPurchasePriceSchedules',
+  priceType: 'inAppPurchasePrices',
+  pointType: 'inAppPurchasePricePoints',
+  resourceRel: 'inAppPurchase',
+  resourceType: 'inAppPurchases',
+  priceResourceRel: 'inAppPurchaseV2',
+  pricePointRel: 'inAppPurchasePricePoint',
+};
+
+interface SchedulePriceEntry {
+  territory: string;
+  pricePointId: string;
+  startDate?: string;
+}
+
+// Build the JSON:API body for a whole-schedule replace POST. Apple expects the
+// new price rows in `included[]` with temp IDs (`${1}`-style placeholders are
+// the documented convention for unsaved resources); each is referenced by the
+// schedule's `manualPrices` relationship array.
+export function buildScheduleBody(
+  cfg: ScheduleResourceConfig,
+  resourceId: string,
+  baseTerritory: string,
+  prices: SchedulePriceEntry[],
+): unknown {
+  const included = prices.map((p, i) => ({
+    type: cfg.priceType,
+    id: `\${${i + 1}}`,
+    attributes: {
+      ...(p.startDate ? { startDate: p.startDate } : {}),
+    },
+    relationships: {
+      [cfg.priceResourceRel]: { data: { type: cfg.resourceType, id: resourceId } },
+      [cfg.pricePointRel]: { data: { type: cfg.pointType, id: p.pricePointId } },
+      territory: { data: { type: 'territories', id: p.territory } },
+    },
+  }));
+  return {
+    data: {
+      type: cfg.scheduleType,
+      attributes: {},
+      relationships: {
+        [cfg.resourceRel]: { data: { type: cfg.resourceType, id: resourceId } },
+        baseTerritory: { data: { type: 'territories', id: baseTerritory } },
+        manualPrices: {
+          data: included.map((r) => ({ type: cfg.priceType, id: r.id })),
+        },
+      },
+    },
+    included,
+  };
+}
+
+async function fetchCurrentBaseTerritory(
+  client: ASCClient,
+  cfg: ScheduleResourceConfig,
+  resourceId: string,
+): Promise<string | undefined> {
+  const path = `${cfg.schedulePath.replace('{id}', encodeURIComponent(resourceId))}?include=baseTerritory`;
+  const current = await client.request<{
+    data: { relationships?: { baseTerritory?: { data?: { id?: string } } } };
+  }>(path);
+  return current.data.relationships?.baseTerritory?.data?.id;
+}
+
+interface ApplyScheduleArgs {
+  resourceType: 'app' | 'iap';
+  resourceId: string;
+  basePriceAnchor: number;
+  anchorTerritory: string;
+  baseTerritory: string;
+  roundStrategy: RoundStrategy;
+  floorFactor: number;
+  territories?: string[];
+  skipMissingIndex: boolean;
+  startDate: string;
+  maxDropPct: number;
+  confirm: boolean;
+  acknowledgeDeletesScheduledIfBaseChanges: boolean;
+}
+
+async function applyWholeSchedule(server: McpServer, client: ASCClient, args: ApplyScheduleArgs) {
+  const cfg = args.resourceType === 'app' ? APP_SCHEDULE_CONFIG : IAP_SCHEDULE_CONFIG;
+  const label = `${args.resourceType} ${args.resourceId}`;
+
+  // The proposal already pulls the current price map. We need it again below to
+  // resolve the active-now base-territory entry's price-point ID when the base
+  // isn't part of `writable` (typical case: the anchor price didn't change).
+  const fetchCurrent =
+    args.resourceType === 'app'
+      ? () => fetchCurrentAppPriceMap(client, args.resourceId)
+      : () => fetchCurrentIapPriceMap(client, args.resourceId);
+  const currentPriceMap = await fetchCurrent();
+
+  const ctx = await computeProposal(client, {
+    resourceType: args.resourceType,
+    resourceId: args.resourceId,
+    basePriceAnchor: args.basePriceAnchor,
+    anchorTerritory: args.anchorTerritory,
+    roundStrategy: args.roundStrategy,
+    floorFactor: args.floorFactor,
+    skipUnchanged: true,
+    ...(args.territories ? { territories: args.territories } : {}),
+    skipMissingIndex: args.skipMissingIndex,
+  });
+
+  const writable = ctx.rows.filter((r) => r.reason === 'change' && r.snappedPointId !== undefined);
+  if (writable.length === 0) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nNothing to apply — no eligible rows.`,
+        },
+      ],
+    };
+  }
+
+  // maxDropPct guardrail (same as subs).
+  const maxDropRow = writable.reduce<ProposalRow | undefined>((acc, r) => {
+    if ((r.changePct ?? 0) >= 0) return acc;
+    if (!acc || (r.changePct ?? 0) < (acc.changePct ?? 0)) return r;
+    return acc;
+  }, undefined);
+  if (maxDropRow && Math.abs(maxDropRow.changePct ?? 0) > args.maxDropPct) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nRefused to apply: ${maxDropRow.territory} drops by ${fmtPct(maxDropRow.changePct)}, which exceeds maxDropPct=${args.maxDropPct}. Either raise maxDropPct, restrict the run to specific territories, or refresh the Apple Music snapshot.`,
+        },
+      ],
+    };
+  }
+
+  // Base-territory change detection. Apple wipes pending scheduled price
+  // changes when the base territory changes — a footgun this tool exists to
+  // prevent, so we require explicit acknowledgement.
+  let currentBaseId: string | undefined;
+  try {
+    currentBaseId = await fetchCurrentBaseTerritory(client, cfg, args.resourceId);
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nPre-flight failed: couldn't read current schedule to check baseTerritory.\n\n${err instanceof Error ? err.message : String(err)}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+  if (
+    currentBaseId &&
+    currentBaseId !== args.baseTerritory &&
+    !args.acknowledgeDeletesScheduledIfBaseChanges
+  ) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nRefused to apply: changing baseTerritory from ${currentBaseId} → ${args.baseTerritory} deletes any pending scheduled price changes (Apple behavior). Pass acknowledgeDeletesScheduledIfBaseChanges: true to proceed.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // Build the schedule payload. Apple requires an active-now (no startDate)
+  // entry for baseTerritory. If the base is in the proposal as a change, use
+  // the snapped point with no startDate; otherwise pull its current point ID
+  // from the schedule and keep the current price.
+  const baseProposalRow = writable.find((r) => r.territory === args.baseTerritory);
+  let basePricePointId: string | undefined;
+  if (baseProposalRow) {
+    basePricePointId = baseProposalRow.snappedPointId;
+  } else {
+    basePricePointId = currentPriceMap.get(args.baseTerritory)?.pointId;
+  }
+  if (!basePricePointId) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nRefused to apply: couldn't resolve a price-point ID for baseTerritory=${args.baseTerritory}. The base territory must either be in the proposal (as a change) or have a current price in the schedule. Pass a different baseTerritory or set basePriceAnchor so the base territory is included.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+  const scheduleEntries: SchedulePriceEntry[] = [];
+  // Active-now base entry first.
+  scheduleEntries.push({
+    territory: args.baseTerritory,
+    pricePointId: basePricePointId,
+  });
+  // All other writable rows, with startDate.
+  for (const r of writable) {
+    if (r.territory === args.baseTerritory) continue;
+    scheduleEntries.push({
+      territory: r.territory,
+      pricePointId: r.snappedPointId as string,
+      startDate: args.startDate,
+    });
+  }
+
+  const changes = writable.length;
+  const drops = writable.filter((r) => (r.changePct ?? 0) < 0).length;
+  const lifts = writable.filter((r) => (r.changePct ?? 0) > 0).length;
+
+  // Confirmation flow mirrors the subscription path. Try elicitation; fall
+  // back to confirm:true; otherwise tell the caller to re-run.
+  let confirmed = args.confirm;
+  let confirmationSource: 'arg' | 'elicitation' = args.confirm ? 'arg' : 'arg';
+  if (!confirmed) {
+    try {
+      const elicit = await server.server.elicitInput({
+        message: `Replace the entire ${args.resourceType} price schedule for ${args.resourceId} with ${scheduleEntries.length} entries (${changes} change${
+          changes === 1 ? '' : 's'
+        }: ${drops} drop${drops === 1 ? '' : 's'}, ${lifts} lift${lifts === 1 ? '' : 's'})?\n\nBase territory:  ${args.baseTerritory}${currentBaseId && currentBaseId !== args.baseTerritory ? ` (was ${currentBaseId} — pending changes will be deleted)` : ''}\nStart date:      ${args.startDate}\nLargest drop:    ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nWARNING: this REPLACES the entire schedule. Any manual override or pending price change not in the proposal will be wiped. ${args.resourceType === 'app' ? 'Apps' : 'IAPs'} have no grandfather mechanism — new prices activate atomically at each entry's startDate.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            acknowledge: {
+              type: 'boolean',
+              title:
+                'I have reviewed the proposal above and understand it REPLACES the entire schedule',
+              description: 'Tick to enable Apply.',
+            },
+          },
+          required: ['acknowledge'],
+        },
+      });
+      if (elicit.action === 'accept' && elicit.content?.['acknowledge'] === true) {
+        confirmed = true;
+        confirmationSource = 'elicitation';
+      } else {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
+            },
+          ],
+        };
+      }
+    } catch {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${renderProposalTable(ctx, label)}\n\nClient does not support MCP elicitation. To apply, re-run with confirm: true (and the same args) — only after a human has reviewed the table above.`,
+          },
+        ],
+      };
+    }
+  }
+
+  // Single POST to the schedule endpoint. Apps and IAPs both fail or succeed
+  // atomically — no partial writes to clean up.
+  const body = buildScheduleBody(cfg, args.resourceId, args.baseTerritory, scheduleEntries);
+  try {
+    await client.request<unknown>(cfg.postEndpoint, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nApply failed: ${msg}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const summary = `Replaced ${args.resourceType} price schedule for ${args.resourceId}. ${scheduleEntries.length} entries written (${changes} from the proposal + 1 active-now base if separate), start ${args.startDate}, confirmation via ${confirmationSource}.`;
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: `${summary}\n\n${renderProposalTable(ctx, label)}\n\nVerify with ${args.resourceType === 'app' ? 'asc_list_app_prices' : 'asc_list_iap_prices'} — pending entries will have a non-null START_DATE.`,
+      },
+    ],
+  };
+}
+
 export function registerPpp(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'ppp_load_index',
@@ -569,18 +988,21 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       title: 'Compute PPP rebalance proposal',
       description:
         'Compute a proposed per-territory price schedule using the bundled Apple Music index as the PPP signal. Read-only — does not write to App Store Connect. ' +
-        'Works for subscriptions (resourceType: "subscription", default) and paid apps (resourceType: "app"). ' +
-        'Pair with ppp_apply_proposal to schedule subscription changes; for apps, the proposed prices feed asc_post_app_price_schedule.',
+        'Works for subscriptions (resourceType: "subscription", default), paid apps (resourceType: "app"), and IAPs (resourceType: "iap"). ' +
+        'Pair with ppp_apply_proposal for all three to schedule changes.',
       inputSchema: {
         resourceType: z
-          .enum(['subscription', 'app'])
+          .enum(['subscription', 'app', 'iap'])
           .default('subscription')
-          .describe('"subscription" (default) or "app" (paid non-subscription app).'),
+          .describe('"subscription" (default), "app" (paid non-subscription app), or "iap".'),
         subscriptionId: SubscriptionIdSchema.optional().describe(
           'Required when resourceType="subscription".',
         ),
         appId: AppIdSchema.optional().describe(
           'Required when resourceType="app". App pricing fetches one HTTP call per unique territory in the schedule to resolve current amounts; expect ~30s wall time for a paid app with all territories materialized.',
+        ),
+        iapId: InAppPurchaseIdSchema.optional().describe(
+          'Required when resourceType="iap". Same fetch shape as apps — one HTTP call per unique territory to resolve current amounts.',
         ),
         basePriceAnchor: z
           .number()
@@ -612,9 +1034,19 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       },
     },
     async (args) => {
-      const resourceId = args.resourceType === 'subscription' ? args.subscriptionId : args.appId;
+      const resourceId =
+        args.resourceType === 'subscription'
+          ? args.subscriptionId
+          : args.resourceType === 'app'
+            ? args.appId
+            : args.iapId;
       if (!resourceId) {
-        const expected = args.resourceType === 'subscription' ? 'subscriptionId' : 'appId';
+        const expected =
+          args.resourceType === 'subscription'
+            ? 'subscriptionId'
+            : args.resourceType === 'app'
+              ? 'appId'
+              : 'iapId';
         return {
           content: [
             {
@@ -641,13 +1073,10 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           content: [{ type: 'text', text: JSON.stringify(ctx, null, 2) }],
         };
       }
-      const label =
-        args.resourceType === 'subscription' ? `subscription ${resourceId}` : `app ${resourceId}`;
+      const label = `${args.resourceType} ${resourceId}`;
       const table = renderProposalTable(ctx, label);
       const footer =
-        args.resourceType === 'subscription'
-          ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args, or call asc_post_subscription_price per row using the POINT_IDs above.'
-          : '\n\nDry-run only. To apply for apps: call asc_post_app_price_schedule with the appId, anchorTerritory as baseTerritory, and one price entry per row above (territory + POINT_ID). ppp_apply_proposal does not yet auto-apply for apps.';
+        '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args. Subscriptions write per-row with preserveCurrentPrice; apps and IAPs do a single whole-schedule-replace POST.';
       return { content: [{ type: 'text', text: `${table}${footer}` }] };
     },
   );
@@ -658,17 +1087,14 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       title: 'Apply PPP rebalance proposal',
       description:
         'Compute a PPP rebalance proposal, then schedule the price changes against App Store Connect. ' +
-        'Subscription-only for now — for apps, use ppp_compute_proposal({resourceType: "app", ...}) to get the table, then pass the rows to asc_post_app_price_schedule. ' +
-        'By default, asks the user to confirm via MCP elicitation before any write. Pass confirm:true to bypass elicitation (useful when running under automation, or when the client does not support elicitation).',
+        'Works for subscriptions (per-territory POSTs with preserveCurrentPrice grandfathering), paid apps (one whole-schedule-replace POST — wipes any manual override or pending change not in the proposal), and IAPs (same whole-schedule-replace semantics as apps). ' +
+        "Apps and IAPs have NO grandfather mechanism — new prices activate atomically at each entry's startDate. " +
+        'By default, asks the user to confirm via MCP elicitation before any write. Pass confirm:true to bypass elicitation (useful in automation, or when the client lacks elicitation support).',
       inputSchema: {
-        resourceType: z
-          .enum(['subscription', 'app'])
-          .default('subscription')
-          .describe(
-            'Currently only "subscription" can be applied through this tool. "app" returns a pointer to asc_post_app_price_schedule.',
-          ),
+        resourceType: z.enum(['subscription', 'app', 'iap']).default('subscription'),
         subscriptionId: SubscriptionIdSchema.optional(),
         appId: AppIdSchema.optional(),
+        iapId: InAppPurchaseIdSchema.optional(),
         basePriceAnchor: z.number().positive(),
         anchorTerritory: z.string().length(3).default('USA'),
         roundStrategy: z.enum(['nearest', 'down', 'up']).default('nearest'),
@@ -683,7 +1109,9 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         preserveCurrentPrice: z
           .boolean()
           .default(true)
-          .describe('Grandfather existing subscribers. Strongly recommended.'),
+          .describe(
+            'Subscriptions only — grandfather existing subscribers at their current price. Ignored for apps and IAPs (no Apple-side equivalent).',
+          ),
         maxConcurrency: z
           .number()
           .int()
@@ -691,7 +1119,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           .max(20)
           .default(2)
           .describe(
-            'Parallel POSTs. Apple throttles writes globally (~50/min); the client retries on 429 with exponential backoff, so a low value avoids piling up retries.',
+            'Subscriptions only — parallel POSTs. Apple throttles writes (~50/min) and the client retries 429s with backoff, so a low value avoids piling up retries. Apps/IAPs always issue a single whole-schedule POST and ignore this.',
           ),
         maxDropPct: z
           .number()
@@ -707,61 +1135,54 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           .describe(
             'Skip MCP elicitation and apply directly. Use only when the client lacks elicitation support, or in automation.',
           ),
+        baseTerritory: z
+          .string()
+          .length(3)
+          .optional()
+          .describe(
+            "Apps/IAPs only — territory used as the active-now base in the new schedule. Defaults to anchorTerritory. If this differs from the resource's current base territory, you must also pass acknowledgeDeletesScheduledIfBaseChanges:true (Apple wipes pending scheduled changes on base-change).",
+          ),
+        acknowledgeDeletesScheduledIfBaseChanges: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Apps/IAPs only — required true if baseTerritory differs from the resource's current base territory.",
+          ),
       },
     },
     async (args) => {
-      // App applies aren't automated yet — the whole-schedule-replace semantics
-      // need a different code path (one POST vs N) and currency-mismatch +
-      // base-territory-change guard rails. Until that ships, compute the
-      // proposal here and return prices in a shape the user can pass directly
-      // to asc_post_app_price_schedule.
-      if (args.resourceType === 'app') {
-        if (!args.appId) {
+      // Apps and IAPs share whole-schedule-replace semantics — one POST that
+      // replaces the entire schedule, no per-row writes, no grandfather flag.
+      if (args.resourceType === 'app' || args.resourceType === 'iap') {
+        const isApp = args.resourceType === 'app';
+        const resourceId = isApp ? args.appId : args.iapId;
+        if (!resourceId) {
+          const expected = isApp ? 'appId' : 'iapId';
           return {
-            content: [{ type: 'text', text: 'Missing appId. For resourceType="app", pass appId.' }],
+            content: [
+              {
+                type: 'text',
+                text: `Missing ${expected}. For resourceType="${args.resourceType}", pass ${expected}.`,
+              },
+            ],
             isError: true,
           };
         }
-        const ctx = await computeProposal(client, {
-          resourceType: 'app',
-          resourceId: args.appId,
+        return applyWholeSchedule(server, client, {
+          resourceType: args.resourceType,
+          resourceId,
           basePriceAnchor: args.basePriceAnchor,
           anchorTerritory: args.anchorTerritory,
+          baseTerritory: args.baseTerritory ?? args.anchorTerritory,
           roundStrategy: args.roundStrategy as RoundStrategy,
           floorFactor: args.floorFactor,
-          skipUnchanged: true,
           ...(args.territories ? { territories: args.territories } : {}),
           skipMissingIndex: args.skipMissingIndex,
+          startDate: args.startDate ?? todayPlusDaysISO(7),
+          maxDropPct: args.maxDropPct,
+          confirm: args.confirm,
+          acknowledgeDeletesScheduledIfBaseChanges: args.acknowledgeDeletesScheduledIfBaseChanges,
         });
-        const writableRows = ctx.rows.filter(
-          (r) => r.reason === 'change' && r.snappedPointId !== undefined,
-        );
-        const pricesPayload = writableRows.map((r) => ({
-          territory: r.territory,
-          pricePointId: r.snappedPointId as string,
-        }));
-        const table = renderProposalTable(ctx, `app ${args.appId}`);
-        const apply = JSON.stringify(
-          {
-            appId: args.appId,
-            baseTerritory: args.anchorTerritory,
-            prices: pricesPayload,
-            acknowledgeReplacesAll: true,
-          },
-          null,
-          2,
-        );
-        return {
-          content: [
-            {
-              type: 'text',
-              text:
-                `${table}\n\n` +
-                `App PPP auto-apply not yet implemented. To schedule these prices, call asc_post_app_price_schedule with:\n\n${apply}\n\n` +
-                `IMPORTANT: ${args.anchorTerritory} (used as baseTerritory) must appear in prices[] with no startDate, AND must currently be your app's base territory — otherwise add acknowledgeDeletesScheduledIfBaseChanges: true.`,
-            },
-          ],
-        };
       }
 
       if (!args.subscriptionId) {
