@@ -19,9 +19,17 @@ import {
   type RoundStrategy,
   snapToTier,
 } from '../ppp/index.js';
-import { AppIdSchema, InAppPurchaseIdSchema, SubscriptionIdSchema } from '../schemas.js';
+import {
+  AppIdSchema,
+  InAppPurchaseIdSchema,
+  NumberOfPeriodsSchema,
+  OfferModeSchema,
+  StartDateSchema,
+  SubscriptionIdSchema,
+  SubscriptionOfferDurationSchema,
+} from '../schemas.js';
 
-type ResourceType = 'subscription' | 'app' | 'iap';
+type ResourceType = 'subscription' | 'app' | 'iap' | 'introductoryOffer';
 
 interface PricePointInfo {
   id: string;
@@ -317,9 +325,15 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
   // Dispatch the resource-specific fetchers. Subs, apps, and IAPs use different
   // ASC endpoints and relationship names; we hide that behind these closures so
   // the rest of the pipeline doesn't care which it's pricing.
+  // Intro offers attach to a subscription, use the same per-territory price
+  // points, and only make sense in territories where the parent sub is already
+  // priced — so the fetchers are the subscription fetchers, parameterized on
+  // the same resourceId (a subscriptionId in disguise). The Δ column then
+  // reads "offer vs current sub price", which is the relevant comparison.
   const fetchCurrent = (() => {
     switch (args.resourceType) {
       case 'subscription':
+      case 'introductoryOffer':
         return () => fetchCurrentPriceMap(client, args.resourceId);
       case 'app':
         return () => fetchCurrentAppPriceMap(client, args.resourceId);
@@ -330,6 +344,7 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
   const fetchPoints = (() => {
     switch (args.resourceType) {
       case 'subscription':
+      case 'introductoryOffer':
         return (t: string) => fetchPricePointsForTerritory(client, args.resourceId, t);
       case 'app':
         return (t: string) => fetchAppPricePointsForTerritory(client, args.resourceId, t);
@@ -574,6 +589,53 @@ export async function concurrentMap<T, R>(
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, runWorker);
   await Promise.all(workers);
   return results;
+}
+
+async function postIntroOffer(
+  client: ASCClient,
+  args: {
+    subscriptionId: string;
+    territoryId: string;
+    pricePointId: string;
+    offerMode: 'PAY_AS_YOU_GO' | 'PAY_UP_FRONT';
+    duration: string;
+    startDate: string;
+    endDate: string | undefined;
+    numberOfPeriods: number | undefined;
+  },
+): Promise<{ ok: true; id?: string } | { ok: false; error: string }> {
+  const attributes: Record<string, unknown> = {
+    startDate: args.startDate,
+    duration: args.duration,
+    offerMode: args.offerMode,
+  };
+  if (args.endDate !== undefined) attributes.endDate = args.endDate;
+  if (args.offerMode === 'PAY_AS_YOU_GO' && args.numberOfPeriods !== undefined) {
+    attributes.numberOfPeriods = args.numberOfPeriods;
+  }
+  const body = {
+    data: {
+      type: 'subscriptionIntroductoryOffers',
+      attributes,
+      relationships: {
+        subscription: { data: { type: 'subscriptions', id: args.subscriptionId } },
+        territory: { data: { type: 'territories', id: args.territoryId } },
+        subscriptionPricePoint: {
+          data: { type: 'subscriptionPricePoints', id: args.pricePointId },
+        },
+      },
+    },
+  };
+  try {
+    const res = await client.request<{ data?: { id?: string } }>(
+      '/v1/subscriptionIntroductoryOffers',
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+    return res?.data?.id ? { ok: true, id: res.data.id } : { ok: true };
+  } catch (err) {
+    const e = err as { message?: string };
+    return { ok: false, error: e.message ?? String(err) };
+  }
 }
 
 async function postSubscriptionPrice(
@@ -953,6 +1015,173 @@ async function applyWholeSchedule(server: McpServer, client: ASCClient, args: Ap
   };
 }
 
+interface ApplyIntroOfferArgs {
+  subscriptionId: string;
+  offerMode: 'PAY_AS_YOU_GO' | 'PAY_UP_FRONT';
+  duration: string;
+  numberOfPeriods: number | undefined;
+  endDate: string | undefined;
+  basePriceAnchor: number;
+  anchorTerritory: string;
+  roundStrategy: RoundStrategy;
+  floorFactor: number;
+  territories?: string[];
+  skipMissingIndex: boolean;
+  startDate: string;
+  maxConcurrency: number;
+  maxDropPct: number;
+  confirm: boolean;
+}
+
+async function applyIntroOfferProposal(
+  server: McpServer,
+  client: ASCClient,
+  args: ApplyIntroOfferArgs,
+) {
+  const label = `${args.offerMode} introductory offer on subscription ${args.subscriptionId} (duration=${args.duration}${
+    args.numberOfPeriods ? `, periods=${args.numberOfPeriods}` : ''
+  })`;
+  const ctx = await computeProposal(client, {
+    resourceType: 'introductoryOffer',
+    resourceId: args.subscriptionId,
+    basePriceAnchor: args.basePriceAnchor,
+    anchorTerritory: args.anchorTerritory,
+    roundStrategy: args.roundStrategy,
+    floorFactor: args.floorFactor,
+    skipUnchanged: true,
+    ...(args.territories ? { territories: args.territories } : {}),
+    skipMissingIndex: args.skipMissingIndex,
+  });
+
+  const writable = ctx.rows.filter((r) => r.reason === 'change' && r.snappedPointId !== undefined);
+  if (writable.length === 0) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nNothing to apply — no eligible rows.`,
+        },
+      ],
+    };
+  }
+
+  const maxDropRow = writable.reduce<ProposalRow | undefined>((acc, r) => {
+    if ((r.changePct ?? 0) >= 0) return acc;
+    if (!acc || (r.changePct ?? 0) < (acc.changePct ?? 0)) return r;
+    return acc;
+  }, undefined);
+  if (maxDropRow && Math.abs(maxDropRow.changePct ?? 0) > args.maxDropPct) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nRefused to apply: ${maxDropRow.territory} drops by ${fmtPct(maxDropRow.changePct)}, which exceeds maxDropPct=${args.maxDropPct}. Either raise maxDropPct, restrict the run to specific territories, or refresh the Apple Music snapshot.`,
+        },
+      ],
+    };
+  }
+
+  const changes = writable.length;
+  const drops = writable.filter((r) => (r.changePct ?? 0) < 0).length;
+  const lifts = writable.filter((r) => (r.changePct ?? 0) > 0).length;
+
+  let confirmed = args.confirm;
+  let confirmationSource: 'arg' | 'elicitation' = args.confirm ? 'arg' : 'arg';
+  if (!confirmed) {
+    try {
+      const elicit = await server.server.elicitInput({
+        message: `Create ${changes} introductory offer${
+          changes === 1 ? '' : 's'
+        } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:    ${args.subscriptionId}\nMode:            ${args.offerMode}\nDuration:        ${args.duration}${args.numberOfPeriods ? ` × ${args.numberOfPeriods} periods` : ''}\nStart date:      ${args.startDate}${args.endDate ? `\nEnd date:        ${args.endDate}` : ''}\nLargest Δ:       ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: each row creates a new offer. Apple returns 409 if an active offer already exists for the (sub, territory) cell — those will show as failed in the result table; pre-existing offers are not modified.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            acknowledge: {
+              type: 'boolean',
+              title: 'I have reviewed the proposal above',
+              description: 'Tick to enable Apply.',
+            },
+          },
+          required: ['acknowledge'],
+        },
+      });
+      if (elicit.action === 'accept' && elicit.content?.['acknowledge'] === true) {
+        confirmed = true;
+        confirmationSource = 'elicitation';
+      } else {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
+            },
+          ],
+        };
+      }
+    } catch {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${renderProposalTable(ctx, label)}\n\nClient does not support MCP elicitation. To apply, re-run with confirm: true (and the same args) — only after a human has reviewed the table above.`,
+          },
+        ],
+      };
+    }
+  }
+
+  const applyResults = await concurrentMap(
+    writable,
+    args.maxConcurrency,
+    async (row): Promise<ApplyResult> => {
+      const result = await postIntroOffer(client, {
+        subscriptionId: args.subscriptionId,
+        territoryId: row.territory,
+        pricePointId: row.snappedPointId as string,
+        offerMode: args.offerMode,
+        duration: args.duration,
+        startDate: args.startDate,
+        endDate: args.endDate,
+        numberOfPeriods: args.numberOfPeriods,
+      });
+      if (result.ok) {
+        return {
+          territory: row.territory,
+          pricePointId: row.snappedPointId as string,
+          status: 'applied',
+          ...(result.id ? { newPriceId: result.id } : {}),
+        };
+      }
+      return {
+        territory: row.territory,
+        pricePointId: row.snappedPointId as string,
+        status: 'failed',
+        error: result.error,
+      };
+    },
+  );
+
+  const succeeded = applyResults.filter((r) => r.status === 'applied');
+  const failed = applyResults.filter((r) => r.status === 'failed');
+
+  const resultColumns: Column[] = [
+    { header: 'TERR' },
+    { header: 'STATUS' },
+    { header: 'OFFER_ID_OR_ERROR' },
+  ];
+  const resultRows = applyResults.map((r) => [
+    r.territory,
+    r.status,
+    r.status === 'applied' ? (r.newPriceId ?? '') : (r.error ?? ''),
+  ]);
+
+  const summary = `Created ${succeeded.length}/${changes} introductory offer${
+    changes === 1 ? '' : 's'
+  } (failed ${failed.length}). Subscription ${args.subscriptionId}, mode ${args.offerMode}, start ${args.startDate}, confirmation via ${confirmationSource}.`;
+  const text = `${summary}\n\n${formatTable(resultColumns, resultRows)}\n\nVerify with asc_list_subscription_introductory_offers ${args.subscriptionId}.`;
+  return { content: [{ type: 'text' as const, text }] };
+}
+
 export function registerPpp(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'ppp_load_index',
@@ -988,21 +1217,32 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       title: 'Compute PPP rebalance proposal',
       description:
         'Compute a proposed per-territory price schedule using the bundled Apple Music index as the PPP signal. Read-only — does not write to App Store Connect. ' +
-        'Works for subscriptions (resourceType: "subscription", default), paid apps (resourceType: "app"), and IAPs (resourceType: "iap"). ' +
-        'Pair with ppp_apply_proposal for all three to schedule changes.',
+        'Works for subscriptions (resourceType: "subscription", default), paid apps (resourceType: "app"), IAPs (resourceType: "iap"), and subscription introductory offers (resourceType: "introductoryOffer" — pass subscriptionId, offerMode, duration; PAY_AS_YOU_GO also needs numberOfPeriods. FREE_TRIAL is rejected since there is no price to compute — use asc_post_subscription_introductory_offer with territoryId omitted for a single global free trial). ' +
+        'Pair with ppp_apply_proposal to schedule changes.',
       inputSchema: {
         resourceType: z
-          .enum(['subscription', 'app', 'iap'])
+          .enum(['subscription', 'app', 'iap', 'introductoryOffer'])
           .default('subscription')
-          .describe('"subscription" (default), "app" (paid non-subscription app), or "iap".'),
+          .describe(
+            '"subscription" (default), "app" (paid non-subscription app), "iap", or "introductoryOffer" (PPP-aware per-territory introductory offers on a subscription).',
+          ),
         subscriptionId: SubscriptionIdSchema.optional().describe(
-          'Required when resourceType="subscription".',
+          'Required when resourceType="subscription" or "introductoryOffer".',
         ),
         appId: AppIdSchema.optional().describe(
           'Required when resourceType="app". App pricing fetches one HTTP call per unique territory in the schedule to resolve current amounts; expect ~30s wall time for a paid app with all territories materialized.',
         ),
         iapId: InAppPurchaseIdSchema.optional().describe(
           'Required when resourceType="iap". Same fetch shape as apps — one HTTP call per unique territory to resolve current amounts.',
+        ),
+        offerMode: OfferModeSchema.optional().describe(
+          'Required when resourceType="introductoryOffer". FREE_TRIAL is rejected — no price to compute. Use PAY_AS_YOU_GO or PAY_UP_FRONT.',
+        ),
+        duration: SubscriptionOfferDurationSchema.optional().describe(
+          'Required when resourceType="introductoryOffer". The offer period length.',
+        ),
+        numberOfPeriods: NumberOfPeriodsSchema.optional().describe(
+          'Required when resourceType="introductoryOffer" and offerMode="PAY_AS_YOU_GO". Ignored otherwise.',
         ),
         basePriceAnchor: z
           .number()
@@ -1035,14 +1275,14 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
     },
     async (args) => {
       const resourceId =
-        args.resourceType === 'subscription'
+        args.resourceType === 'subscription' || args.resourceType === 'introductoryOffer'
           ? args.subscriptionId
           : args.resourceType === 'app'
             ? args.appId
             : args.iapId;
       if (!resourceId) {
         const expected =
-          args.resourceType === 'subscription'
+          args.resourceType === 'subscription' || args.resourceType === 'introductoryOffer'
             ? 'subscriptionId'
             : args.resourceType === 'app'
               ? 'appId'
@@ -1056,6 +1296,41 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           ],
           isError: true,
         };
+      }
+      if (args.resourceType === 'introductoryOffer') {
+        if (!args.offerMode || !args.duration) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'For resourceType="introductoryOffer", pass offerMode and duration.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (args.offerMode === 'FREE_TRIAL') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'FREE_TRIAL has no price — PPP does not apply. Use asc_post_subscription_introductory_offer with territoryId omitted to create a single global free trial.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (args.offerMode === 'PAY_AS_YOU_GO' && args.numberOfPeriods === undefined) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'numberOfPeriods is required when offerMode=PAY_AS_YOU_GO.',
+              },
+            ],
+            isError: true,
+          };
+        }
       }
       const ctx = await computeProposal(client, {
         resourceType: args.resourceType,
@@ -1073,10 +1348,17 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           content: [{ type: 'text', text: JSON.stringify(ctx, null, 2) }],
         };
       }
-      const label = `${args.resourceType} ${resourceId}`;
+      const label =
+        args.resourceType === 'introductoryOffer'
+          ? `${args.offerMode} introductory offer on subscription ${resourceId} (duration=${args.duration}${
+              args.numberOfPeriods ? `, periods=${args.numberOfPeriods}` : ''
+            })`
+          : `${args.resourceType} ${resourceId}`;
       const table = renderProposalTable(ctx, label);
       const footer =
-        '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args. Subscriptions write per-row with preserveCurrentPrice; apps and IAPs do a single whole-schedule-replace POST.';
+        args.resourceType === 'introductoryOffer'
+          ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args (resourceType="introductoryOffer", subscriptionId, offerMode, duration, numberOfPeriods if PAY_AS_YOU_GO). One POST to /v1/subscriptionIntroductoryOffers per change row. The Δ column compares the snapped offer price to the current regular sub price, so a -50% Δ means the offer is half off.'
+          : '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args. Subscriptions write per-row with preserveCurrentPrice; apps and IAPs do a single whole-schedule-replace POST.';
       return { content: [{ type: 'text', text: `${table}${footer}` }] };
     },
   );
@@ -1087,14 +1369,29 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       title: 'Apply PPP rebalance proposal',
       description:
         'Compute a PPP rebalance proposal, then schedule the price changes against App Store Connect. ' +
-        'Works for subscriptions (per-territory POSTs with preserveCurrentPrice grandfathering), paid apps (one whole-schedule-replace POST — wipes any manual override or pending change not in the proposal), and IAPs (same whole-schedule-replace semantics as apps). ' +
+        'Works for subscriptions (per-territory POSTs with preserveCurrentPrice grandfathering), paid apps (one whole-schedule-replace POST — wipes any manual override or pending change not in the proposal), IAPs (same whole-schedule-replace semantics as apps), and subscription introductory offers (one POST to /v1/subscriptionIntroductoryOffers per change row, paced at maxConcurrency). ' +
         "Apps and IAPs have NO grandfather mechanism — new prices activate atomically at each entry's startDate. " +
+        'Intro offers are additions, not replacements — Apple may return 409 if an active offer already exists for a (sub, territory) cell. ' +
         'By default, asks the user to confirm via MCP elicitation before any write. Pass confirm:true to bypass elicitation (useful in automation, or when the client lacks elicitation support).',
       inputSchema: {
-        resourceType: z.enum(['subscription', 'app', 'iap']).default('subscription'),
+        resourceType: z
+          .enum(['subscription', 'app', 'iap', 'introductoryOffer'])
+          .default('subscription'),
         subscriptionId: SubscriptionIdSchema.optional(),
         appId: AppIdSchema.optional(),
         iapId: InAppPurchaseIdSchema.optional(),
+        offerMode: OfferModeSchema.optional().describe(
+          'Required when resourceType="introductoryOffer". FREE_TRIAL is rejected.',
+        ),
+        duration: SubscriptionOfferDurationSchema.optional().describe(
+          'Required when resourceType="introductoryOffer".',
+        ),
+        numberOfPeriods: NumberOfPeriodsSchema.optional().describe(
+          'Required when resourceType="introductoryOffer" and offerMode="PAY_AS_YOU_GO".',
+        ),
+        endDate: StartDateSchema.optional().describe(
+          'Optional endDate (YYYY-MM-DD) for the introductory offers. Omit for open-ended. resourceType="introductoryOffer" only.',
+        ),
         basePriceAnchor: z.number().positive(),
         anchorTerritory: z.string().length(3).default('USA'),
         roundStrategy: z.enum(['nearest', 'down', 'up']).default('nearest'),
@@ -1151,6 +1448,75 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       },
     },
     async (args) => {
+      // Introductory offers attach to a subscription and use the per-row POST
+      // pattern (one HTTP call per (sub, territory)), but to a different
+      // endpoint — /v1/subscriptionIntroductoryOffers, not /subscriptionPrices.
+      // No preserveCurrentPrice (doesn't apply); same 429-retry behaviour comes
+      // from the underlying client.
+      if (args.resourceType === 'introductoryOffer') {
+        if (!args.subscriptionId) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Missing subscriptionId. For resourceType="introductoryOffer", pass subscriptionId.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (!args.offerMode || !args.duration) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'For resourceType="introductoryOffer", pass offerMode and duration.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (args.offerMode === 'FREE_TRIAL') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'FREE_TRIAL has no price — PPP does not apply. Use asc_post_subscription_introductory_offer with territoryId omitted for a single global free trial.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (args.offerMode === 'PAY_AS_YOU_GO' && args.numberOfPeriods === undefined) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'numberOfPeriods is required when offerMode=PAY_AS_YOU_GO.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        return applyIntroOfferProposal(server, client, {
+          subscriptionId: args.subscriptionId,
+          offerMode: args.offerMode,
+          duration: args.duration,
+          numberOfPeriods: args.numberOfPeriods,
+          endDate: args.endDate,
+          basePriceAnchor: args.basePriceAnchor,
+          anchorTerritory: args.anchorTerritory,
+          roundStrategy: args.roundStrategy as RoundStrategy,
+          floorFactor: args.floorFactor,
+          ...(args.territories ? { territories: args.territories } : {}),
+          skipMissingIndex: args.skipMissingIndex,
+          startDate: args.startDate ?? todayPlusDaysISO(7),
+          maxConcurrency: args.maxConcurrency,
+          maxDropPct: args.maxDropPct,
+          confirm: args.confirm,
+        });
+      }
+
       // Apps and IAPs share whole-schedule-replace semantics — one POST that
       // replaces the entire schedule, no per-row writes, no grandfather flag.
       if (args.resourceType === 'app' || args.resourceType === 'iap') {

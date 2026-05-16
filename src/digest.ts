@@ -303,6 +303,42 @@ export function digestIapPricePoints(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'iap price points')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestIntroOffers(pages: CollectedPages): string {
+  const index = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'TERR' },
+    { header: 'MODE' },
+    { header: 'DURATION' },
+    { header: 'PERIODS', align: 'right' },
+    { header: 'PRICE', align: 'right' },
+    { header: 'START' },
+    { header: 'END' },
+    { header: 'OFFER_ID' },
+  ];
+  const rows = pages.data.map((offer) => {
+    const territoryRel = rel(offer, 'territory');
+    const pricePointRel = rel(offer, 'subscriptionPricePoint');
+    const pricePoint = lookupIncluded(index, 'subscriptionPricePoints', pricePointRel?.id);
+    const offerMode = attr<string>(offer, 'offerMode') ?? '';
+    return [
+      // Apple's "all territories" wildcard returns null `territory` — surface
+      // it explicitly so the table doesn't show a confusing blank.
+      territoryRel?.id ? s(territoryRel.id) : '(all)',
+      offerMode,
+      s(attr(offer, 'duration')),
+      s(attr(offer, 'numberOfPeriods') ?? ''),
+      // FREE_TRIAL has no price even when an offer happens to carry a
+      // price-point rel from a prior mode — render dash for clarity.
+      offerMode === 'FREE_TRIAL' ? '—' : s(pricePoint ? attr(pricePoint, 'customerPrice') : ''),
+      s(attr(offer, 'startDate') ?? ''),
+      s(attr(offer, 'endDate') ?? ''),
+      offer.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'introductory offers')}\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestTerritories(pages: CollectedPages): string {
   const columns: Column[] = [{ header: 'CODE' }, { header: 'CURRENCY' }];
   const rows = pages.data.map((t) => [t.id, s(attr(t, 'currency'))]);

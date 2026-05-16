@@ -98,15 +98,23 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 - `asc_list_iap_price_points` — valid Apple price tiers for an IAP in a given territory. Same `nearAmount` / `nearCount` narrowing as the app and subscription price-point tools.
 - `asc_post_iap_price_schedule` — replace the entire IAP price schedule (same whole-schedule replace semantics as `asc_post_app_price_schedule`: `acknowledgeReplacesAll: true`, base-territory entry with no `startDate`, base-change ack required). No grandfather mechanism — same as apps.
 
+### Subscription introductory offers
+- `asc_list_subscription_introductory_offers` — list intro offers (free trial / pay-as-you-go / pay-up-front) configured for a subscription, across territories. Apple's "all territories" wildcard (a single offer with no `territory`) surfaces as `TERR=(all)` in the table.
+- `asc_get_subscription_introductory_offer` — fetch one offer by ID.
+- `asc_post_subscription_introductory_offer` — create an offer. Three `offerMode`s: `FREE_TRIAL` (no price; omit `pricePointId`), `PAY_AS_YOU_GO` (charge the offer price each period for `numberOfPeriods` periods), `PAY_UP_FRONT` (single charge for the whole duration). Pass `territoryId` to target one market, or omit it for Apple's "all territories" wildcard (uses the literal price point in every market — no auto-FX). Server-side validation refuses `PAY_*` without `pricePointId`, `PAY_AS_YOU_GO` without `numberOfPeriods`, and `endDate ≤ startDate` — Apple's error is surfaced inline otherwise.
+- `asc_patch_subscription_introductory_offer` — narrow update path: only `startDate`, `endDate`, and `pricePointId` can change after creation. To change mode / duration / periods, delete and re-create.
+- `asc_delete_subscription_introductory_offer` — delete a pending or active offer. Apple refuses to delete one that is currently redeemable; PATCH `endDate` to today to stop it instead.
+
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
 
 ### PPP rebalancing
 - `ppp_load_index` — return the bundled Apple Music Individual-plan price snapshot used as the PPP signal
-- `ppp_compute_proposal` — compute a proposed per-territory price schedule (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor). Pass `resourceType: "subscription"` (default) with `subscriptionId`, `resourceType: "app"` with `appId` for paid apps, or `resourceType: "iap"` with `iapId`.
+- `ppp_compute_proposal` — compute a proposed per-territory price schedule (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor). Pass `resourceType: "subscription"` (default) with `subscriptionId`, `resourceType: "app"` with `appId` for paid apps, `resourceType: "iap"` with `iapId`, or `resourceType: "introductoryOffer"` with `subscriptionId` plus `offerMode` / `duration` (and `numberOfPeriods` for `PAY_AS_YOU_GO`).
 - `ppp_apply_proposal` — recompute and apply the proposal against ASC after confirming via MCP elicitation (or `confirm: true` for unattended use). Refuses if any row drops by more than `maxDropPct` (default 90%); skips territories where ASC billing currency ≠ Apple Music currency.
   - For **subscriptions**: per-territory `subscriptionPrices` POSTs, paced at `maxConcurrency` (default 2), retrying 429s automatically; existing subscribers grandfathered when `preserveCurrentPrice: true` (default).
   - For **apps** and **IAPs**: a single whole-schedule-replace POST (one HTTP call, atomic). Apps/IAPs have no grandfather mechanism — new prices activate at each entry's `startDate`. Requires `acknowledgeDeletesScheduledIfBaseChanges: true` when changing the base territory (Apple wipes pending scheduled changes on base-change).
+  - For **introductory offers**: per-territory `subscriptionIntroductoryOffers` POSTs, paced at `maxConcurrency`. The Δ column compares the snapped offer price against the current regular sub price in that territory, so `-50%` means the offer is half off the sub. `FREE_TRIAL` is rejected (no price to compute — use `asc_post_subscription_introductory_offer` with `territoryId` omitted for a single global free trial). Intro offers are additions, not replacements — Apple returns 409 if an active offer already exists for a `(sub, territory)` cell, and those rows show as `failed` in the result table.
 
 ### Response shape
 
@@ -140,7 +148,7 @@ Then ask Claude: *"Rebalance my subscription prices using the ppp-rebalance skil
 
 ## Roadmap
 
-v0.1–v0.4 cover the full monetization-pricing surface: reads + writes + one-shot PPP rebalance across subscriptions, paid apps, and in-app purchases. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
+v0.1–v0.5 cover the full monetization-pricing surface: reads + writes + one-shot PPP rebalance across subscriptions, paid apps, in-app purchases, and subscription introductory offers. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
 
 | Phase | Domain | What it unlocks |
 | --- | --- | --- |
@@ -148,12 +156,14 @@ v0.1–v0.4 cover the full monetization-pricing surface: reads + writes + one-sh
 | **v0.2.0** ✓ | App pricing (non-subscription): list / list price points / replace schedule · PPP compute extended to apps | PPP dry-run against paid apps; manual apply via `asc_post_app_price_schedule`. |
 | **v0.3.0** ✓ | In-app purchases (v2): list / get / price schedule reads + writes | Same monetization surface for IAPs (consumables, non-consumables, non-renewing subs). Auto-renewables stay on the Subscriptions tools. |
 | **v0.4.0** ✓ | `ppp_apply_proposal` auto-apply for apps + IAPs · PPP for IAPs · `nearAmount` filter on price-point listings | One-shot PPP rebalance for *every* paid surface, not just subs. |
-| **v0.5** | Introductory offers · promotional offers · subscription offer codes | Run discount campaigns across territories with the same PPP awareness. |
-| **v0.6** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
-| **v0.7** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |
-| **v0.8** | Customer reviews (read · respond · filter by sentiment/version) | "Draft a response to every 1-star review on the latest version that mentions the export bug. Show me before posting." |
-| **v0.9** | Sales/trends · finance reports · app analytics | "Why did MRR drop in Brazil last week? Compare to the rebalance activation date." |
-| **v1.0+** | EU DMA · real-FX for currency-mismatch territories · screenshot uploads · ASO keyword analysis · custom product pages · A/B tests | Compliance, polish, and advanced surfaces. |
+| **v0.5.0** ✓ | Subscription introductory offers (free trial / pay-as-you-go / pay-up-front): list / get / post / patch / delete · PPP extended to intro offers | PPP-aware "first month" / "first three months" promos that adapt to local purchasing power instead of a literal $0.99 everywhere. |
+| **v0.6** | Promotional offers (existing/lapsed subscribers) · signed-offer JWT generation · PPP for promo offers | Win-back campaigns targeting existing or lapsed subscribers with PPP-aware per-territory pricing. |
+| **v0.7** | Subscription offer codes: one-time-use bulk codes · custom (multi-use) codes · CSV export | Promo-code redemption campaigns (App Store Connect → "Offer codes"). |
+| **v0.8** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
+| **v0.9** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |
+| **v1.0** | Customer reviews (read · respond · filter by sentiment/version) | "Draft a response to every 1-star review on the latest version that mentions the export bug. Show me before posting." |
+| **v1.1** | Sales/trends · finance reports · app analytics | "Why did MRR drop in Brazil last week? Compare to the rebalance activation date." |
+| **v1.2+** | EU DMA · real-FX for currency-mismatch territories · screenshot uploads · ASO keyword analysis · custom product pages · A/B tests | Compliance, polish, and advanced surfaces. |
 
 **Out of scope** (Fastlane / Xcode already do these well): provisioning profiles, certificates, devices, capabilities, Game Center config.
 

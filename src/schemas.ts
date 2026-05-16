@@ -63,3 +63,37 @@ export const InAppPurchasePricePointIdSchema = z
   .string()
   .min(1)
   .describe('IAP price-point ID from /v2/inAppPurchases/{id}/pricePoints.');
+
+export const SubscriptionIntroductoryOfferIdSchema = z
+  .string()
+  .min(1)
+  .describe('Subscription introductory offer ID from /v1/subscriptionIntroductoryOffers.');
+
+export const OfferModeSchema = z
+  .enum(['FREE_TRIAL', 'PAY_AS_YOU_GO', 'PAY_UP_FRONT'])
+  .describe(
+    'Offer mode. FREE_TRIAL has no price (omit pricePointId). PAY_AS_YOU_GO charges the offer price each period for numberOfPeriods periods. PAY_UP_FRONT charges once for the whole duration.',
+  );
+
+export const SubscriptionOfferDurationSchema = z
+  .enum([
+    'THREE_DAYS',
+    'ONE_WEEK',
+    'TWO_WEEKS',
+    'ONE_MONTH',
+    'TWO_MONTHS',
+    'THREE_MONTHS',
+    'SIX_MONTHS',
+    'ONE_YEAR',
+  ])
+  .describe(
+    "Offer period length. Apple's enum: THREE_DAYS, ONE_WEEK, TWO_WEEKS, ONE_MONTH, TWO_MONTHS, THREE_MONTHS, SIX_MONTHS, ONE_YEAR.",
+  );
+
+export const NumberOfPeriodsSchema = z
+  .number()
+  .int()
+  .positive()
+  .describe(
+    'Number of times the offer duration repeats. Only meaningful for PAY_AS_YOU_GO (e.g. duration=ONE_MONTH × periods=3 = "promo price for 3 months").',
+  );
