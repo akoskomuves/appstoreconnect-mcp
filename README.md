@@ -98,8 +98,17 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 - `asc_list_iap_price_points` — valid Apple price tiers for an IAP in a given territory. Same `nearAmount` / `nearCount` narrowing as the app and subscription price-point tools.
 - `asc_post_iap_price_schedule` — replace the entire IAP price schedule (same whole-schedule replace semantics as `asc_post_app_price_schedule`: `acknowledgeReplacesAll: true`, base-territory entry with no `startDate`, base-change ack required). No grandfather mechanism — same as apps.
 
+### Subscription introductory offers
+Introductory offers target **new** subscribers — the discounted "first window" before the regular price kicks in.
+
+- `asc_list_subscription_introductory_offers` — list intro offers (free trial / pay-as-you-go / pay-up-front) configured for a subscription, across territories. Apple's "all territories" wildcard (a single offer with no `territory`) surfaces as `TERR=(all)` in the table.
+- `asc_get_subscription_introductory_offer` — fetch one offer by ID.
+- `asc_post_subscription_introductory_offer` — create an offer. Three `offerMode`s: `FREE_TRIAL` (no price; omit `pricePointId`), `PAY_AS_YOU_GO` (charge the offer price each period for `numberOfPeriods` periods), `PAY_UP_FRONT` (single charge for the whole duration). Pass `territoryId` to target one market, or omit it for Apple's "all territories" wildcard (uses the literal price point in every market — no auto-FX). Server-side validation refuses `PAY_*` without `pricePointId`, `PAY_AS_YOU_GO` without `numberOfPeriods`, and `endDate ≤ startDate` — Apple's error is surfaced inline otherwise.
+- `asc_patch_subscription_introductory_offer` — narrow update path: only `startDate`, `endDate`, and `pricePointId` can change after creation. To change mode / duration / periods, delete and re-create.
+- `asc_delete_subscription_introductory_offer` — delete a pending or active offer. Apple refuses to delete one that is currently redeemable; PATCH `endDate` to today to stop it instead.
+
 ### Subscription promotional offers
-Promotional offers target **existing or lapsed** subscribers (introductory offers target *new* subscribers — opposite eligibility, set by the resource type, not a per-offer flag). Apple caps active promo offers at 10 per subscription. After creation, only the per-territory prices can be edited — `name`, `offerCode`, `offerMode`, `duration`, and `numberOfPeriods` are immutable.
+Promotional offers target **existing or lapsed** subscribers — opposite eligibility from intro offers, set by the resource type itself (no per-offer flag). Apple caps active promo offers at 10 per subscription. After creation, only the per-territory prices can be edited — `name`, `offerCode`, `offerMode`, `duration`, and `numberOfPeriods` are immutable.
 
 - `asc_list_subscription_promotional_offers` — list promo offers configured for a subscription.
 - `asc_get_subscription_promotional_offer` — fetch a single offer, including its per-territory prices.
@@ -109,13 +118,6 @@ Promotional offers target **existing or lapsed** subscribers (introductory offer
 - `asc_delete_subscription_promotional_offer` — DELETE → 204.
 
 JWT signing for in-app redemption (a separate `.p8` from the ASC API key) is intentionally out of scope here; planned for v0.6.1.
-
-### Subscription introductory offers
-- `asc_list_subscription_introductory_offers` — list intro offers (free trial / pay-as-you-go / pay-up-front) configured for a subscription, across territories. Apple's "all territories" wildcard (a single offer with no `territory`) surfaces as `TERR=(all)` in the table.
-- `asc_get_subscription_introductory_offer` — fetch one offer by ID.
-- `asc_post_subscription_introductory_offer` — create an offer. Three `offerMode`s: `FREE_TRIAL` (no price; omit `pricePointId`), `PAY_AS_YOU_GO` (charge the offer price each period for `numberOfPeriods` periods), `PAY_UP_FRONT` (single charge for the whole duration). Pass `territoryId` to target one market, or omit it for Apple's "all territories" wildcard (uses the literal price point in every market — no auto-FX). Server-side validation refuses `PAY_*` without `pricePointId`, `PAY_AS_YOU_GO` without `numberOfPeriods`, and `endDate ≤ startDate` — Apple's error is surfaced inline otherwise.
-- `asc_patch_subscription_introductory_offer` — narrow update path: only `startDate`, `endDate`, and `pricePointId` can change after creation. To change mode / duration / periods, delete and re-create.
-- `asc_delete_subscription_introductory_offer` — delete a pending or active offer. Apple refuses to delete one that is currently redeemable; PATCH `endDate` to today to stop it instead.
 
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
