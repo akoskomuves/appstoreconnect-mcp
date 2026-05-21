@@ -25,11 +25,11 @@
 import { createASCClient } from '../src/client.js';
 import { loadConfig } from '../src/config.js';
 import {
+  digestApps,
   digestPromotionalOfferPrices,
   digestPromotionalOffers,
   digestSubscriptionGroups,
   digestSubscriptions,
-  digestApps,
 } from '../src/digest.js';
 import { paginate } from '../src/jsonapi.js';
 
@@ -40,7 +40,9 @@ async function enumerate(client: ReturnType<typeof createASCClient>): Promise<vo
   console.log('');
 
   for (const app of apps.data) {
-    console.log(`\n=== Subscription groups for app ${app.id} (${app.attributes?.['name'] ?? ''}) ===\n`);
+    console.log(
+      `\n=== Subscription groups for app ${app.id} (${app.attributes?.['name'] ?? ''}) ===\n`,
+    );
     const groups = await paginate(
       client,
       `/v1/apps/${encodeURIComponent(app.id)}/subscriptionGroups?limit=200`,
@@ -84,7 +86,9 @@ async function smokeSub(
   )}/promotionalOffers?${params.toString()}`;
   const offers = await paginate(client, path, 200);
 
-  console.log(`Raw paginate result: data=${offers.data.length}, included=${offers.included.length}, total=${offers.total ?? 'n/a'}, truncated=${offers.truncated}\n`);
+  console.log(
+    `Raw paginate result: data=${offers.data.length}, included=${offers.included.length}, total=${offers.total ?? 'n/a'}, truncated=${offers.truncated}\n`,
+  );
 
   console.log('--- digestPromotionalOffers ---\n');
   console.log(digestPromotionalOffers(offers));
@@ -96,7 +100,7 @@ async function smokeSub(
   if (offers.data.length === 0) {
     console.log('[ok]    Zero-offer case — digest rendered without crashing.');
     console.log('[warn]  No offers exist on this subscription, so the offerCode-collision');
-    console.log('        check and the /prices endpoint can\'t be exercised. To verify those,');
+    console.log("        check and the /prices endpoint can't be exercised. To verify those,");
     console.log('        either create a promo offer manually in App Store Connect UI and');
     console.log('        re-run, or trust the OpenAPI spec.');
     return;
@@ -144,7 +148,9 @@ async function smokeSub(
       if (!t || !pp || Array.isArray(t) || Array.isArray(pp)) missingRels++;
     }
     if (missingRels > 0) {
-      console.log(`  [FAIL] ${missingRels} price row(s) missing territory or subscriptionPricePoint`);
+      console.log(
+        `  [FAIL] ${missingRels} price row(s) missing territory or subscriptionPricePoint`,
+      );
       console.log(`         relationship. patch-prices add/remove modes would drop those rows.`);
     } else if (prices.data.length > 0) {
       console.log(`  [ok]   All ${prices.data.length} price rows have the expected relationships.`);
