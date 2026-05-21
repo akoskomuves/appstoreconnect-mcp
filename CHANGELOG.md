@@ -4,9 +4,9 @@
 
 ### Minor Changes
 
-- fff9ea2: v0.6.1 — subscription offer signing for in-app redemption.
+- fff9ea2: v0.7.0 — subscription offer signing for in-app redemption.
 
-  Closes the v0.6 loop: v0.6.0 added the ASC config surface for promotional offers; v0.6.1 adds the cryptographic signer the consuming iOS app needs to redeem those offers via StoreKit. Three formats — Apple supports all three concurrently, and which you need depends on which StoreKit API your app uses.
+  Closes the v0.6 loop: v0.6.0 added the ASC config surface for promotional offers; v0.7.0 adds the cryptographic signer the consuming iOS app needs to redeem those offers via StoreKit. Three formats — Apple supports all three concurrently, and which you need depends on which StoreKit API your app uses.
 
   **New tools (three):**
 

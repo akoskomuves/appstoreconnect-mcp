@@ -39,7 +39,7 @@ const PROMO_OFFER_FIELDS = 'offerCode,name,offerMode,duration,numberOfPeriods';
 //   - Apple caps active promo offers at 10 per subscription.
 //
 // JWT signing for in-app redemption (a separate .p8 / different key from the
-// ASC API key) is intentionally NOT in this module — that's a v0.6.1 concern.
+// ASC API key) lives in offer-signing.ts (added in v0.7.0).
 
 type OfferMode = z.infer<typeof OfferModeSchema>;
 type OfferDuration = z.infer<typeof SubscriptionOfferDurationSchema>;
