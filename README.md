@@ -98,6 +98,18 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 - `asc_list_iap_price_points` — valid Apple price tiers for an IAP in a given territory. Same `nearAmount` / `nearCount` narrowing as the app and subscription price-point tools.
 - `asc_post_iap_price_schedule` — replace the entire IAP price schedule (same whole-schedule replace semantics as `asc_post_app_price_schedule`: `acknowledgeReplacesAll: true`, base-territory entry with no `startDate`, base-change ack required). No grandfather mechanism — same as apps.
 
+### Subscription promotional offers
+Promotional offers target **existing or lapsed** subscribers (introductory offers target *new* subscribers — opposite eligibility, set by the resource type, not a per-offer flag). Apple caps active promo offers at 10 per subscription. After creation, only the per-territory prices can be edited — `name`, `offerCode`, `offerMode`, `duration`, and `numberOfPeriods` are immutable.
+
+- `asc_list_subscription_promotional_offers` — list promo offers configured for a subscription.
+- `asc_get_subscription_promotional_offer` — fetch a single offer, including its per-territory prices.
+- `asc_list_subscription_promotional_offer_prices` — list per-territory price rows attached to an offer (territory + currency + amount + price-point ID).
+- `asc_post_subscription_promotional_offer` — create an offer (`name` + `offerCode` + mode + duration + all per-territory prices) in one atomic POST. Pre-flights Apple's 10-offer cap and `offerCode` collisions, refusing with a clear remedy message instead of letting Apple 409.
+- `asc_patch_subscription_promotional_offer_prices` — update the offer's per-territory prices. Apple's wire semantic is replace (the new prices array becomes the post-state, dropping any territory not listed); the tool's `mode: 'replace' | 'add' | 'remove'` parameter hides the footgun — `'add'` reads current prices and merges, `'remove'` reads and filters.
+- `asc_delete_subscription_promotional_offer` — DELETE → 204.
+
+JWT signing for in-app redemption (a separate `.p8` from the ASC API key) is intentionally out of scope here; planned for v0.6.1.
+
 ### Subscription introductory offers
 - `asc_list_subscription_introductory_offers` — list intro offers (free trial / pay-as-you-go / pay-up-front) configured for a subscription, across territories. Apple's "all territories" wildcard (a single offer with no `territory`) surfaces as `TERR=(all)` in the table.
 - `asc_get_subscription_introductory_offer` — fetch one offer by ID.
@@ -110,11 +122,12 @@ The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/A
 
 ### PPP rebalancing
 - `ppp_load_index` — return the bundled Apple Music Individual-plan price snapshot used as the PPP signal
-- `ppp_compute_proposal` — compute a proposed per-territory price schedule (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor). Pass `resourceType: "subscription"` (default) with `subscriptionId`, `resourceType: "app"` with `appId` for paid apps, `resourceType: "iap"` with `iapId`, or `resourceType: "introductoryOffer"` with `subscriptionId` plus `offerMode` / `duration` (and `numberOfPeriods` for `PAY_AS_YOU_GO`).
+- `ppp_compute_proposal` — compute a proposed per-territory price schedule (read-only dry-run; uses Apple Music ratios as implied PPP-FX, snaps to valid Apple price points, applies a configurable round strategy and floor). Pass `resourceType: "subscription"` (default) with `subscriptionId`, `resourceType: "app"` with `appId` for paid apps, `resourceType: "iap"` with `iapId`, `resourceType: "introductoryOffer"` with `subscriptionId` plus `offerMode` / `duration` (and `numberOfPeriods` for `PAY_AS_YOU_GO`), or `resourceType: "promotionalOffer"` with `subscriptionId` plus `offerMode` / `duration` / `promoOfferName` / `promoOfferCode` (and `numberOfPeriods` for `PAY_AS_YOU_GO`).
 - `ppp_apply_proposal` — recompute and apply the proposal against ASC after confirming via MCP elicitation (or `confirm: true` for unattended use). Refuses if any row drops by more than `maxDropPct` (default 90%); skips territories where ASC billing currency ≠ Apple Music currency.
   - For **subscriptions**: per-territory `subscriptionPrices` POSTs, paced at `maxConcurrency` (default 2), retrying 429s automatically; existing subscribers grandfathered when `preserveCurrentPrice: true` (default).
   - For **apps** and **IAPs**: a single whole-schedule-replace POST (one HTTP call, atomic). Apps/IAPs have no grandfather mechanism — new prices activate at each entry's `startDate`. Requires `acknowledgeDeletesScheduledIfBaseChanges: true` when changing the base territory (Apple wipes pending scheduled changes on base-change).
   - For **introductory offers**: per-territory `subscriptionIntroductoryOffers` POSTs, paced at `maxConcurrency`. The Δ column compares the snapped offer price against the current regular sub price in that territory, so `-50%` means the offer is half off the sub. `FREE_TRIAL` is rejected (no price to compute — use `asc_post_subscription_introductory_offer` with `territoryId` omitted for a single global free trial). Intro offers are additions, not replacements — Apple returns 409 if an active offer already exists for a `(sub, territory)` cell, and those rows show as `failed` in the result table.
+  - For **promotional offers**: one atomic POST to `/v1/subscriptionPromotionalOffers` creates the offer + all per-territory PPP-snapped prices in a single request. Create-only — refuses if `offerCode` collides with an existing offer or the sub is at Apple's 10-offer cap. `FREE_TRIAL` rejected (no price to compute). Same Δ-vs-current-sub-price reporting as intro offers.
 
 ### Response shape
 
@@ -148,7 +161,7 @@ Then ask Claude: *"Rebalance my subscription prices using the ppp-rebalance skil
 
 ## Roadmap
 
-v0.1–v0.5 cover the full monetization-pricing surface: reads + writes + one-shot PPP rebalance across subscriptions, paid apps, in-app purchases, and subscription introductory offers. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
+v0.1–v0.6 cover the full monetization-pricing surface: reads + writes + one-shot PPP rebalance across subscriptions, paid apps, in-app purchases, subscription introductory offers, and subscription promotional offers. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
 
 | Phase | Domain | What it unlocks |
 | --- | --- | --- |
@@ -157,7 +170,8 @@ v0.1–v0.5 cover the full monetization-pricing surface: reads + writes + one-sh
 | **v0.3.0** ✓ | In-app purchases (v2): list / get / price schedule reads + writes | Same monetization surface for IAPs (consumables, non-consumables, non-renewing subs). Auto-renewables stay on the Subscriptions tools. |
 | **v0.4.0** ✓ | `ppp_apply_proposal` auto-apply for apps + IAPs · PPP for IAPs · `nearAmount` filter on price-point listings | One-shot PPP rebalance for *every* paid surface, not just subs. |
 | **v0.5.0** ✓ | Subscription introductory offers (free trial / pay-as-you-go / pay-up-front): list / get / post / patch / delete · PPP extended to intro offers | PPP-aware "first month" / "first three months" promos that adapt to local purchasing power instead of a literal $0.99 everywhere. |
-| **v0.6** | Promotional offers (existing/lapsed subscribers) · signed-offer JWT generation · PPP for promo offers | Win-back campaigns targeting existing or lapsed subscribers with PPP-aware per-territory pricing. |
+| **v0.6.0** ✓ | Subscription promotional offers (existing/lapsed subscribers): list / get / post / patch-prices / delete · PPP extended to promo offers (create-only, atomic single-POST) | Win-back campaigns with PPP-aware per-territory pricing. |
+| **v0.6.1** | Subscription offer signing: JWT generation for in-app redemption (separate `.p8` key) | Lets a server sign offer payloads for StoreKit redemption end-to-end. |
 | **v0.7** | Subscription offer codes: one-time-use bulk codes · custom (multi-use) codes · CSV export | Promo-code redemption campaigns (App Store Connect → "Offer codes"). |
 | **v0.8** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
 | **v0.9** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |

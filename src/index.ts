@@ -12,6 +12,7 @@ import { registerIaps } from './domains/iap.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPricing } from './domains/pricing.js';
+import { registerPromoOffers } from './domains/promo-offers.js';
 import { registerSubscriptions } from './domains/subscriptions.js';
 import { registerTerritories } from './domains/territories.js';
 
@@ -66,6 +67,7 @@ async function runServer(): Promise<void> {
   registerAppPricing(server, client);
   registerIaps(server, client);
   registerIntroOffers(server, client);
+  registerPromoOffers(server, client);
   registerTerritories(server, client);
   registerPpp(server, client);
 

@@ -97,3 +97,22 @@ export const NumberOfPeriodsSchema = z
   .describe(
     'Number of times the offer duration repeats. Only meaningful for PAY_AS_YOU_GO (e.g. duration=ONE_MONTH × periods=3 = "promo price for 3 months").',
   );
+
+export const SubscriptionPromotionalOfferIdSchema = z
+  .string()
+  .min(1)
+  .describe('Subscription promotional offer ID from /v1/subscriptionPromotionalOffers.');
+
+export const OfferCodeSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Developer-chosen promotional offer code. Must be unique within the subscription. Used by StoreKit as SubscriptionOffer.id when redeeming. Immutable after creation — to rename, delete and re-create with a new code.',
+  );
+
+export const OfferNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Display/reference name for the promotional offer (visible in App Store Connect UI). Immutable after creation.',
+  );

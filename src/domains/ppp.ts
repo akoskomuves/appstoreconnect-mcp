@@ -23,13 +23,16 @@ import {
   AppIdSchema,
   InAppPurchaseIdSchema,
   NumberOfPeriodsSchema,
+  OfferCodeSchema,
   OfferModeSchema,
+  OfferNameSchema,
   StartDateSchema,
   SubscriptionIdSchema,
   SubscriptionOfferDurationSchema,
 } from '../schemas.js';
+import { buildPromoOfferBody } from './promo-offers.js';
 
-type ResourceType = 'subscription' | 'app' | 'iap' | 'introductoryOffer';
+type ResourceType = 'subscription' | 'app' | 'iap' | 'introductoryOffer' | 'promotionalOffer';
 
 interface PricePointInfo {
   id: string;
@@ -334,6 +337,7 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
     switch (args.resourceType) {
       case 'subscription':
       case 'introductoryOffer':
+      case 'promotionalOffer':
         return () => fetchCurrentPriceMap(client, args.resourceId);
       case 'app':
         return () => fetchCurrentAppPriceMap(client, args.resourceId);
@@ -345,6 +349,7 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
     switch (args.resourceType) {
       case 'subscription':
       case 'introductoryOffer':
+      case 'promotionalOffer':
         return (t: string) => fetchPricePointsForTerritory(client, args.resourceId, t);
       case 'app':
         return (t: string) => fetchAppPricePointsForTerritory(client, args.resourceId, t);
@@ -1182,6 +1187,225 @@ async function applyIntroOfferProposal(
   return { content: [{ type: 'text' as const, text }] };
 }
 
+interface ApplyPromoOfferArgs {
+  subscriptionId: string;
+  offerMode: 'PAY_AS_YOU_GO' | 'PAY_UP_FRONT';
+  duration: string;
+  numberOfPeriods: number | undefined;
+  promoOfferName: string;
+  promoOfferCode: string;
+  basePriceAnchor: number;
+  anchorTerritory: string;
+  roundStrategy: RoundStrategy;
+  floorFactor: number;
+  territories?: string[];
+  skipMissingIndex: boolean;
+  maxDropPct: number;
+  confirm: boolean;
+}
+
+async function applyPromoOfferProposal(
+  server: McpServer,
+  client: ASCClient,
+  args: ApplyPromoOfferArgs,
+) {
+  const label = `${args.offerMode} promotional offer "${args.promoOfferCode}" on subscription ${args.subscriptionId} (duration=${args.duration}${
+    args.numberOfPeriods ? `, periods=${args.numberOfPeriods}` : ''
+  })`;
+
+  // Pre-flight: refuse early if at the 10-offer cap or if offerCode collides.
+  // Doing this before the compute saves the user from waiting for a PPP
+  // proposal we're going to refuse to apply anyway. The fields[] selector
+  // pins `offerCode` so the collision check can't silently no-op.
+  try {
+    const listParams = new URLSearchParams();
+    listParams.set(
+      'fields[subscriptionPromotionalOffers]',
+      'offerCode,name,offerMode,duration,numberOfPeriods',
+    );
+    listParams.set('limit', '200');
+    const existing = await paginate(
+      client,
+      `/v1/subscriptions/${encodeURIComponent(
+        args.subscriptionId,
+      )}/promotionalOffers?${listParams.toString()}`,
+      200,
+    );
+    if (existing.data.length >= 10) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Refused: subscription ${args.subscriptionId} already has ${existing.data.length} promotional offers, at Apple's cap of 10. Delete an existing offer with asc_delete_subscription_promotional_offer before re-running PPP.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+    const codeCollision = existing.data.find(
+      (o) => o.attributes?.['offerCode'] === args.promoOfferCode,
+    );
+    if (codeCollision) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Refused: offerCode "${args.promoOfferCode}" is already in use by promo offer ${codeCollision.id} on this subscription. PPP for promotional offers is create-only — to rebalance an existing offer, delete it with asc_delete_subscription_promotional_offer and re-run, or pick a different offerCode.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Pre-flight failed (could not list existing promo offers): ${err instanceof Error ? err.message : String(err)}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const ctx = await computeProposal(client, {
+    resourceType: 'promotionalOffer',
+    resourceId: args.subscriptionId,
+    basePriceAnchor: args.basePriceAnchor,
+    anchorTerritory: args.anchorTerritory,
+    roundStrategy: args.roundStrategy,
+    floorFactor: args.floorFactor,
+    skipUnchanged: false, // a "no Δ" row is still a price the new offer needs
+    ...(args.territories ? { territories: args.territories } : {}),
+    skipMissingIndex: args.skipMissingIndex,
+  });
+
+  // Writable here = rows we have a snapped price-point for. Unlike subs/intro
+  // offers, "no change" rows still need to be written (the new offer has no
+  // existing prices — every territory in the proposal is a creation).
+  const writable = ctx.rows.filter((r) => r.snappedPointId !== undefined);
+  if (writable.length === 0) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nNothing to create — no eligible rows had a resolvable price point.`,
+        },
+      ],
+    };
+  }
+
+  const maxDropRow = writable.reduce<ProposalRow | undefined>((acc, r) => {
+    if ((r.changePct ?? 0) >= 0) return acc;
+    if (!acc || (r.changePct ?? 0) < (acc.changePct ?? 0)) return r;
+    return acc;
+  }, undefined);
+  if (maxDropRow && Math.abs(maxDropRow.changePct ?? 0) > args.maxDropPct) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nRefused to apply: ${maxDropRow.territory} drops by ${fmtPct(maxDropRow.changePct)}, which exceeds maxDropPct=${args.maxDropPct}. Either raise maxDropPct, restrict the run to specific territories, or refresh the Apple Music snapshot.`,
+        },
+      ],
+    };
+  }
+
+  const drops = writable.filter((r) => (r.changePct ?? 0) < 0).length;
+  const lifts = writable.filter((r) => (r.changePct ?? 0) > 0).length;
+
+  let confirmed = args.confirm;
+  let confirmationSource: 'arg' | 'elicitation' = args.confirm ? 'arg' : 'arg';
+  if (!confirmed) {
+    try {
+      const elicit = await server.server.elicitInput({
+        message: `Create promotional offer "${args.promoOfferCode}" (${args.promoOfferName}) with ${writable.length} per-territory price${
+          writable.length === 1 ? '' : 's'
+        } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:    ${args.subscriptionId}\nMode:            ${args.offerMode}\nDuration:        ${args.duration}${args.numberOfPeriods ? ` × ${args.numberOfPeriods} periods` : ''}\nLargest Δ:       ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: this is one atomic POST. The offer + all listed prices either all land or none do. After creation, only the prices can be PATCHed — name/code/mode/duration are immutable.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            acknowledge: {
+              type: 'boolean',
+              title: 'I have reviewed the proposal above',
+              description: 'Tick to enable Apply.',
+            },
+          },
+          required: ['acknowledge'],
+        },
+      });
+      if (elicit.action === 'accept' && elicit.content?.['acknowledge'] === true) {
+        confirmed = true;
+        confirmationSource = 'elicitation';
+      } else {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
+            },
+          ],
+        };
+      }
+    } catch {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${renderProposalTable(ctx, label)}\n\nClient does not support MCP elicitation. To apply, re-run with confirm: true (and the same args) — only after a human has reviewed the table above.`,
+          },
+        ],
+      };
+    }
+  }
+
+  // Build and send the single atomic POST.
+  const body = buildPromoOfferBody({
+    subscriptionId: args.subscriptionId,
+    name: args.promoOfferName,
+    offerCode: args.promoOfferCode,
+    offerMode: args.offerMode,
+    duration: args.duration as Parameters<typeof buildPromoOfferBody>[0]['duration'],
+    numberOfPeriods: args.numberOfPeriods,
+    prices: writable.map((r) => ({
+      territoryId: r.territory,
+      pricePointId: r.snappedPointId as string,
+    })),
+  });
+
+  let createdOfferId: string | undefined;
+  try {
+    const res = await client.request<{ data?: { id?: string } }>(
+      '/v1/subscriptionPromotionalOffers',
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+    createdOfferId = res?.data?.id;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${renderProposalTable(ctx, label)}\n\nApply failed: ${msg}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const summary = `Created promotional offer ${createdOfferId ?? '(id unknown)'} on subscription ${args.subscriptionId}: code="${args.promoOfferCode}", name="${args.promoOfferName}", ${writable.length} per-territory price${
+    writable.length === 1 ? '' : 's'
+  }, confirmation via ${confirmationSource}.`;
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: `${summary}\n\n${renderProposalTable(ctx, label)}\n\nVerify with asc_get_subscription_promotional_offer ${createdOfferId ?? '<id>'} or asc_list_subscription_promotional_offer_prices ${createdOfferId ?? '<id>'}.`,
+      },
+    ],
+  };
+}
+
 export function registerPpp(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'ppp_load_index',
@@ -1217,17 +1441,17 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       title: 'Compute PPP rebalance proposal',
       description:
         'Compute a proposed per-territory price schedule using the bundled Apple Music index as the PPP signal. Read-only — does not write to App Store Connect. ' +
-        'Works for subscriptions (resourceType: "subscription", default), paid apps (resourceType: "app"), IAPs (resourceType: "iap"), and subscription introductory offers (resourceType: "introductoryOffer" — pass subscriptionId, offerMode, duration; PAY_AS_YOU_GO also needs numberOfPeriods. FREE_TRIAL is rejected since there is no price to compute — use asc_post_subscription_introductory_offer with territoryId omitted for a single global free trial). ' +
+        'Works for subscriptions (resourceType: "subscription", default), paid apps (resourceType: "app"), IAPs (resourceType: "iap"), subscription introductory offers (resourceType: "introductoryOffer" — pass subscriptionId, offerMode, duration; PAY_AS_YOU_GO also needs numberOfPeriods), and subscription promotional offers (resourceType: "promotionalOffer" — also needs promoOfferName and promoOfferCode). FREE_TRIAL is rejected for both offer types since there is no price to compute. ' +
         'Pair with ppp_apply_proposal to schedule changes.',
       inputSchema: {
         resourceType: z
-          .enum(['subscription', 'app', 'iap', 'introductoryOffer'])
+          .enum(['subscription', 'app', 'iap', 'introductoryOffer', 'promotionalOffer'])
           .default('subscription')
           .describe(
-            '"subscription" (default), "app" (paid non-subscription app), "iap", or "introductoryOffer" (PPP-aware per-territory introductory offers on a subscription).',
+            '"subscription" (default), "app" (paid non-subscription app), "iap", "introductoryOffer" (PPP-aware per-territory introductory offers on a subscription), or "promotionalOffer" (PPP-aware per-territory promotional offers — targets existing/lapsed subscribers).',
           ),
         subscriptionId: SubscriptionIdSchema.optional().describe(
-          'Required when resourceType="subscription" or "introductoryOffer".',
+          'Required when resourceType="subscription", "introductoryOffer", or "promotionalOffer".',
         ),
         appId: AppIdSchema.optional().describe(
           'Required when resourceType="app". App pricing fetches one HTTP call per unique territory in the schedule to resolve current amounts; expect ~30s wall time for a paid app with all territories materialized.',
@@ -1236,13 +1460,19 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           'Required when resourceType="iap". Same fetch shape as apps — one HTTP call per unique territory to resolve current amounts.',
         ),
         offerMode: OfferModeSchema.optional().describe(
-          'Required when resourceType="introductoryOffer". FREE_TRIAL is rejected — no price to compute. Use PAY_AS_YOU_GO or PAY_UP_FRONT.',
+          'Required when resourceType="introductoryOffer" or "promotionalOffer". FREE_TRIAL is rejected for both — no price to compute. Use PAY_AS_YOU_GO or PAY_UP_FRONT.',
         ),
         duration: SubscriptionOfferDurationSchema.optional().describe(
-          'Required when resourceType="introductoryOffer". The offer period length.',
+          'Required when resourceType="introductoryOffer" or "promotionalOffer". The offer period length.',
         ),
         numberOfPeriods: NumberOfPeriodsSchema.optional().describe(
-          'Required when resourceType="introductoryOffer" and offerMode="PAY_AS_YOU_GO". Ignored otherwise.',
+          'Required when offerMode="PAY_AS_YOU_GO" (for either offer type). Ignored otherwise.',
+        ),
+        promoOfferName: OfferNameSchema.optional().describe(
+          'Required when resourceType="promotionalOffer". Display name in App Store Connect (immutable post-create).',
+        ),
+        promoOfferCode: OfferCodeSchema.optional().describe(
+          'Required when resourceType="promotionalOffer". Unique per subscription; used by StoreKit as SubscriptionOffer.id. Immutable post-create.',
         ),
         basePriceAnchor: z
           .number()
@@ -1274,19 +1504,21 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       },
     },
     async (args) => {
-      const resourceId =
-        args.resourceType === 'subscription' || args.resourceType === 'introductoryOffer'
-          ? args.subscriptionId
-          : args.resourceType === 'app'
-            ? args.appId
-            : args.iapId;
+      const subBased =
+        args.resourceType === 'subscription' ||
+        args.resourceType === 'introductoryOffer' ||
+        args.resourceType === 'promotionalOffer';
+      const resourceId = subBased
+        ? args.subscriptionId
+        : args.resourceType === 'app'
+          ? args.appId
+          : args.iapId;
       if (!resourceId) {
-        const expected =
-          args.resourceType === 'subscription' || args.resourceType === 'introductoryOffer'
-            ? 'subscriptionId'
-            : args.resourceType === 'app'
-              ? 'appId'
-              : 'iapId';
+        const expected = subBased
+          ? 'subscriptionId'
+          : args.resourceType === 'app'
+            ? 'appId'
+            : 'iapId';
         return {
           content: [
             {
@@ -1297,24 +1529,28 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           isError: true,
         };
       }
-      if (args.resourceType === 'introductoryOffer') {
+      if (args.resourceType === 'introductoryOffer' || args.resourceType === 'promotionalOffer') {
         if (!args.offerMode || !args.duration) {
           return {
             content: [
               {
                 type: 'text',
-                text: 'For resourceType="introductoryOffer", pass offerMode and duration.',
+                text: `For resourceType="${args.resourceType}", pass offerMode and duration.`,
               },
             ],
             isError: true,
           };
         }
         if (args.offerMode === 'FREE_TRIAL') {
+          const remedy =
+            args.resourceType === 'introductoryOffer'
+              ? 'Use asc_post_subscription_introductory_offer with territoryId omitted to create a single global free trial.'
+              : 'Use asc_post_subscription_promotional_offer directly to create a free-trial promo offer.';
           return {
             content: [
               {
                 type: 'text',
-                text: 'FREE_TRIAL has no price — PPP does not apply. Use asc_post_subscription_introductory_offer with territoryId omitted to create a single global free trial.',
+                text: `FREE_TRIAL has no price — PPP does not apply. ${remedy}`,
               },
             ],
             isError: true,
@@ -1326,6 +1562,20 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
               {
                 type: 'text',
                 text: 'numberOfPeriods is required when offerMode=PAY_AS_YOU_GO.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (
+          args.resourceType === 'promotionalOffer' &&
+          (!args.promoOfferName || !args.promoOfferCode)
+        ) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'For resourceType="promotionalOffer", pass promoOfferName and promoOfferCode.',
               },
             ],
             isError: true,
@@ -1348,17 +1598,21 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           content: [{ type: 'text', text: JSON.stringify(ctx, null, 2) }],
         };
       }
+      const offerSuffix =
+        args.numberOfPeriods !== undefined ? `, periods=${args.numberOfPeriods}` : '';
       const label =
         args.resourceType === 'introductoryOffer'
-          ? `${args.offerMode} introductory offer on subscription ${resourceId} (duration=${args.duration}${
-              args.numberOfPeriods ? `, periods=${args.numberOfPeriods}` : ''
-            })`
-          : `${args.resourceType} ${resourceId}`;
+          ? `${args.offerMode} introductory offer on subscription ${resourceId} (duration=${args.duration}${offerSuffix})`
+          : args.resourceType === 'promotionalOffer'
+            ? `${args.offerMode} promotional offer "${args.promoOfferCode}" on subscription ${resourceId} (duration=${args.duration}${offerSuffix})`
+            : `${args.resourceType} ${resourceId}`;
       const table = renderProposalTable(ctx, label);
       const footer =
         args.resourceType === 'introductoryOffer'
           ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args (resourceType="introductoryOffer", subscriptionId, offerMode, duration, numberOfPeriods if PAY_AS_YOU_GO). One POST to /v1/subscriptionIntroductoryOffers per change row. The Δ column compares the snapped offer price to the current regular sub price, so a -50% Δ means the offer is half off.'
-          : '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args. Subscriptions write per-row with preserveCurrentPrice; apps and IAPs do a single whole-schedule-replace POST.';
+          : args.resourceType === 'promotionalOffer'
+            ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args (resourceType="promotionalOffer", subscriptionId, offerMode, duration, numberOfPeriods if PAY_AS_YOU_GO, promoOfferName, promoOfferCode). One atomic POST to /v1/subscriptionPromotionalOffers creates the offer + all per-territory prices. Refuses if offerCode collides with an existing offer or if the subscription is at Apple\'s 10-offer cap. The Δ column compares the snapped offer price to the current regular sub price.'
+            : '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args. Subscriptions write per-row with preserveCurrentPrice; apps and IAPs do a single whole-schedule-replace POST.';
       return { content: [{ type: 'text', text: `${table}${footer}` }] };
     },
   );
@@ -1369,28 +1623,35 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       title: 'Apply PPP rebalance proposal',
       description:
         'Compute a PPP rebalance proposal, then schedule the price changes against App Store Connect. ' +
-        'Works for subscriptions (per-territory POSTs with preserveCurrentPrice grandfathering), paid apps (one whole-schedule-replace POST — wipes any manual override or pending change not in the proposal), IAPs (same whole-schedule-replace semantics as apps), and subscription introductory offers (one POST to /v1/subscriptionIntroductoryOffers per change row, paced at maxConcurrency). ' +
+        'Works for subscriptions (per-territory POSTs with preserveCurrentPrice grandfathering), paid apps (one whole-schedule-replace POST — wipes any manual override or pending change not in the proposal), IAPs (same whole-schedule-replace semantics as apps), subscription introductory offers (one POST to /v1/subscriptionIntroductoryOffers per change row, paced at maxConcurrency), and subscription promotional offers (single atomic POST to /v1/subscriptionPromotionalOffers creating the offer + all per-territory prices in one request). ' +
         "Apps and IAPs have NO grandfather mechanism — new prices activate atomically at each entry's startDate. " +
         'Intro offers are additions, not replacements — Apple may return 409 if an active offer already exists for a (sub, territory) cell. ' +
+        'Promotional offers are create-only — refuses if offerCode collides with an existing offer on the sub. ' +
         'By default, asks the user to confirm via MCP elicitation before any write. Pass confirm:true to bypass elicitation (useful in automation, or when the client lacks elicitation support).',
       inputSchema: {
         resourceType: z
-          .enum(['subscription', 'app', 'iap', 'introductoryOffer'])
+          .enum(['subscription', 'app', 'iap', 'introductoryOffer', 'promotionalOffer'])
           .default('subscription'),
         subscriptionId: SubscriptionIdSchema.optional(),
         appId: AppIdSchema.optional(),
         iapId: InAppPurchaseIdSchema.optional(),
         offerMode: OfferModeSchema.optional().describe(
-          'Required when resourceType="introductoryOffer". FREE_TRIAL is rejected.',
+          'Required when resourceType="introductoryOffer" or "promotionalOffer". FREE_TRIAL is rejected.',
         ),
         duration: SubscriptionOfferDurationSchema.optional().describe(
-          'Required when resourceType="introductoryOffer".',
+          'Required when resourceType="introductoryOffer" or "promotionalOffer".',
         ),
         numberOfPeriods: NumberOfPeriodsSchema.optional().describe(
-          'Required when resourceType="introductoryOffer" and offerMode="PAY_AS_YOU_GO".',
+          'Required when offerMode="PAY_AS_YOU_GO" (for either offer type).',
         ),
         endDate: StartDateSchema.optional().describe(
           'Optional endDate (YYYY-MM-DD) for the introductory offers. Omit for open-ended. resourceType="introductoryOffer" only.',
+        ),
+        promoOfferName: OfferNameSchema.optional().describe(
+          'Required when resourceType="promotionalOffer". Display name in ASC. Immutable post-create.',
+        ),
+        promoOfferCode: OfferCodeSchema.optional().describe(
+          'Required when resourceType="promotionalOffer". Unique per subscription; StoreKit redemption identifier. Immutable post-create.',
         ),
         basePriceAnchor: z.number().positive(),
         anchorTerritory: z.string().length(3).default('USA'),
@@ -1448,6 +1709,74 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       },
     },
     async (args) => {
+      // Promotional offers are atomic: one POST creates the offer + all its
+      // per-territory prices in /v1/subscriptionPromotionalOffers. No per-row
+      // pacing because the whole offer succeeds or fails as a unit. Pre-flight
+      // checks the 10-offer cap and refuses offerCode collisions before any
+      // PPP work runs.
+      if (args.resourceType === 'promotionalOffer') {
+        if (!args.subscriptionId) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Missing subscriptionId. For resourceType="promotionalOffer", pass subscriptionId.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (!args.offerMode || !args.duration || !args.promoOfferName || !args.promoOfferCode) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'For resourceType="promotionalOffer", pass offerMode, duration, promoOfferName, and promoOfferCode.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (args.offerMode === 'FREE_TRIAL') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'FREE_TRIAL has no price — PPP does not apply. Use asc_post_subscription_promotional_offer directly for a free-trial promo.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (args.offerMode === 'PAY_AS_YOU_GO' && args.numberOfPeriods === undefined) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'numberOfPeriods is required when offerMode=PAY_AS_YOU_GO.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        return applyPromoOfferProposal(server, client, {
+          subscriptionId: args.subscriptionId,
+          offerMode: args.offerMode,
+          duration: args.duration,
+          numberOfPeriods: args.numberOfPeriods,
+          promoOfferName: args.promoOfferName,
+          promoOfferCode: args.promoOfferCode,
+          basePriceAnchor: args.basePriceAnchor,
+          anchorTerritory: args.anchorTerritory,
+          roundStrategy: args.roundStrategy as RoundStrategy,
+          floorFactor: args.floorFactor,
+          ...(args.territories ? { territories: args.territories } : {}),
+          skipMissingIndex: args.skipMissingIndex,
+          maxDropPct: args.maxDropPct,
+          confirm: args.confirm,
+        });
+      }
+
       // Introductory offers attach to a subscription and use the per-row POST
       // pattern (one HTTP call per (sub, territory)), but to a different
       // endpoint — /v1/subscriptionIntroductoryOffers, not /subscriptionPrices.

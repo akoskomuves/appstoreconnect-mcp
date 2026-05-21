@@ -303,6 +303,62 @@ export function digestIapPricePoints(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'iap price points')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestPromotionalOffers(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'CODE' },
+    { header: 'NAME' },
+    { header: 'MODE' },
+    { header: 'DURATION' },
+    { header: 'PERIODS', align: 'right' },
+    { header: 'PRICES', align: 'right' },
+    { header: 'OFFER_ID' },
+  ];
+  const rows = pages.data.map((offer) => {
+    // The to-many `prices` relationship lands in relationships rather than
+    // included by default. Just count the linkages — the per-territory detail
+    // belongs in asc_list_subscription_promotional_offer_prices, not here.
+    const pricesRel = offer.relationships?.['prices']?.data;
+    const priceCount = Array.isArray(pricesRel) ? pricesRel.length : '';
+    return [
+      s(attr(offer, 'offerCode')),
+      s(attr(offer, 'name')),
+      s(attr(offer, 'offerMode')),
+      s(attr(offer, 'duration')),
+      s(attr(offer, 'numberOfPeriods') ?? ''),
+      s(priceCount),
+      offer.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'promotional offers')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestPromotionalOfferPrices(pages: CollectedPages): string {
+  const index = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'TERR' },
+    { header: 'CCY' },
+    { header: 'AMOUNT', align: 'right' },
+    { header: 'POINT_ID' },
+    { header: 'PRICE_ID' },
+  ];
+  const rows = pages.data.map((price) => {
+    const territoryRel = rel(price, 'territory');
+    const pricePointRel = rel(price, 'subscriptionPricePoint');
+    const territory = lookupIncluded(index, 'territories', territoryRel?.id);
+    const pricePoint = lookupIncluded(index, 'subscriptionPricePoints', pricePointRel?.id);
+    return [
+      s(territoryRel?.id),
+      s(territory ? attr(territory, 'currency') : ''),
+      s(pricePoint ? attr(pricePoint, 'customerPrice') : ''),
+      s(pricePointRel?.id ?? ''),
+      price.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'promo offer prices')}\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestIntroOffers(pages: CollectedPages): string {
   const index = buildIncludedIndex(pages.included);
   const columns: Column[] = [
