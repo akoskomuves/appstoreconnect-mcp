@@ -116,3 +116,38 @@ export const OfferNameSchema = z
   .describe(
     'Display/reference name for the promotional offer (visible in App Store Connect UI). Immutable after creation.',
   );
+
+export const ProductIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Subscription product identifier (e.g. "com.example.app.monthly") — the productId attribute returned by asc_list_subscriptions, NOT the numeric subscription ID.',
+  );
+
+export const ApplicationUsernameSchema = z
+  .string()
+  .describe(
+    "Per-user opaque identifier (legacy signer only). Apple recommends a UUID or a hash of your internal user ID rather than the raw user ID. Apple's signer library lowercases this value before signing; pass it as you want it post-lowercase, or expect it to come back lowercased. May be an empty string.",
+  );
+
+export const TransactionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Any transaction ID belonging to the customer — the customer's appTransactionId works even if they've never made an IAP. Optional for promotional offer V2 (recommended); required for introductory offer eligibility.",
+  );
+
+export const NonceSchema = z
+  .string()
+  .uuid()
+  .describe(
+    'One-time UUID for replay protection (legacy signer only). When omitted, a fresh UUID v4 is generated. Apple recommends a new nonce per signature attempt.',
+  );
+
+export const TimestampMillisSchema = z
+  .number()
+  .int()
+  .positive()
+  .describe(
+    'Milliseconds since UNIX epoch (legacy signer only). When omitted, the current time is used. Signature is valid for 24 hours from this timestamp.',
+  );

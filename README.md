@@ -70,6 +70,18 @@ Generate an App Store Connect API key at [App Store Connect → Users and Access
 
 The `.p8` file is a private key — never commit it. Recommended: `~/.appstore/AuthKey_XXXXXXXXXX.p8` outside any repo.
 
+### Optional: In-App Purchase signing key
+
+Only needed for the `asc_sign_*` tools (subscription offer redemption signing). Issue a second key at App Store Connect → Users and Access → Integrations → **In-App Purchase** — this is a separate key from the ASC API key above, generated on a different tab of the same page.
+
+| Variable | What |
+| --- | --- |
+| `ASC_IAP_ISSUER_ID` | Issuer UUID from the In-App Purchase keys tab (different from `ASC_ISSUER_ID`) |
+| `ASC_IAP_KEY_ID` | 10-character Key ID for the IAP key |
+| `ASC_IAP_PRIVATE_KEY_PATH` | Path to the IAP signing `.p8` (`~` is expanded) |
+
+The server starts fine without these — only the `asc_sign_*` tools refuse with a setup message if they're missing. Set one or two but not all three and the server rejects with a clear error. Run `appstoreconnect-mcp doctor` to verify the key loads as a valid ES256 PKCS#8.
+
 ## Tools
 
 ### Apps
@@ -117,7 +129,14 @@ Promotional offers target **existing or lapsed** subscribers — opposite eligib
 - `asc_patch_subscription_promotional_offer_prices` — update the offer's per-territory prices. Apple's wire semantic is replace (the new prices array becomes the post-state, dropping any territory not listed); the tool's `mode: 'replace' | 'add' | 'remove'` parameter hides the footgun — `'add'` reads current prices and merges, `'remove'` reads and filters.
 - `asc_delete_subscription_promotional_offer` — DELETE → 204.
 
-JWT signing for in-app redemption (a separate `.p8` from the ASC API key) is intentionally out of scope here; planned for v0.6.1.
+### Subscription offer signing (in-app redemption)
+The cryptographic signer that makes promo/intro offers redeemable in your iOS app via StoreKit. Uses a **separate** signing key from the ASC API key — issued at App Store Connect → Users and Access → Integrations → In-App Purchase. See the [optional config section](#optional-in-app-purchase-signing-key) for env vars. Built on Apple's official [`@apple/app-store-server-library`](https://github.com/apple/app-store-server-library-node).
+
+- `asc_sign_promotional_offer_legacy` — legacy ECDSA-concatenated signature used by StoreKit 1's `SKPaymentDiscount` and the original StoreKit 2 `Product.PurchaseOption.promotionalOffer(offerID:keyID:nonce:signature:timestamp:)` API. Returns the base64 signature plus the nonce, timestamp, and keyId for the caller to pass to StoreKit. Auto-generates a UUID nonce and current timestamp; both overridable for testing.
+- `asc_sign_promotional_offer` — JWS v2 format introduced at WWDC 2025 (back-deployed to iOS 15). Use with StoreKit 2's newer promotional-offer purchase options. Returns the JWS compact serialization directly. `transactionId` (the customer's `appTransactionId`) is optional but strongly recommended.
+- `asc_sign_introductory_offer_eligibility` — JWS v2 with `aud="introductory-offer-eligibility"`. Lets you override StoreKit's default introductory-offer eligibility check (e.g. grant a returning customer another trial). New in WWDC 2025.
+
+All signatures are valid for 24 hours from signing time — re-sign per redemption attempt rather than pre-signing and caching.
 
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
@@ -173,7 +192,7 @@ v0.1–v0.6 cover the full monetization-pricing surface: reads + writes + one-sh
 | **v0.4.0** ✓ | `ppp_apply_proposal` auto-apply for apps + IAPs · PPP for IAPs · `nearAmount` filter on price-point listings | One-shot PPP rebalance for *every* paid surface, not just subs. |
 | **v0.5.0** ✓ | Subscription introductory offers (free trial / pay-as-you-go / pay-up-front): list / get / post / patch / delete · PPP extended to intro offers | PPP-aware "first month" / "first three months" promos that adapt to local purchasing power instead of a literal $0.99 everywhere. |
 | **v0.6.0** ✓ | Subscription promotional offers (existing/lapsed subscribers): list / get / post / patch-prices / delete · PPP extended to promo offers (create-only, atomic single-POST) | Win-back campaigns with PPP-aware per-territory pricing. |
-| **v0.6.1** | Subscription offer signing: JWT generation for in-app redemption (separate `.p8` key) | Lets a server sign offer payloads for StoreKit redemption end-to-end. |
+| **v0.6.1** ✓ | Subscription offer signing: three signers (legacy ECDSA, JWS v2 promo, JWS v2 intro eligibility) covering every current Apple-supported format | StoreKit redemption end-to-end — promo offers from v0.6 are now usable in an iOS app, not just configurable in ASC. |
 | **v0.7** | Subscription offer codes: one-time-use bulk codes · custom (multi-use) codes · CSV export | Promo-code redemption campaigns (App Store Connect → "Offer codes"). |
 | **v0.8** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
 | **v0.9** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |

@@ -10,6 +10,7 @@ import { registerAppPricing } from './domains/app-pricing.js';
 import { registerApps } from './domains/apps.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
+import { registerOfferSigning } from './domains/offer-signing.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPricing } from './domains/pricing.js';
 import { registerPromoOffers } from './domains/promo-offers.js';
@@ -47,9 +48,15 @@ Usage:
   appstoreconnect-mcp --help         Show this help.
 
 Environment variables (read when running as a server):
-  ASC_ISSUER_ID         App Store Connect issuer UUID.
-  ASC_KEY_ID            10-character key ID.
-  ASC_PRIVATE_KEY_PATH  Path to the .p8 private key file (~ is expanded).
+  ASC_ISSUER_ID             App Store Connect issuer UUID.
+  ASC_KEY_ID                10-character key ID.
+  ASC_PRIVATE_KEY_PATH      Path to the .p8 private key file (~ is expanded).
+
+Optional — only needed for the asc_sign_* offer-signing tools:
+  ASC_IAP_ISSUER_ID         Issuer UUID for the In-App Purchase signing key
+                            (different from ASC_ISSUER_ID; same key page in ASC).
+  ASC_IAP_KEY_ID            10-character key ID for the IAP signing key.
+  ASC_IAP_PRIVATE_KEY_PATH  Path to the IAP signing .p8.
 
 Documentation: https://github.com/akoskomuves/appstoreconnect-mcp
 `;
@@ -68,6 +75,7 @@ async function runServer(): Promise<void> {
   registerIaps(server, client);
   registerIntroOffers(server, client);
   registerPromoOffers(server, client);
+  registerOfferSigning(server, config.iap);
   registerTerritories(server, client);
   registerPpp(server, client);
 

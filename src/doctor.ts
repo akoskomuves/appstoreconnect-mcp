@@ -129,6 +129,44 @@ async function checkAuth(): Promise<CheckResult | null> {
   }
 }
 
+async function checkIapSigning(): Promise<CheckResult | null> {
+  const issuerId = process.env.ASC_IAP_ISSUER_ID;
+  const keyId = process.env.ASC_IAP_KEY_ID;
+  const keyPath = process.env.ASC_IAP_PRIVATE_KEY_PATH;
+  if (!issuerId && !keyId && !keyPath) return null;
+  if (!issuerId || !keyId || !keyPath) {
+    return {
+      ok: false,
+      label: 'IAP signing config',
+      detail:
+        'partial — need all three of ASC_IAP_ISSUER_ID, ASC_IAP_KEY_ID, ASC_IAP_PRIVATE_KEY_PATH',
+    };
+  }
+  const expanded = keyPath.startsWith('~/') ? keyPath.replace('~', HOME) : keyPath;
+  if (!existsSync(expanded)) {
+    return {
+      ok: false,
+      label: 'IAP signing config',
+      detail: `key not found at ${expanded}`,
+    };
+  }
+  try {
+    const text = readFileSync(expanded, 'utf-8');
+    await importPKCS8(text, 'ES256');
+    return {
+      ok: true,
+      label: 'IAP signing config',
+      detail: `key loads as ES256, keyId=${keyId}`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      label: 'IAP signing config',
+      detail: `key failed to parse as ES256: ${(err as Error).message}`,
+    };
+  }
+}
+
 export async function main(): Promise<void> {
   console.log('\nappstoreconnect-mcp — doctor\n');
 
@@ -147,6 +185,19 @@ export async function main(): Promise<void> {
       info(
         'skipped',
         'set ASC_ISSUER_ID/ASC_KEY_ID/ASC_PRIVATE_KEY_PATH env vars to verify against the live API',
+      ),
+    );
+  }
+
+  const iapSigning = await checkIapSigning();
+  console.log('\nIAP signing (subscription offer redemption):');
+  if (iapSigning) {
+    console.log(fmt(iapSigning));
+  } else {
+    console.log(
+      info(
+        'not configured',
+        'set ASC_IAP_ISSUER_ID/ASC_IAP_KEY_ID/ASC_IAP_PRIVATE_KEY_PATH to enable the asc_sign_* tools. Key issued at ASC → Users and Access → Integrations → In-App Purchase (different from the ASC API key).',
       ),
     );
   }
