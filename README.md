@@ -182,7 +182,7 @@ Then ask Claude: *"Rebalance my subscription prices using the ppp-rebalance skil
 
 ## Roadmap
 
-v0.1–v0.7 cover the full monetization surface: reads + writes + one-shot PPP rebalance across subscriptions, paid apps, in-app purchases, introductory offers, and promotional offers — plus the cryptographic signers that make those offers redeemable in-app via StoreKit. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
+v0.1–v0.8 cover the full monetization surface: reads + writes + one-shot PPP rebalance across subscriptions, paid apps, in-app purchases, introductory offers, promotional offers, and offer-code campaigns — plus the cryptographic signers that make promo offers redeemable in-app via StoreKit. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
 
 | Phase | Domain | What it unlocks |
 | --- | --- | --- |
@@ -193,7 +193,8 @@ v0.1–v0.7 cover the full monetization surface: reads + writes + one-shot PPP r
 | **v0.5.0** ✓ | Subscription introductory offers (free trial / pay-as-you-go / pay-up-front): list / get / post / patch / delete · PPP extended to intro offers | PPP-aware "first month" / "first three months" promos that adapt to local purchasing power instead of a literal $0.99 everywhere. |
 | **v0.6.0** ✓ | Subscription promotional offers (existing/lapsed subscribers): list / get / post / patch-prices / delete · PPP extended to promo offers (create-only, atomic single-POST) | Win-back campaigns with PPP-aware per-territory pricing. |
 | **v0.7.0** ✓ | Subscription offer signing: three signers (legacy ECDSA, JWS v2 promo, JWS v2 intro eligibility) covering every current Apple-supported format | StoreKit redemption end-to-end — promo offers from v0.6 are now usable in an iOS app, not just configurable in ASC. |
-| **v0.8** | Subscription offer codes: one-time-use bulk codes · custom (multi-use) codes · CSV export | Promo-code redemption campaigns (App Store Connect → "Offer codes"). |
+| **v0.8.0** ✓ | Subscription offer codes (campaign CRUD-minus-D · per-territory prices · one-time-use code batches · text/csv export via /values) · PPP extended to offer-code campaigns | Promo-code redemption campaigns (App Store Connect → "Offer codes") — generate, deactivate, export CSV. |
+| **v0.8.1** | Subscription offer codes follow-ons: custom (multi-use) codes · `environment: SANDBOX\|PRODUCTION` on batch create · `autoRenewEnabled` on campaign create · tighter numberOfCodes floor surfacing | Public-facing single redemption codes + sandbox vs production batch tagging. |
 | **v0.9** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
 | **v0.10** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |
 | **v0.11** | Customer reviews (read · respond · filter by sentiment/version) | "Draft a response to every 1-star review on the latest version that mentions the export bug. Show me before posting." |
