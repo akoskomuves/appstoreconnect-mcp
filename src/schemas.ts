@@ -103,6 +103,50 @@ export const SubscriptionPromotionalOfferIdSchema = z
   .min(1)
   .describe('Subscription promotional offer ID from /v1/subscriptionPromotionalOffers.');
 
+export const SubscriptionOfferCodeIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Subscription offer code (campaign) ID from /v1/subscriptionOfferCodes. The campaign is the config; the actual redeemable codes live under it as one-time-use batches or custom multi-use codes.',
+  );
+
+export const SubscriptionOfferCodeOneTimeUseCodesIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Subscription offer code one-time-use batch ID from /v1/subscriptionOfferCodeOneTimeUseCodes. One batch contains many redeemable strings (one redemption each), retrievable via asc_export_subscription_offer_code_one_time_use_values.',
+  );
+
+export const CustomerEligibilitiesSchema = z
+  .array(z.enum(['NEW', 'EXISTING', 'EXPIRED']))
+  .min(1)
+  .describe(
+    'Which subscriber cohorts may redeem this offer code: NEW (never subscribed to this group), EXISTING (currently subscribed), EXPIRED (lapsed). At least one required. Pass all three to make the offer broadly redeemable. Immutable after creation.',
+  );
+
+export const OfferCodeNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Display/reference name for the offer code campaign (visible in App Store Connect UI). Must be unique within the subscription. Immutable after creation.',
+  );
+
+export const TotalNumberOfCodesSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(25_000)
+  .describe(
+    "Number of unique one-time-use codes to generate in this batch. Apple caps a single batch at 25,000 codes (working assumption; surface Apple's error verbatim if it disagrees). Create additional batches against the same campaign for larger campaigns.",
+  );
+
+export const ExpirationDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, 'Must be ISO 8601 (e.g. 2026-12-31T23:59:59Z)')
+  .describe(
+    'Expiration timestamp for redeemable codes in this batch, ISO 8601 (e.g. 2026-12-31T23:59:59Z). After this point Apple rejects redemption attempts. Per-batch, not per-campaign.',
+  );
+
 export const OfferCodeSchema = z
   .string()
   .min(1)

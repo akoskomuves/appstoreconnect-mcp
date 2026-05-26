@@ -6,6 +6,8 @@ import {
   digestIapPricePoints,
   digestIapPrices,
   digestIaps,
+  digestOfferCodeOneTimeUseBatches,
+  digestOfferCodes,
   digestSubscriptionPricePoints,
   digestSubscriptionPrices,
   digestTerritories,
@@ -400,5 +402,125 @@ describe('digestIapPricePoints', () => {
     const dataLines = lines.filter((l) => l.match(/^USD\s/));
     expect(dataLines[0]).toContain('0.99');
     expect(dataLines[1]).toContain('4.99');
+  });
+});
+
+describe('digestOfferCodes', () => {
+  it('renders campaign rows with compact eligibility letters and a price count', () => {
+    const out = digestOfferCodes(
+      pages({
+        data: [
+          {
+            type: 'subscriptionOfferCodes',
+            id: 'CAMP-1',
+            attributes: {
+              name: 'Spring Onboarding',
+              customerEligibilities: ['NEW', 'EXPIRED'],
+              offerMode: 'PAY_AS_YOU_GO',
+              duration: 'ONE_MONTH',
+              numberOfPeriods: 3,
+              active: true,
+            },
+            relationships: {
+              prices: {
+                data: [
+                  { type: 'subscriptionOfferCodePrices', id: 'p1' },
+                  { type: 'subscriptionOfferCodePrices', id: 'p2' },
+                  { type: 'subscriptionOfferCodePrices', id: 'p3' },
+                ],
+              },
+            },
+          },
+        ],
+        total: 1,
+      }),
+    );
+    expect(out).toContain('1 offer code campaigns');
+    expect(out).toContain('Spring Onboarding');
+    // Eligibility cohort letters: N=NEW, E=EXISTING, X=EXPIRED.
+    expect(out).toContain('NX');
+    expect(out).toContain('PAY_AS_YOU_GO');
+    expect(out).toContain('ONE_MONTH');
+    expect(out).toContain('CAMP-1');
+    // Price count from the to-many `prices` relationship.
+    const row = out.split('\n').find((l) => l.includes('CAMP-1'));
+    expect(row).toMatch(/\b3\b/);
+  });
+
+  it('sorts campaigns by name', () => {
+    const out = digestOfferCodes(
+      pages({
+        data: [
+          {
+            type: 'subscriptionOfferCodes',
+            id: 'B',
+            attributes: {
+              name: 'Z-Campaign',
+              customerEligibilities: ['NEW'],
+              offerMode: 'PAY_UP_FRONT',
+              duration: 'ONE_MONTH',
+              active: true,
+            },
+            relationships: { prices: { data: [] } },
+          },
+          {
+            type: 'subscriptionOfferCodes',
+            id: 'A',
+            attributes: {
+              name: 'A-Campaign',
+              customerEligibilities: ['EXISTING'],
+              offerMode: 'PAY_UP_FRONT',
+              duration: 'ONE_MONTH',
+              active: true,
+            },
+            relationships: { prices: { data: [] } },
+          },
+        ],
+      }),
+    );
+    const aIdx = out.indexOf('A-Campaign');
+    const zIdx = out.indexOf('Z-Campaign');
+    expect(aIdx).toBeGreaterThan(-1);
+    expect(zIdx).toBeGreaterThan(aIdx);
+  });
+});
+
+describe('digestOfferCodeOneTimeUseBatches', () => {
+  it('renders batches newest-first and totals codes generated', () => {
+    const out = digestOfferCodeOneTimeUseBatches(
+      pages({
+        data: [
+          {
+            type: 'subscriptionOfferCodeOneTimeUseCodes',
+            id: 'BATCH-OLD',
+            attributes: {
+              createdDate: '2026-01-15T12:00:00Z',
+              numberOfCodes: 1000,
+              expirationDate: '2026-12-31T23:59:59Z',
+              active: true,
+            },
+          },
+          {
+            type: 'subscriptionOfferCodeOneTimeUseCodes',
+            id: 'BATCH-NEW',
+            attributes: {
+              createdDate: '2026-05-01T12:00:00Z',
+              numberOfCodes: 250,
+              expirationDate: '2026-12-31T23:59:59Z',
+              active: true,
+            },
+          },
+        ],
+        total: 2,
+      }),
+    );
+    expect(out).toContain('2 one-time-use batches');
+    expect(out).toContain('1250 total codes generated');
+    // Newest-first ordering — the May batch should appear above the
+    // January one.
+    const newIdx = out.indexOf('BATCH-NEW');
+    const oldIdx = out.indexOf('BATCH-OLD');
+    expect(newIdx).toBeGreaterThan(-1);
+    expect(oldIdx).toBeGreaterThan(newIdx);
   });
 });

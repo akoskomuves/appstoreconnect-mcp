@@ -359,6 +359,66 @@ export function digestPromotionalOfferPrices(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'promo offer prices')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestOfferCodes(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'ELIG' },
+    { header: 'MODE' },
+    { header: 'DURATION' },
+    { header: 'PERIODS', align: 'right' },
+    { header: 'ACTIVE' },
+    { header: 'PRICES', align: 'right' },
+    { header: 'CAMPAIGN_ID' },
+  ];
+  const rows = pages.data.map((campaign) => {
+    const elig = attr<string[]>(campaign, 'customerEligibilities');
+    // Compact eligibility into NEW/EXIST/EXP letters so the column doesn't
+    // explode horizontally when all three cohorts are set.
+    const eligShort = (elig ?? [])
+      .map((e) => (e === 'NEW' ? 'N' : e === 'EXISTING' ? 'E' : e === 'EXPIRED' ? 'X' : e))
+      .join('');
+    const pricesRel = campaign.relationships?.['prices']?.data;
+    const priceCount = Array.isArray(pricesRel) ? pricesRel.length : '';
+    return [
+      s(attr(campaign, 'name')),
+      eligShort,
+      s(attr(campaign, 'offerMode')),
+      s(attr(campaign, 'duration')),
+      s(attr(campaign, 'numberOfPeriods') ?? ''),
+      s(attr(campaign, 'active') ?? ''),
+      s(priceCount),
+      campaign.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'offer code campaigns')} (ELIG: N=NEW E=EXISTING X=EXPIRED)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestOfferCodeOneTimeUseBatches(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'CREATED' },
+    { header: 'CODES', align: 'right' },
+    { header: 'EXPIRES' },
+    { header: 'ACTIVE' },
+    { header: 'BATCH_ID' },
+  ];
+  const rows = pages.data.map((batch) => [
+    s(attr(batch, 'createdDate') ?? ''),
+    s(attr(batch, 'numberOfCodes') ?? ''),
+    s(attr(batch, 'expirationDate') ?? ''),
+    s(attr(batch, 'active') ?? ''),
+    batch.id,
+  ]);
+  // Newest first — operators usually care about the most-recently-generated
+  // batch (the one they're about to hand out).
+  rows.sort((a, b) => (b[0] ?? '').localeCompare(a[0] ?? ''));
+  const total = pages.data.reduce(
+    (n, batch) => n + (Number(attr(batch, 'numberOfCodes') ?? 0) || 0),
+    0,
+  );
+  return `${summaryFooter(pages, 'one-time-use batches')} — ${total} total codes generated\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestIntroOffers(pages: CollectedPages): string {
   const index = buildIncludedIndex(pages.included);
   const columns: Column[] = [

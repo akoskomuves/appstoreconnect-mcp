@@ -10,6 +10,7 @@ import { registerAppPricing } from './domains/app-pricing.js';
 import { registerApps } from './domains/apps.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
+import { registerOfferCodes } from './domains/offer-codes.js';
 import { registerOfferSigning } from './domains/offer-signing.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPricing } from './domains/pricing.js';
@@ -75,6 +76,7 @@ async function runServer(): Promise<void> {
   registerIaps(server, client);
   registerIntroOffers(server, client);
   registerPromoOffers(server, client);
+  registerOfferCodes(server, client);
   registerOfferSigning(server, config.iap);
   registerTerritories(server, client);
   registerPpp(server, client);
