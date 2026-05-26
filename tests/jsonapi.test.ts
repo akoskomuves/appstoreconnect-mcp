@@ -19,6 +19,11 @@ function fakeClient(pages: JSONAPIResponse[]): { client: ASCClient; calls: strin
       if (!page) throw new Error(`No more pages staged at call ${i}`);
       return page as T;
     },
+    // paginate() doesn't call requestText; this stub exists only to satisfy
+    // the ASCClient interface and would fail loudly if accidentally invoked.
+    requestText: async () => {
+      throw new Error('requestText not stubbed in paginate tests');
+    },
   };
   return { client, calls };
 }

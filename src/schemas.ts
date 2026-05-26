@@ -124,6 +124,12 @@ export const CustomerEligibilitiesSchema = z
     'Which subscriber cohorts may redeem this offer code: NEW (never subscribed to this group), EXISTING (currently subscribed), EXPIRED (lapsed). At least one required. Pass all three to make the offer broadly redeemable. Immutable after creation.',
   );
 
+export const OfferEligibilitySchema = z
+  .enum(['STACK_WITH_INTRO_OFFERS', 'REPLACE_INTRO_OFFERS'])
+  .describe(
+    'How this offer code interacts with any introductory offer the subscriber is otherwise eligible for. STACK_WITH_INTRO_OFFERS: redeemers get both the intro offer AND this code (additive). REPLACE_INTRO_OFFERS: this code overrides the intro offer (redeemer skips the intro). Required at create time; immutable after.',
+  );
+
 export const OfferCodeNameSchema = z
   .string()
   .min(1)
@@ -142,9 +148,9 @@ export const TotalNumberOfCodesSchema = z
 
 export const ExpirationDateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, 'Must be ISO 8601 (e.g. 2026-12-31T23:59:59Z)')
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be ISO 8601 DATE (YYYY-MM-DD)')
   .describe(
-    'Expiration timestamp for redeemable codes in this batch, ISO 8601 (e.g. 2026-12-31T23:59:59Z). After this point Apple rejects redemption attempts. Per-batch, not per-campaign.',
+    'Expiration DATE for redeemable codes in this batch, ISO 8601 calendar date (YYYY-MM-DD — e.g. 2026-12-31). Date-only, NOT a timestamp; Apple rejects requests that include a time portion. After this date Apple rejects redemption attempts. Per-batch, not per-campaign.',
   );
 
 export const OfferCodeSchema = z

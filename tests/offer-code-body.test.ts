@@ -39,6 +39,9 @@ type Body = {
     type: string;
     id: string;
     attributes?: Record<string, unknown>;
+    // FREE_TRIAL offer-code price rows OMIT subscriptionPricePoint entirely
+    // (Apple's persistence layer 500s on an explicit data:null). The Record
+    // index signature naturally allows missing keys.
     relationships: Record<string, { data: { type: string; id: string } }>;
   }>;
 };
@@ -50,6 +53,7 @@ describe('buildOfferCodeBody (campaign create)', () => {
     subscriptionId: 'SUB-1',
     name: 'Spring Onboarding',
     customerEligibilities: ['NEW', 'EXPIRED'],
+    offerEligibility: 'STACK_WITH_INTRO_OFFERS',
     offerMode: 'PAY_AS_YOU_GO',
     duration: 'ONE_MONTH',
     numberOfPeriods: 3,
@@ -63,10 +67,11 @@ describe('buildOfferCodeBody (campaign create)', () => {
     expect(body.data.type).toBe('subscriptionOfferCodes');
   });
 
-  it('carries name, customerEligibilities, mode, duration, numberOfPeriods in attributes', () => {
+  it('carries name, customerEligibilities, offerEligibility, mode, duration, numberOfPeriods in attributes', () => {
     expect(body.data.attributes).toEqual({
       name: 'Spring Onboarding',
       customerEligibilities: ['NEW', 'EXPIRED'],
+      offerEligibility: 'STACK_WITH_INTRO_OFFERS',
       offerMode: 'PAY_AS_YOU_GO',
       duration: 'ONE_MONTH',
       numberOfPeriods: 3,
@@ -122,14 +127,17 @@ describe('buildOfferCodeBody (campaign create)', () => {
       subscriptionId: 'SUB-1',
       name: 'Annual Lift',
       customerEligibilities: ['EXISTING'],
+      offerEligibility: 'REPLACE_INTRO_OFFERS',
       offerMode: 'PAY_UP_FRONT',
       duration: 'THREE_MONTHS',
-      numberOfPeriods: 5, // irrelevant for PAY_UP_FRONT; builder drops it.
+      // Apple requires numberOfPeriods on every mode — set 1 for one-shot
+      // modes like PAY_UP_FRONT and FREE_TRIAL.
+      numberOfPeriods: 1,
       prices: [{ territoryId: 'USA', pricePointId: 'POINT-USA' }],
     }) as Body;
 
-    it('omits numberOfPeriods even when passed', () => {
-      expect((body2.data.attributes as Record<string, unknown>).numberOfPeriods).toBeUndefined();
+    it('still carries numberOfPeriods (Apple requires it unconditionally)', () => {
+      expect((body2.data.attributes as Record<string, unknown>).numberOfPeriods).toBe(1);
     });
   });
 
@@ -138,21 +146,42 @@ describe('buildOfferCodeBody (campaign create)', () => {
       subscriptionId: 'SUB-1',
       name: 'Try It',
       customerEligibilities: ['NEW'],
+      offerEligibility: 'STACK_WITH_INTRO_OFFERS',
       offerMode: 'FREE_TRIAL',
       duration: 'ONE_WEEK',
-      // Free trials carry prices the same way as other modes (Apple ignores
-      // the amount). Builder forwards whatever it's given.
-      prices: [{ territoryId: 'USA', pricePointId: 'POINT-USA' }],
+      // Apple still requires numberOfPeriods even for FREE_TRIAL (the smoke
+      // test surfaced this — POST 409s without it). FREE_TRIAL prices have
+      // no price-point: each row's subscriptionPricePoint must serialize
+      // { data: null } (also smoke-test surfaced). Caller therefore omits
+      // pricePointId; only territoryId matters.
+      numberOfPeriods: 1,
+      prices: [{ territoryId: 'USA' }],
     }) as Body;
 
-    it('does not carry numberOfPeriods', () => {
-      expect((body2.data.attributes as Record<string, unknown>).numberOfPeriods).toBeUndefined();
+    it('still carries numberOfPeriods (Apple requires it for FREE_TRIAL too)', () => {
+      expect((body2.data.attributes as Record<string, unknown>).numberOfPeriods).toBe(1);
     });
 
     it('still emits the prices relationship + included row', () => {
       const pricesRel = (body2.data.relationships as { prices: { data: unknown[] } }).prices;
       expect(pricesRel.data).toHaveLength(1);
       expect(body2.included).toHaveLength(1);
+    });
+
+    it('OMITS subscriptionPricePoint entirely on each price row (not data:null)', () => {
+      // Apple's persistence layer 500s on explicit { data: null } here. The
+      // Swift SDK encodes the field with encodeIfPresent, so the spec-
+      // compliant wire form is to drop the key. v0.8.0 went through three
+      // wrong shapes before this one — guard with a regression assertion
+      // that the key is genuinely absent from the relationships object.
+      const rels = body2.included?.[0]?.relationships as Record<string, unknown> | undefined;
+      expect(rels).toBeDefined();
+      expect('subscriptionPricePoint' in (rels ?? {})).toBe(false);
+      // territory must still be present — offer scope is per-territory even
+      // when there's no price-point.
+      expect(rels?.['territory']).toEqual({
+        data: { type: 'territories', id: 'USA' },
+      });
     });
   });
 });
@@ -182,19 +211,25 @@ describe('buildOneTimeUseBody (batch create)', () => {
   const body = buildOneTimeUseBody({
     offerCodeId: 'OC-1',
     numberOfCodes: 5000,
-    expirationDate: '2026-12-31T23:59:59Z',
+    expirationDate: '2026-12-31',
   }) as Body;
 
   it('uses subscriptionOfferCodeOneTimeUseCodes as the type', () => {
     expect(body.data.type).toBe('subscriptionOfferCodeOneTimeUseCodes');
   });
 
-  it('carries numberOfCodes, expirationDate, and an active default of true', () => {
+  it('carries only numberOfCodes + expirationDate (no `active` on create — PATCH-only field)', () => {
     expect(body.data.attributes).toEqual({
       numberOfCodes: 5000,
-      expirationDate: '2026-12-31T23:59:59Z',
-      active: true,
+      expirationDate: '2026-12-31',
     });
+  });
+
+  it('does not send the active flag on create (Apple rejects)', () => {
+    // Regression guard: v0.8.0 sent `active: true` on create. Apple's CREATE
+    // schema only accepts numberOfCodes + expirationDate (+ optional
+    // environment, deferred). Sending active surfaces as a validation error.
+    expect((body.data.attributes as Record<string, unknown>).active).toBeUndefined();
   });
 
   it('points at the parent offer-code campaign via the offerCode relationship', () => {

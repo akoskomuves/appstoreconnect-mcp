@@ -9,6 +9,7 @@ import {
   ExpirationDateSchema,
   NumberOfPeriodsSchema,
   OfferCodeNameSchema,
+  OfferEligibilitySchema,
   OfferModeSchema,
   PricePointIdSchema,
   SubscriptionIdSchema,
@@ -49,7 +50,9 @@ import {
 //     except here it's the human-readable `name` that's the lookup key).
 //   - PATCH on the campaign only mutates `active` (everything else
 //     immutable). Per-territory prices are set at create and cannot be
-//     patched — to rebalance, delete and re-create.
+//     patched. Apple does NOT expose DELETE on this resource — the only
+//     way to retire a campaign is PATCH active=false, which leaves the
+//     row in ASC permanently (still counts against the cap).
 //   - One-time-use batches: `numberOfCodes` and `expirationDate` set at
 //     create, immutable. PATCH only toggles `active` (deactivates the batch
 //     so unredeemed codes can no longer be used).
@@ -57,25 +60,34 @@ import {
 //     scales with batch size; the export tool caps per-call output.
 
 const OFFER_CODE_FIELDS =
-  'name,customerEligibilities,offerMode,duration,numberOfPeriods,active,totalNumberOfCodes';
+  'name,customerEligibilities,offerEligibility,offerMode,duration,numberOfPeriods,active,totalNumberOfCodes';
 const ONE_TIME_USE_FIELDS = 'numberOfCodes,expirationDate,active,createdDate';
 
 type OfferMode = z.infer<typeof OfferModeSchema>;
 type OfferDuration = z.infer<typeof SubscriptionOfferDurationSchema>;
 type CustomerEligibility = z.infer<typeof CustomerEligibilitiesSchema>[number];
+type OfferEligibility = z.infer<typeof OfferEligibilitySchema>;
 
 interface OfferCodePriceEntry {
   territoryId: string;
-  pricePointId: string;
+  // Optional because FREE_TRIAL offer codes don't carry a price point —
+  // each price row's subscriptionPricePoint relationship must serialize as
+  // { data: null }. For PAY_AS_YOU_GO / PAY_UP_FRONT this is required; the
+  // tool handler validates that before calling the body builder.
+  pricePointId?: string | undefined;
 }
 
 export interface OfferCodeCreateInput {
   subscriptionId: string;
   name: string;
   customerEligibilities: CustomerEligibility[];
+  offerEligibility: OfferEligibility;
   offerMode: OfferMode;
   duration: OfferDuration;
-  numberOfPeriods?: number | undefined;
+  // Apple requires numberOfPeriods on every offerMode, including FREE_TRIAL
+  // and PAY_UP_FRONT — even though it's logically only meaningful for
+  // PAY_AS_YOU_GO. v0.8.0 shipped with it conditional; the post then 409'd.
+  numberOfPeriods: number;
   prices: OfferCodePriceEntry[];
 }
 
@@ -90,6 +102,9 @@ interface JSONAPIBody {
     type: string;
     id: string;
     attributes?: Record<string, unknown>;
+    // Some relationships are conditional (e.g. FREE_TRIAL offer-code prices
+    // omit subscriptionPricePoint entirely — the key is absent, not null).
+    // Record's index signature already permits missing keys.
     relationships: Record<string, { data: { type: string; id: string } }>;
   }>;
 }
@@ -101,31 +116,44 @@ function tempId(n: number): string {
   return `\${${n}}`;
 }
 
-function buildIncludedPrices(prices: OfferCodePriceEntry[]) {
-  return prices.map((p, i) => ({
-    type: 'subscriptionOfferCodePrices',
-    id: tempId(i + 1),
-    relationships: {
+function buildIncludedPrices(prices: OfferCodePriceEntry[], offerMode: OfferMode) {
+  // FREE_TRIAL is the only mode without a price-point. Apple's validator
+  // surfaces it as "subscriptionPricePoint must be null", but the
+  // persistence layer 500s if you send the key explicitly as { data: null }
+  // — the Swift SDK uses encodeIfPresent (Swift's omit-when-nil idiom), so
+  // the correct wire form is to OMIT the subscriptionPricePoint key
+  // entirely. Live smoke caught both bugs: v0.8.0 sent { data: { type, id } }
+  // (415-class); the first fix sent { data: null } (500); this is the
+  // spec-compliant version.
+  const isFreeTrial = offerMode === 'FREE_TRIAL';
+  return prices.map((p, i) => {
+    const relationships: Record<string, { data: { type: string; id: string } }> = {
       territory: { data: { type: 'territories', id: p.territoryId } },
-      subscriptionPricePoint: {
-        data: { type: 'subscriptionPricePoints', id: p.pricePointId },
-      },
-    },
-  }));
+    };
+    if (!isFreeTrial) {
+      relationships.subscriptionPricePoint = {
+        data: { type: 'subscriptionPricePoints', id: p.pricePointId as string },
+      };
+    }
+    return {
+      type: 'subscriptionOfferCodePrices',
+      id: tempId(i + 1),
+      relationships,
+    };
+  });
 }
 
 export function buildOfferCodeBody(input: OfferCodeCreateInput): JSONAPIBody {
   const attributes: Record<string, unknown> = {
     name: input.name,
     customerEligibilities: input.customerEligibilities,
+    offerEligibility: input.offerEligibility,
     offerMode: input.offerMode,
     duration: input.duration,
+    numberOfPeriods: input.numberOfPeriods,
   };
-  if (input.offerMode === 'PAY_AS_YOU_GO' && input.numberOfPeriods !== undefined) {
-    attributes.numberOfPeriods = input.numberOfPeriods;
-  }
 
-  const included = buildIncludedPrices(input.prices);
+  const included = buildIncludedPrices(input.prices, input.offerMode);
   return {
     data: {
       type: 'subscriptionOfferCodes',
@@ -167,13 +195,17 @@ export interface OneTimeUseCreateInput {
 }
 
 export function buildOneTimeUseBody(input: OneTimeUseCreateInput): JSONAPIBody {
+  // Apple's CREATE schema for this resource accepts only numberOfCodes +
+  // expirationDate (+ optional environment, deferred to v0.8.1). The `active`
+  // flag is PATCH-only — sending it on create surfaces as a validation
+  // rejection (live smoke caught this). New batches default to active on
+  // Apple's side.
   return {
     data: {
       type: 'subscriptionOfferCodeOneTimeUseCodes',
       attributes: {
         numberOfCodes: input.numberOfCodes,
         expirationDate: input.expirationDate,
-        active: true,
       },
       relationships: {
         offerCode: {
@@ -209,16 +241,6 @@ function formatASCError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function escapeCsvCell(value: string): string {
-  // RFC 4180: wrap in quotes if the cell contains comma, quote, CR, or LF.
-  // Offer codes Apple generates are alphanumeric, but customers paste these
-  // into spreadsheets — defending against the long tail is cheap.
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
-
 export function registerOfferCodes(server: McpServer, client: ASCClient): void {
   // ----- Campaign CRUD -----
 
@@ -241,7 +263,7 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       params.set('limit', '200');
       const path = `/v1/subscriptions/${encodeURIComponent(
         subscriptionId,
-      )}/subscriptionOfferCodes?${params.toString()}`;
+      )}/offerCodes?${params.toString()}`;
       try {
         const pages = await paginate(client, path, maxItems);
         const text = raw ? JSON.stringify(pages, null, 2) : digestOfferCodes(pages);
@@ -285,39 +307,65 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       title: 'Create a subscription offer code campaign',
       description:
         'Create an offer-code campaign atomically: name + customer eligibilities + mode + duration + all per-territory prices in one POST. Apple caps active campaigns at 10 per subscription; this tool pre-flights the count and refuses if at the limit. ' +
-        'Immutability: name, customerEligibilities, offerMode, duration, numberOfPeriods, and per-territory prices are ALL immutable after creation. PATCH only toggles the active flag. To rebalance prices, delete and re-create. ' +
+        'Immutability: name, customerEligibilities, offerEligibility, offerMode, duration, numberOfPeriods, and per-territory prices are ALL immutable after creation. PATCH only toggles `active`. Apple does NOT expose DELETE on this resource — the only retirement path is PATCH active=false, which renders the campaign inert but leaves the row in App Store Connect (still counts against the per-subscription cap). Pick `name` and prices carefully on first creation. ' +
         'After creation, generate redeemable code strings with asc_post_subscription_offer_code_one_time_use_codes (bulk batches). Custom multi-use codes will land in v0.8.1.',
       inputSchema: {
         subscriptionId: SubscriptionIdSchema,
         name: OfferCodeNameSchema,
         customerEligibilities: CustomerEligibilitiesSchema,
+        offerEligibility: OfferEligibilitySchema,
         offerMode: OfferModeSchema,
         duration: SubscriptionOfferDurationSchema,
-        numberOfPeriods: NumberOfPeriodsSchema.optional(),
+        numberOfPeriods: NumberOfPeriodsSchema.describe(
+          "Required for every offerMode (FREE_TRIAL/PAY_UP_FRONT/PAY_AS_YOU_GO) — Apple's create endpoint rejects requests without it, even though logically it only governs the PAY_AS_YOU_GO period count. Set to 1 for one-shot modes.",
+        ),
         prices: z
           .array(
             z.object({
               territoryId: TerritoryIdSchema,
-              pricePointId: PricePointIdSchema,
+              pricePointId: PricePointIdSchema.optional().describe(
+                'Required for PAY_AS_YOU_GO and PAY_UP_FRONT modes. Omit (or leave undefined) for FREE_TRIAL — Apple wants the per-territory price-point relationship serialized as null, since free trials have no charge.',
+              ),
             }),
           )
           .min(1)
           .describe(
-            'Per-territory prices. Each entry is (territoryId, pricePointId). At least one required. Use asc_list_subscription_price_points to pick price points per territory (nearAmount narrows to a target band).',
+            'Per-territory prices. Each entry is (territoryId, pricePointId). At least one required. For FREE_TRIAL, pricePointId is omitted per territory (Apple rejects requests that pass a price point for free trials). For other modes, use asc_list_subscription_price_points to pick price points per territory (nearAmount narrows to a target band).',
           ),
       },
     },
     async (input) => {
-      if (input.offerMode === 'PAY_AS_YOU_GO' && input.numberOfPeriods === undefined) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'numberOfPeriods is required when offerMode=PAY_AS_YOU_GO.',
-            },
-          ],
-          isError: true,
-        };
+      // Mode/price-point consistency check. For FREE_TRIAL, pricePointId must
+      // not be set (Apple rejects). For other modes, every entry must carry
+      // one. Both directions are footguns — the only safe place to catch
+      // them is here before the body builder, since Apple's error pointers
+      // are at the relationships layer and hard to map back.
+      if (input.offerMode === 'FREE_TRIAL') {
+        const stray = input.prices.find((p) => p.pricePointId !== undefined);
+        if (stray) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Refused: FREE_TRIAL offer codes must not carry pricePointId on any price entry (Apple rejects with a relationship validation error). Drop pricePointId from the entry for territory ${stray.territoryId}.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      } else {
+        const missing = input.prices.find((p) => !p.pricePointId);
+        if (missing) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Refused: offerMode=${input.offerMode} requires pricePointId on every price entry. Missing on territory ${missing.territoryId}.`,
+              },
+            ],
+            isError: true,
+          };
+        }
       }
       // Pre-flight: refuse if at the 10-campaign cap or if the campaign
       // name collides with an existing one. Mirrors the promo-offer
@@ -331,7 +379,7 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
           client,
           `/v1/subscriptions/${encodeURIComponent(
             input.subscriptionId,
-          )}/subscriptionOfferCodes?${listParams.toString()}`,
+          )}/offerCodes?${listParams.toString()}`,
           200,
         );
         if (existing.data.length >= 10) {
@@ -339,7 +387,7 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
             content: [
               {
                 type: 'text',
-                text: `Refused: subscription ${input.subscriptionId} already has ${existing.data.length} offer-code campaigns, at Apple's cap of 10. Delete an existing campaign with asc_delete_subscription_offer_code before creating a new one.`,
+                text: `Refused: subscription ${input.subscriptionId} already has ${existing.data.length} offer-code campaigns, at Apple's cap of 10. Apple's API does not expose DELETE on offer-code campaigns — old campaigns can only be deactivated (asc_patch_subscription_offer_code with active=false), and deactivated campaigns still count against the cap. To free a slot, deactivate one and request manual removal in App Store Connect UI.`,
               },
             ],
             isError: true,
@@ -351,7 +399,7 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
             content: [
               {
                 type: 'text',
-                text: `Refused: campaign name "${input.name}" is already in use by offer code ${nameCollision.id} on this subscription. Campaign name must be unique per subscription, and is immutable after creation — pick a different name or delete the existing campaign first.`,
+                text: `Refused: campaign name "${input.name}" is already in use by offer code ${nameCollision.id} on this subscription. Campaign name must be unique per subscription and is immutable after creation. Apple has no DELETE on this resource — pick a different name (e.g. append a date or version suffix).`,
               },
             ],
             isError: true,
@@ -419,28 +467,13 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
     },
   );
 
-  server.registerTool(
-    'asc_delete_subscription_offer_code',
-    {
-      title: 'Delete a subscription offer code campaign',
-      description:
-        'Delete an offer-code campaign by ID. Returns 204 on success. All one-time-use batches and custom codes under the campaign are deleted with it. Apple does not document whether the campaign name is immediately reusable post-delete — recommend a suffix when rotating campaigns rather than reusing the same name.',
-      inputSchema: {
-        offerCodeId: SubscriptionOfferCodeIdSchema,
-      },
-    },
-    async ({ offerCodeId }) => {
-      try {
-        await client.request<void>(
-          `/v1/subscriptionOfferCodes/${encodeURIComponent(offerCodeId)}`,
-          { method: 'DELETE' },
-        );
-        return { content: [{ type: 'text', text: `Deleted offer code campaign ${offerCodeId}.` }] };
-      } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
-      }
-    },
-  );
+  // No delete tool: Apple's API does NOT expose DELETE on
+  // /v1/subscriptionOfferCodes. Campaigns can only be deactivated (PATCH
+  // active=false), which stops further redemption but leaves the row in
+  // App Store Connect. Deactivated campaigns are inert but still count
+  // against the per-subscription cap. Live smoke confirmed this — the
+  // earlier asc_delete_subscription_offer_code tool was removed in
+  // v0.8.0's bugfix cycle.
 
   // ----- One-time-use code batches -----
 
@@ -554,8 +587,8 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
     {
       title: 'Export one-time-use code values as CSV',
       description:
-        'Fetch the redeemable code strings inside a one-time-use batch. Returns CSV with a single `code` column plus a header comment naming the batch and count. These are the strings to hand to customers; treat them as secrets. ' +
-        'Apple returns the values via the /values sub-resource on the batch. Use `raw: true` to see the JSON:API response untouched.',
+        'Fetch the redeemable code strings inside a one-time-use batch. Apple serves the response as text/csv directly — this tool passes it through verbatim. These are the strings to hand to customers; treat them as secrets. ' +
+        'Use `raw: true` to skip the leading summary line and return only the CSV body, suitable for piping to a file.',
       inputSchema: {
         oneTimeUseId: SubscriptionOfferCodeOneTimeUseCodesIdSchema,
         raw: z.boolean().default(false),
@@ -566,29 +599,14 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
         oneTimeUseId,
       )}/values`;
       try {
-        const data = await client.request<{
-          data?: { attributes?: { values?: string[] } };
-        }>(path, { method: 'GET' });
+        // Apple returns this endpoint as text/csv, not JSON. requestText
+        // sends Accept: text/csv and returns the body unparsed.
+        const csv = await client.requestText(path, { method: 'GET' });
         if (raw) {
-          return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+          return { content: [{ type: 'text', text: csv }] };
         }
-        const values = data?.data?.attributes?.values ?? [];
-        if (values.length === 0) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `# batch=${oneTimeUseId} count=0\n# (no values returned — batch may still be generating, or already deactivated; re-fetch in a few seconds or use raw:true to inspect)\ncode\n`,
-              },
-            ],
-          };
-        }
-        const lines = [
-          `# batch=${oneTimeUseId} count=${values.length}`,
-          'code',
-          ...values.map(escapeCsvCell),
-        ];
-        return { content: [{ type: 'text', text: `${lines.join('\n')}\n` }] };
+        const summary = `Exported one-time-use code values for batch ${oneTimeUseId}. These strings are redeemable secrets — handle accordingly.\n\n`;
+        return { content: [{ type: 'text', text: `${summary}${csv}` }] };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
       }

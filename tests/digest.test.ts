@@ -406,7 +406,7 @@ describe('digestIapPricePoints', () => {
 });
 
 describe('digestOfferCodes', () => {
-  it('renders campaign rows with compact eligibility letters and a price count', () => {
+  it('renders campaign rows with cohort letters, offer-eligibility short label, and a price count', () => {
     const out = digestOfferCodes(
       pages({
         data: [
@@ -416,6 +416,7 @@ describe('digestOfferCodes', () => {
             attributes: {
               name: 'Spring Onboarding',
               customerEligibilities: ['NEW', 'EXPIRED'],
+              offerEligibility: 'STACK_WITH_INTRO_OFFERS',
               offerMode: 'PAY_AS_YOU_GO',
               duration: 'ONE_MONTH',
               numberOfPeriods: 3,
@@ -437,14 +438,40 @@ describe('digestOfferCodes', () => {
     );
     expect(out).toContain('1 offer code campaigns');
     expect(out).toContain('Spring Onboarding');
-    // Eligibility cohort letters: N=NEW, E=EXISTING, X=EXPIRED.
+    // Customer-eligibility cohort letters: N=NEW, E=EXISTING, X=EXPIRED.
     expect(out).toContain('NX');
+    // Offer-eligibility short label.
+    expect(out).toContain('STACK');
     expect(out).toContain('PAY_AS_YOU_GO');
     expect(out).toContain('ONE_MONTH');
     expect(out).toContain('CAMP-1');
     // Price count from the to-many `prices` relationship.
     const row = out.split('\n').find((l) => l.includes('CAMP-1'));
     expect(row).toMatch(/\b3\b/);
+  });
+
+  it('renders REPLACE for the other offerEligibility enum value', () => {
+    const out = digestOfferCodes(
+      pages({
+        data: [
+          {
+            type: 'subscriptionOfferCodes',
+            id: 'CAMP-2',
+            attributes: {
+              name: 'Override',
+              customerEligibilities: ['NEW'],
+              offerEligibility: 'REPLACE_INTRO_OFFERS',
+              offerMode: 'PAY_UP_FRONT',
+              duration: 'ONE_MONTH',
+              numberOfPeriods: 1,
+              active: true,
+            },
+            relationships: { prices: { data: [] } },
+          },
+        ],
+      }),
+    );
+    expect(out).toContain('REPLACE');
   });
 
   it('sorts campaigns by name', () => {
@@ -457,8 +484,10 @@ describe('digestOfferCodes', () => {
             attributes: {
               name: 'Z-Campaign',
               customerEligibilities: ['NEW'],
+              offerEligibility: 'STACK_WITH_INTRO_OFFERS',
               offerMode: 'PAY_UP_FRONT',
               duration: 'ONE_MONTH',
+              numberOfPeriods: 1,
               active: true,
             },
             relationships: { prices: { data: [] } },
@@ -469,8 +498,10 @@ describe('digestOfferCodes', () => {
             attributes: {
               name: 'A-Campaign',
               customerEligibilities: ['EXISTING'],
+              offerEligibility: 'REPLACE_INTRO_OFFERS',
               offerMode: 'PAY_UP_FRONT',
               duration: 'ONE_MONTH',
+              numberOfPeriods: 1,
               active: true,
             },
             relationships: { prices: { data: [] } },

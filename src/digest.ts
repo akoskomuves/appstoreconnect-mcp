@@ -362,7 +362,8 @@ export function digestPromotionalOfferPrices(pages: CollectedPages): string {
 export function digestOfferCodes(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'NAME' },
-    { header: 'ELIG' },
+    { header: 'CUST_ELIG' },
+    { header: 'OFFER_ELIG' },
     { header: 'MODE' },
     { header: 'DURATION' },
     { header: 'PERIODS', align: 'right' },
@@ -372,16 +373,27 @@ export function digestOfferCodes(pages: CollectedPages): string {
   ];
   const rows = pages.data.map((campaign) => {
     const elig = attr<string[]>(campaign, 'customerEligibilities');
-    // Compact eligibility into NEW/EXIST/EXP letters so the column doesn't
-    // explode horizontally when all three cohorts are set.
+    // Compact customer-eligibility cohorts into NEW/EXIST/EXP letters so the
+    // column doesn't explode horizontally when all three cohorts are set.
     const eligShort = (elig ?? [])
       .map((e) => (e === 'NEW' ? 'N' : e === 'EXISTING' ? 'E' : e === 'EXPIRED' ? 'X' : e))
       .join('');
+    // offerEligibility is a separate single-value enum governing how the code
+    // composes with introductory offers (stack vs. replace). Short labels:
+    // STACK / REPLACE.
+    const offerEligRaw = attr<string>(campaign, 'offerEligibility');
+    const offerEligShort =
+      offerEligRaw === 'STACK_WITH_INTRO_OFFERS'
+        ? 'STACK'
+        : offerEligRaw === 'REPLACE_INTRO_OFFERS'
+          ? 'REPLACE'
+          : (offerEligRaw ?? '');
     const pricesRel = campaign.relationships?.['prices']?.data;
     const priceCount = Array.isArray(pricesRel) ? pricesRel.length : '';
     return [
       s(attr(campaign, 'name')),
       eligShort,
+      offerEligShort,
       s(attr(campaign, 'offerMode')),
       s(attr(campaign, 'duration')),
       s(attr(campaign, 'numberOfPeriods') ?? ''),
@@ -391,7 +403,7 @@ export function digestOfferCodes(pages: CollectedPages): string {
     ];
   });
   rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
-  return `${summaryFooter(pages, 'offer code campaigns')} (ELIG: N=NEW E=EXISTING X=EXPIRED)\n\n${formatTable(columns, rows)}`;
+  return `${summaryFooter(pages, 'offer code campaigns')} (CUST_ELIG: N=NEW E=EXISTING X=EXPIRED · OFFER_ELIG: STACK=stack-with-intro REPLACE=replace-intro)\n\n${formatTable(columns, rows)}`;
 }
 
 export function digestOfferCodeOneTimeUseBatches(pages: CollectedPages): string {

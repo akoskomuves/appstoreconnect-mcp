@@ -26,6 +26,7 @@ import {
   NumberOfPeriodsSchema,
   OfferCodeNameSchema,
   OfferCodeSchema,
+  OfferEligibilitySchema,
   OfferModeSchema,
   OfferNameSchema,
   StartDateSchema,
@@ -1421,9 +1422,13 @@ interface ApplyOfferCodeArgs {
   subscriptionId: string;
   offerCodeName: string;
   customerEligibilities: Array<'NEW' | 'EXISTING' | 'EXPIRED'>;
+  offerEligibility: 'STACK_WITH_INTRO_OFFERS' | 'REPLACE_INTRO_OFFERS';
   offerMode: 'PAY_AS_YOU_GO' | 'PAY_UP_FRONT';
   duration: string;
-  numberOfPeriods: number | undefined;
+  // Apple requires numberOfPeriods on every offerMode at create time. PPP
+  // never invokes this path for FREE_TRIAL (rejected upstream), so the
+  // realistic values are >=1 for PAY_AS_YOU_GO and exactly 1 for PAY_UP_FRONT.
+  numberOfPeriods: number;
   basePriceAnchor: number;
   anchorTerritory: string;
   roundStrategy: RoundStrategy;
@@ -1439,9 +1444,7 @@ async function applyOfferCodeProposal(
   client: ASCClient,
   args: ApplyOfferCodeArgs,
 ) {
-  const label = `${args.offerMode} offer-code campaign "${args.offerCodeName}" on subscription ${args.subscriptionId} (duration=${args.duration}${
-    args.numberOfPeriods ? `, periods=${args.numberOfPeriods}` : ''
-  }, eligibilities=${args.customerEligibilities.join('+')})`;
+  const label = `${args.offerMode} offer-code campaign "${args.offerCodeName}" on subscription ${args.subscriptionId} (duration=${args.duration}, periods=${args.numberOfPeriods}, cohorts=${args.customerEligibilities.join('+')}, ${args.offerEligibility})`;
 
   // Pre-flight: refuse at the 10-campaign cap or on a name collision. Same
   // shape as promo offers, except the uniqueness key on offer codes is
@@ -1458,7 +1461,7 @@ async function applyOfferCodeProposal(
       client,
       `/v1/subscriptions/${encodeURIComponent(
         args.subscriptionId,
-      )}/subscriptionOfferCodes?${listParams.toString()}`,
+      )}/offerCodes?${listParams.toString()}`,
       200,
     );
     if (existing.data.length >= 10) {
@@ -1466,7 +1469,7 @@ async function applyOfferCodeProposal(
         content: [
           {
             type: 'text' as const,
-            text: `Refused: subscription ${args.subscriptionId} already has ${existing.data.length} offer-code campaigns, at Apple's cap of 10. Delete an existing campaign with asc_delete_subscription_offer_code before re-running PPP.`,
+            text: `Refused: subscription ${args.subscriptionId} already has ${existing.data.length} offer-code campaigns, at Apple's cap of 10. Apple has no DELETE on this resource — old campaigns can only be deactivated (asc_patch_subscription_offer_code with active=false), and deactivated campaigns still count against the cap. To free a slot, deactivate one and request manual removal in App Store Connect UI before re-running PPP.`,
           },
         ],
         isError: true,
@@ -1478,7 +1481,7 @@ async function applyOfferCodeProposal(
         content: [
           {
             type: 'text' as const,
-            text: `Refused: campaign name "${args.offerCodeName}" is already in use by offer code ${nameCollision.id} on this subscription. PPP for offer codes is create-only (per-territory prices are immutable post-create) — to rebalance, delete the existing campaign with asc_delete_subscription_offer_code and re-run, or pick a different name.`,
+            text: `Refused: campaign name "${args.offerCodeName}" is already in use by offer code ${nameCollision.id} on this subscription. PPP for offer codes is create-only (per-territory prices are immutable post-create), and Apple has no DELETE on this resource. Pick a different name (e.g. append a date or version suffix), or deactivate the existing campaign in ASC UI first.`,
           },
         ],
         isError: true,
@@ -1548,7 +1551,7 @@ async function applyOfferCodeProposal(
       const elicit = await server.server.elicitInput({
         message: `Create offer-code campaign "${args.offerCodeName}" with ${writable.length} per-territory price${
           writable.length === 1 ? '' : 's'
-        } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:    ${args.subscriptionId}\nEligibilities:   ${args.customerEligibilities.join(', ')}\nMode:            ${args.offerMode}\nDuration:        ${args.duration}${args.numberOfPeriods ? ` × ${args.numberOfPeriods} periods` : ''}\nLargest Δ:       ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: one atomic POST. The campaign + all listed prices either all land or none do. After creation, name/eligibilities/mode/duration/prices are all immutable — only the active flag can be PATCHed. Generate redeemable codes afterwards with asc_post_subscription_offer_code_one_time_use_codes.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
+        } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:     ${args.subscriptionId}\nCustomer cohorts: ${args.customerEligibilities.join(', ')}\nOffer eligibility: ${args.offerEligibility} (${args.offerEligibility === 'STACK_WITH_INTRO_OFFERS' ? 'stacks on top of any intro offer' : 'replaces any intro offer'})\nMode:             ${args.offerMode}\nDuration:         ${args.duration} × ${args.numberOfPeriods} period${args.numberOfPeriods === 1 ? '' : 's'}\nLargest Δ:        ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: one atomic POST. The campaign + all listed prices either all land or none do. After creation, every attribute except active is immutable — and Apple does NOT expose DELETE on this resource. Pick name/eligibilities/prices carefully; the row will live in App Store Connect permanently. Generate redeemable codes afterwards with asc_post_subscription_offer_code_one_time_use_codes.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
         requestedSchema: {
           type: 'object',
           properties: {
@@ -1590,6 +1593,7 @@ async function applyOfferCodeProposal(
     subscriptionId: args.subscriptionId,
     name: args.offerCodeName,
     customerEligibilities: args.customerEligibilities,
+    offerEligibility: args.offerEligibility,
     offerMode: args.offerMode,
     duration: args.duration as Parameters<typeof buildOfferCodeBody>[0]['duration'],
     numberOfPeriods: args.numberOfPeriods,
@@ -1713,6 +1717,9 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         customerEligibilities: CustomerEligibilitiesSchema.optional().describe(
           'Required when resourceType="offerCode". Subscriber cohorts allowed to redeem (NEW/EXISTING/EXPIRED). At least one. Immutable post-create.',
         ),
+        offerEligibility: OfferEligibilitySchema.optional().describe(
+          'Required when resourceType="offerCode". STACK_WITH_INTRO_OFFERS lets redeemers stack this on top of any intro offer they qualify for; REPLACE_INTRO_OFFERS overrides the intro offer. Immutable post-create.',
+        ),
         basePriceAnchor: z
           .number()
           .positive()
@@ -1792,23 +1799,23 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
             isError: true,
           };
         }
-        if (args.offerMode === 'PAY_AS_YOU_GO' && args.numberOfPeriods === undefined) {
+        if (args.numberOfPeriods === undefined) {
           return {
             content: [
               {
                 type: 'text',
-                text: 'numberOfPeriods is required when offerMode=PAY_AS_YOU_GO.',
+                text: "numberOfPeriods is required for every offer-code mode (Apple's create endpoint rejects without it). Set to 1 for PAY_UP_FRONT.",
               },
             ],
             isError: true,
           };
         }
-        if (!args.offerCodeName || !args.customerEligibilities) {
+        if (!args.offerCodeName || !args.customerEligibilities || !args.offerEligibility) {
           return {
             content: [
               {
                 type: 'text',
-                text: 'For resourceType="offerCode", pass offerCodeName and customerEligibilities (non-empty subset of NEW/EXISTING/EXPIRED).',
+                text: 'For resourceType="offerCode", pass offerCodeName, customerEligibilities (non-empty subset of NEW/EXISTING/EXPIRED), and offerEligibility (STACK_WITH_INTRO_OFFERS or REPLACE_INTRO_OFFERS).',
               },
             ],
             isError: true,
@@ -1892,7 +1899,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           : args.resourceType === 'promotionalOffer'
             ? `${args.offerMode} promotional offer "${args.promoOfferCode}" on subscription ${resourceId} (duration=${args.duration}${offerSuffix})`
             : args.resourceType === 'offerCode'
-              ? `${args.offerMode} offer-code campaign "${args.offerCodeName}" on subscription ${resourceId} (duration=${args.duration}${offerSuffix}, eligibilities=${args.customerEligibilities?.join('+') ?? ''})`
+              ? `${args.offerMode} offer-code campaign "${args.offerCodeName}" on subscription ${resourceId} (duration=${args.duration}${offerSuffix}, cohorts=${args.customerEligibilities?.join('+') ?? ''}, ${args.offerEligibility ?? ''})`
               : `${args.resourceType} ${resourceId}`;
       const table = renderProposalTable(ctx, label);
       const footer =
@@ -1956,6 +1963,9 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         ),
         customerEligibilities: CustomerEligibilitiesSchema.optional().describe(
           'Required when resourceType="offerCode". Subscriber cohorts allowed to redeem (subset of NEW/EXISTING/EXPIRED). Immutable post-create.',
+        ),
+        offerEligibility: OfferEligibilitySchema.optional().describe(
+          'Required when resourceType="offerCode". STACK_WITH_INTRO_OFFERS or REPLACE_INTRO_OFFERS — governs interaction with any introductory offer the redeemer qualifies for. Immutable post-create.',
         ),
         basePriceAnchor: z.number().positive(),
         anchorTerritory: z.string().length(3).default('USA'),
@@ -2034,13 +2044,14 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           !args.offerMode ||
           !args.duration ||
           !args.offerCodeName ||
-          !args.customerEligibilities
+          !args.customerEligibilities ||
+          !args.offerEligibility
         ) {
           return {
             content: [
               {
                 type: 'text',
-                text: 'For resourceType="offerCode", pass offerMode, duration, offerCodeName, and customerEligibilities.',
+                text: 'For resourceType="offerCode", pass offerMode, duration, offerCodeName, customerEligibilities, and offerEligibility.',
               },
             ],
             isError: true,
@@ -2057,12 +2068,12 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
             isError: true,
           };
         }
-        if (args.offerMode === 'PAY_AS_YOU_GO' && args.numberOfPeriods === undefined) {
+        if (args.numberOfPeriods === undefined) {
           return {
             content: [
               {
                 type: 'text',
-                text: 'numberOfPeriods is required when offerMode=PAY_AS_YOU_GO.',
+                text: "numberOfPeriods is required for every offer-code mode (Apple's create endpoint rejects without it). Set to 1 for PAY_UP_FRONT.",
               },
             ],
             isError: true,
@@ -2072,6 +2083,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           subscriptionId: args.subscriptionId,
           offerCodeName: args.offerCodeName,
           customerEligibilities: args.customerEligibilities,
+          offerEligibility: args.offerEligibility,
           offerMode: args.offerMode,
           duration: args.duration,
           numberOfPeriods: args.numberOfPeriods,

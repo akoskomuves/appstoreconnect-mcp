@@ -9,6 +9,10 @@ const RATE_LIMIT_MAX_BACKOFF_MS = 60_000;
 
 export interface ASCClient {
   request<T>(path: string, init?: RequestInit): Promise<T>;
+  // Variant for endpoints that return a non-JSON body (e.g. the offer-code
+  // /values endpoint, which serves text/csv). Same auth + 401 + 429 retry
+  // semantics as request; default Accept is text/csv, override via init.headers.
+  requestText(path: string, init?: RequestInit): Promise<string>;
 }
 
 /**
@@ -39,14 +43,20 @@ export function createASCClient(config: Config): ASCClient {
     const token = await tokens.getToken();
     const headers = new Headers(init.headers);
     headers.set('authorization', `Bearer ${token}`);
-    headers.set('accept', 'application/json');
+    // Don't stomp an Accept supplied by the caller — `requestText` overrides
+    // to text/csv, and a future binary-download endpoint could need its own.
+    if (!headers.has('accept')) headers.set('accept', 'application/json');
     if (init.body && !headers.has('content-type')) {
       headers.set('content-type', 'application/json');
     }
     return fetch(url, { ...init, headers });
   }
 
-  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // Shared request envelope: URL resolution, one-shot 401 refresh, 429
+  // Retry-After / exponential-backoff, and error wrapping. Returns the raw
+  // Response so each caller can decode the body in its preferred shape
+  // (JSON, text, future binary).
+  async function sendWithRetries(path: string, init: RequestInit): Promise<Response> {
     const url = path.startsWith('http') ? path : `${ASC_BASE_URL}${path}`;
 
     let response = await send(url, init);
@@ -83,9 +93,22 @@ export function createASCClient(config: Config): ASCClient {
       );
     }
 
+    return response;
+  }
+
+  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await sendWithRetries(path, init);
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
   }
 
-  return { request };
+  async function requestText(path: string, init: RequestInit = {}): Promise<string> {
+    const headers = new Headers(init.headers);
+    if (!headers.has('accept')) headers.set('accept', 'text/csv');
+    const response = await sendWithRetries(path, { ...init, headers });
+    if (response.status === 204) return '';
+    return response.text();
+  }
+
+  return { request, requestText };
 }
