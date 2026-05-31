@@ -17,14 +17,14 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       # Node 24 (current LTS) ships with npm 11.x, which is required for npm
       # Trusted Publishing OIDC auth on the publish step. Node 22's npm 10.x
       # only supports the provenance signing half of the flow.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
