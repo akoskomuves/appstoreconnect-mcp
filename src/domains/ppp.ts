@@ -21,6 +21,7 @@ import {
 } from '../ppp/index.js';
 import {
   AppIdSchema,
+  AutoRenewEnabledSchema,
   CustomerEligibilitiesSchema,
   InAppPurchaseIdSchema,
   NumberOfPeriodsSchema,
@@ -1429,6 +1430,9 @@ interface ApplyOfferCodeArgs {
   // never invokes this path for FREE_TRIAL (rejected upstream), so the
   // realistic values are >=1 for PAY_AS_YOU_GO and exactly 1 for PAY_UP_FRONT.
   numberOfPeriods: number;
+  // Optional: omit to take Apple's default (auto-renew on). Pass false for
+  // non-renewing one-shot campaigns. Mirrors the standalone create tool.
+  autoRenewEnabled?: boolean | undefined;
   basePriceAnchor: number;
   anchorTerritory: string;
   roundStrategy: RoundStrategy;
@@ -1597,6 +1601,7 @@ async function applyOfferCodeProposal(
     offerMode: args.offerMode,
     duration: args.duration as Parameters<typeof buildOfferCodeBody>[0]['duration'],
     numberOfPeriods: args.numberOfPeriods,
+    ...(args.autoRenewEnabled !== undefined ? { autoRenewEnabled: args.autoRenewEnabled } : {}),
     prices: writable.map((r) => ({
       territoryId: r.territory,
       pricePointId: r.snappedPointId as string,
@@ -1967,6 +1972,9 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         offerEligibility: OfferEligibilitySchema.optional().describe(
           'Required when resourceType="offerCode". STACK_WITH_INTRO_OFFERS or REPLACE_INTRO_OFFERS — governs interaction with any introductory offer the redeemer qualifies for. Immutable post-create.',
         ),
+        autoRenewEnabled: AutoRenewEnabledSchema.optional().describe(
+          'Optional when resourceType="offerCode". Omit to take Apple\'s default (auto-renew on); pass false to make the offer non-renewing. Immutable post-create.',
+        ),
         basePriceAnchor: z.number().positive(),
         anchorTerritory: z.string().length(3).default('USA'),
         roundStrategy: z.enum(['nearest', 'down', 'up']).default('nearest'),
@@ -2087,6 +2095,9 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           offerMode: args.offerMode,
           duration: args.duration,
           numberOfPeriods: args.numberOfPeriods,
+          ...(args.autoRenewEnabled !== undefined
+            ? { autoRenewEnabled: args.autoRenewEnabled }
+            : {}),
           basePriceAnchor: args.basePriceAnchor,
           anchorTerritory: args.anchorTerritory,
           roundStrategy: args.roundStrategy as RoundStrategy,

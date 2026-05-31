@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCustomCodeBody,
+  buildCustomCodePatchBody,
   buildOfferCodeBody,
   buildOfferCodePatchBody,
   buildOneTimeUseBody,
   buildOneTimeUsePatchBody,
 } from '../src/domains/offer-codes.js';
+import { CustomCodeNumberOfCodesSchema } from '../src/schemas.js';
 
 // Pin the JSON:API wire shape for the four offer-code endpoints we POST/PATCH
 // against:
@@ -119,6 +122,45 @@ describe('buildOfferCodeBody (campaign create)', () => {
     expect(body.included?.[1]?.relationships.territory?.data).toEqual({
       type: 'territories',
       id: 'BRA',
+    });
+  });
+
+  describe('autoRenewEnabled (v0.8.1)', () => {
+    it('OMITS autoRenewEnabled from attributes when caller does not pass it', () => {
+      // Default-on per Apple. Sending an explicit value would override; we
+      // want the absence-means-default semantic to ride on encodeIfPresent.
+      const attrs = body.data.attributes as Record<string, unknown>;
+      expect('autoRenewEnabled' in attrs).toBe(false);
+    });
+
+    it('emits autoRenewEnabled when caller passes false (non-renewing one-shot)', () => {
+      const b = buildOfferCodeBody({
+        subscriptionId: 'SUB-1',
+        name: 'One Shot',
+        customerEligibilities: ['NEW'],
+        offerEligibility: 'STACK_WITH_INTRO_OFFERS',
+        offerMode: 'PAY_AS_YOU_GO',
+        duration: 'ONE_MONTH',
+        numberOfPeriods: 1,
+        autoRenewEnabled: false,
+        prices: [{ territoryId: 'USA', pricePointId: 'POINT-USA' }],
+      }) as Body;
+      expect((b.data.attributes as Record<string, unknown>).autoRenewEnabled).toBe(false);
+    });
+
+    it('emits autoRenewEnabled when caller passes true (explicit opt-in)', () => {
+      const b = buildOfferCodeBody({
+        subscriptionId: 'SUB-1',
+        name: 'Explicit On',
+        customerEligibilities: ['NEW'],
+        offerEligibility: 'STACK_WITH_INTRO_OFFERS',
+        offerMode: 'PAY_AS_YOU_GO',
+        duration: 'ONE_MONTH',
+        numberOfPeriods: 1,
+        autoRenewEnabled: true,
+        prices: [{ territoryId: 'USA', pricePointId: 'POINT-USA' }],
+      }) as Body;
+      expect((b.data.attributes as Record<string, unknown>).autoRenewEnabled).toBe(true);
     });
   });
 
@@ -237,6 +279,33 @@ describe('buildOneTimeUseBody (batch create)', () => {
       .offerCode;
     expect(rel.data).toEqual({ type: 'subscriptionOfferCodes', id: 'OC-1' });
   });
+
+  describe('environment (v0.8.1)', () => {
+    it('OMITS environment from attributes when caller does not pass it (Apple defaults to PRODUCTION)', () => {
+      const attrs = body.data.attributes as Record<string, unknown>;
+      expect('environment' in attrs).toBe(false);
+    });
+
+    it('emits environment=SANDBOX when caller passes it', () => {
+      const b = buildOneTimeUseBody({
+        offerCodeId: 'OC-1',
+        numberOfCodes: 100,
+        expirationDate: '2027-01-01',
+        environment: 'SANDBOX',
+      }) as Body;
+      expect((b.data.attributes as Record<string, unknown>).environment).toBe('SANDBOX');
+    });
+
+    it('emits environment=PRODUCTION when caller passes it explicitly', () => {
+      const b = buildOneTimeUseBody({
+        offerCodeId: 'OC-1',
+        numberOfCodes: 100,
+        expirationDate: '2027-01-01',
+        environment: 'PRODUCTION',
+      }) as Body;
+      expect((b.data.attributes as Record<string, unknown>).environment).toBe('PRODUCTION');
+    });
+  });
 });
 
 describe('buildOneTimeUsePatchBody', () => {
@@ -248,6 +317,103 @@ describe('buildOneTimeUsePatchBody', () => {
   });
 
   it('carries only the active attribute (numberOfCodes + expirationDate are immutable)', () => {
+    expect(body.data.attributes).toEqual({ active: false });
+  });
+
+  it('has an empty relationships block', () => {
+    expect(body.data.relationships).toEqual({});
+  });
+});
+
+describe('buildCustomCodeBody (v0.8.1 multi-use code create)', () => {
+  const body = buildCustomCodeBody({
+    offerCodeId: 'OC-1',
+    customCode: 'LAUNCH2026',
+    numberOfCodes: 500,
+    expirationDate: '2026-12-31',
+  }) as Body;
+
+  it('uses subscriptionOfferCodeCustomCodes as the type', () => {
+    expect(body.data.type).toBe('subscriptionOfferCodeCustomCodes');
+  });
+
+  it('carries customCode + numberOfCodes + expirationDate (no active on create — PATCH-only)', () => {
+    expect(body.data.attributes).toEqual({
+      customCode: 'LAUNCH2026',
+      numberOfCodes: 500,
+      expirationDate: '2026-12-31',
+    });
+  });
+
+  it('does not send the active flag on create', () => {
+    // Mirrors the one-time-use batch contract — Apple's create schema for
+    // custom codes only accepts customCode + numberOfCodes (+ optional
+    // expirationDate). active is PATCH-only.
+    expect((body.data.attributes as Record<string, unknown>).active).toBeUndefined();
+  });
+
+  it('points at the parent offer-code campaign via the offerCode relationship', () => {
+    const rel = (body.data.relationships as { offerCode: { data: { type: string; id: string } } })
+      .offerCode;
+    expect(rel.data).toEqual({ type: 'subscriptionOfferCodes', id: 'OC-1' });
+  });
+
+  it('OMITS expirationDate from attributes when caller does not pass it (indefinite redemption)', () => {
+    const b = buildCustomCodeBody({
+      offerCodeId: 'OC-1',
+      customCode: 'EVERGREEN',
+      numberOfCodes: 100,
+    }) as Body;
+    const attrs = b.data.attributes as Record<string, unknown>;
+    expect('expirationDate' in attrs).toBe(false);
+    // Sanity: the required fields are still there.
+    expect(attrs.customCode).toBe('EVERGREEN');
+    expect(attrs.numberOfCodes).toBe(100);
+  });
+});
+
+describe('CustomCodeNumberOfCodesSchema (v0.8.1 — Apple floor=500)', () => {
+  // Live smoke (2026-05-31) found Apple rejects 1, 5, 10, 100, 250, 375, 400,
+  // 450, 475, 499 with ENTITY_ERROR.ATTRIBUTE.INVALID "Invalid number of codes"
+  // and accepts 500, 1000, 25000. Catching this client-side avoids a wasted
+  // round-trip + spurious entry in the "active campaign + nameCollision" pre-
+  // flight if the smoke probes hit a name-collision race.
+  it("rejects values below 500 (Apple's undocumented floor)", () => {
+    for (const n of [1, 5, 100, 250, 499]) {
+      const result = CustomCodeNumberOfCodesSchema.safeParse(n);
+      expect(result.success, `expected ${n} to fail Zod min(500)`).toBe(false);
+    }
+  });
+
+  it('accepts the floor value 500 and higher up to the 25000 ceiling', () => {
+    for (const n of [500, 1000, 5000, 25000]) {
+      const result = CustomCodeNumberOfCodesSchema.safeParse(n);
+      expect(result.success, `expected ${n} to pass`).toBe(true);
+    }
+  });
+
+  it('rejects values above the 25000 ceiling', () => {
+    const result = CustomCodeNumberOfCodesSchema.safeParse(25001);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-integer or non-positive values', () => {
+    for (const n of [500.5, 0, -1, Number.NaN]) {
+      const result = CustomCodeNumberOfCodesSchema.safeParse(n);
+      expect(result.success, `expected ${n} to fail`).toBe(false);
+    }
+  });
+});
+
+describe('buildCustomCodePatchBody (v0.8.1)', () => {
+  const body = buildCustomCodePatchBody({ customCodeId: 'CC-1', active: false }) as Body;
+
+  it('uses subscriptionOfferCodeCustomCodes as the type with the resource ID', () => {
+    expect(body.data.type).toBe('subscriptionOfferCodeCustomCodes');
+    expect(body.data.id).toBe('CC-1');
+  });
+
+  it('carries only the active attribute (customCode/numberOfCodes/expirationDate immutable)', () => {
     expect(body.data.attributes).toEqual({ active: false });
   });
 

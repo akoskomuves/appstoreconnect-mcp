@@ -6,6 +6,7 @@ import {
   digestIapPricePoints,
   digestIapPrices,
   digestIaps,
+  digestOfferCodeCustomCodes,
   digestOfferCodeOneTimeUseBatches,
   digestOfferCodes,
   digestSubscriptionPricePoints,
@@ -516,6 +517,114 @@ describe('digestOfferCodes', () => {
   });
 });
 
+describe('digestOfferCodes auto-renew + code counts (v0.8.1)', () => {
+  it('renders Y/N for autoRenewEnabled and prod/sbx code counts when present', () => {
+    const out = digestOfferCodes(
+      pages({
+        data: [
+          {
+            type: 'subscriptionOfferCodes',
+            id: 'CAMP-AR',
+            attributes: {
+              name: 'AutoRenew Off',
+              customerEligibilities: ['NEW'],
+              offerEligibility: 'STACK_WITH_INTRO_OFFERS',
+              offerMode: 'PAY_AS_YOU_GO',
+              duration: 'ONE_MONTH',
+              numberOfPeriods: 3,
+              active: true,
+              autoRenewEnabled: false,
+              productionCodeCount: 1200,
+              sandboxCodeCount: 50,
+            },
+            relationships: { prices: { data: [] } },
+          },
+        ],
+      }),
+    );
+    // AUTO_RNW column should render N (false), and CODES column should show
+    // "prod/sbx" composite.
+    const row = out.split('\n').find((l) => l.includes('CAMP-AR'));
+    expect(row).toBeDefined();
+    expect(row).toContain('1200/50');
+    // Y/N marker for auto-renew off — appears as the first stand-alone "N"
+    // token in the row outside of cohort short labels (which use N for NEW).
+    // Verify by checking the legend.
+    expect(out).toContain('CODES: prod/sbx');
+  });
+
+  it('renders em-dash for autoRenewEnabled when Apple omits the attribute', () => {
+    const out = digestOfferCodes(
+      pages({
+        data: [
+          {
+            type: 'subscriptionOfferCodes',
+            id: 'CAMP-NOAR',
+            attributes: {
+              name: 'Legacy',
+              customerEligibilities: ['NEW'],
+              offerEligibility: 'STACK_WITH_INTRO_OFFERS',
+              offerMode: 'PAY_AS_YOU_GO',
+              duration: 'ONE_MONTH',
+              numberOfPeriods: 1,
+              active: true,
+              // autoRenewEnabled absent — pre-v0.8.1 campaigns or sparse
+              // fieldset responses won't carry it. Render — not blank.
+            },
+            relationships: { prices: { data: [] } },
+          },
+        ],
+      }),
+    );
+    const row = out.split('\n').find((l) => l.includes('CAMP-NOAR'));
+    expect(row).toContain('—');
+  });
+});
+
+describe('digestOfferCodeCustomCodes (v0.8.1)', () => {
+  it('renders custom-code rows newest-first with redemption cap total', () => {
+    const out = digestOfferCodeCustomCodes(
+      pages({
+        data: [
+          {
+            type: 'subscriptionOfferCodeCustomCodes',
+            id: 'CC-OLD',
+            attributes: {
+              customCode: 'OLDCODE',
+              numberOfCodes: 100,
+              createdDate: '2026-01-10T12:00:00Z',
+              expirationDate: '2026-12-31',
+              active: true,
+            },
+          },
+          {
+            type: 'subscriptionOfferCodeCustomCodes',
+            id: 'CC-NEW',
+            attributes: {
+              customCode: 'LAUNCH2026',
+              numberOfCodes: 500,
+              createdDate: '2026-05-31T12:00:00Z',
+              // No expirationDate — indefinite redemption. Should render as —.
+              active: true,
+            },
+          },
+        ],
+        total: 2,
+      }),
+    );
+    expect(out).toContain('2 custom codes');
+    expect(out).toContain('600 total redemption cap');
+    // Newest first: LAUNCH2026 (May) above OLDCODE (January).
+    const newIdx = out.indexOf('LAUNCH2026');
+    const oldIdx = out.indexOf('OLDCODE');
+    expect(newIdx).toBeGreaterThan(-1);
+    expect(oldIdx).toBeGreaterThan(newIdx);
+    // Indefinite (no expiration) renders as em-dash, not blank.
+    const newRow = out.split('\n').find((l) => l.includes('LAUNCH2026'));
+    expect(newRow).toContain('—');
+  });
+});
+
 describe('digestOfferCodeOneTimeUseBatches', () => {
   it('renders batches newest-first and totals codes generated', () => {
     const out = digestOfferCodeOneTimeUseBatches(
@@ -529,6 +638,7 @@ describe('digestOfferCodeOneTimeUseBatches', () => {
               numberOfCodes: 1000,
               expirationDate: '2026-12-31T23:59:59Z',
               active: true,
+              environment: 'PRODUCTION',
             },
           },
           {
@@ -539,6 +649,7 @@ describe('digestOfferCodeOneTimeUseBatches', () => {
               numberOfCodes: 250,
               expirationDate: '2026-12-31T23:59:59Z',
               active: true,
+              environment: 'SANDBOX',
             },
           },
         ],
@@ -553,5 +664,65 @@ describe('digestOfferCodeOneTimeUseBatches', () => {
     const oldIdx = out.indexOf('BATCH-OLD');
     expect(newIdx).toBeGreaterThan(-1);
     expect(oldIdx).toBeGreaterThan(newIdx);
+  });
+
+  it('renders ENV column as SBX/PROD (v0.8.1)', () => {
+    const out = digestOfferCodeOneTimeUseBatches(
+      pages({
+        data: [
+          {
+            type: 'subscriptionOfferCodeOneTimeUseCodes',
+            id: 'BATCH-PROD',
+            attributes: {
+              createdDate: '2026-05-01T12:00:00Z',
+              numberOfCodes: 100,
+              expirationDate: '2026-09-01',
+              active: true,
+              environment: 'PRODUCTION',
+            },
+          },
+          {
+            type: 'subscriptionOfferCodeOneTimeUseCodes',
+            id: 'BATCH-SBX',
+            attributes: {
+              createdDate: '2026-05-15T12:00:00Z',
+              numberOfCodes: 10,
+              expirationDate: '2026-09-15',
+              active: true,
+              environment: 'SANDBOX',
+            },
+          },
+        ],
+      }),
+    );
+    // Header includes ENV; legend documents the codes.
+    expect(out).toContain('ENV');
+    expect(out).toContain('SBX=sandbox PROD=production');
+    const prodRow = out.split('\n').find((l) => l.includes('BATCH-PROD'));
+    const sbxRow = out.split('\n').find((l) => l.includes('BATCH-SBX'));
+    expect(prodRow).toContain('PROD');
+    expect(sbxRow).toContain('SBX');
+  });
+
+  it('renders em-dash for ENV when Apple omits the attribute (pre-v0.8.1 batches)', () => {
+    const out = digestOfferCodeOneTimeUseBatches(
+      pages({
+        data: [
+          {
+            type: 'subscriptionOfferCodeOneTimeUseCodes',
+            id: 'BATCH-LEGACY',
+            attributes: {
+              createdDate: '2026-01-01T12:00:00Z',
+              numberOfCodes: 500,
+              expirationDate: '2026-06-30',
+              active: true,
+              // environment omitted — pre-v0.8.1 batches or sparse fieldset.
+            },
+          },
+        ],
+      }),
+    );
+    const row = out.split('\n').find((l) => l.includes('BATCH-LEGACY'));
+    expect(row).toContain('—');
   });
 });

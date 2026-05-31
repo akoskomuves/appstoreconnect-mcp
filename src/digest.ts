@@ -368,6 +368,8 @@ export function digestOfferCodes(pages: CollectedPages): string {
     { header: 'DURATION' },
     { header: 'PERIODS', align: 'right' },
     { header: 'ACTIVE' },
+    { header: 'AUTO_RNW' },
+    { header: 'CODES', align: 'right' },
     { header: 'PRICES', align: 'right' },
     { header: 'CAMPAIGN_ID' },
   ];
@@ -390,6 +392,20 @@ export function digestOfferCodes(pages: CollectedPages): string {
           : (offerEligRaw ?? '');
     const pricesRel = campaign.relationships?.['prices']?.data;
     const priceCount = Array.isArray(pricesRel) ? pricesRel.length : '';
+    // CODES column: combined view of production + sandbox counts when both
+    // are exposed (v0.8.1+ fields). Falls back to totalNumberOfCodes for
+    // backward-compat when Apple omits the breakdown.
+    const prodN = attr<number>(campaign, 'productionCodeCount');
+    const sbxN = attr<number>(campaign, 'sandboxCodeCount');
+    const totalN = attr<number>(campaign, 'totalNumberOfCodes');
+    const codesCell =
+      prodN !== undefined || sbxN !== undefined
+        ? `${prodN ?? 0}/${sbxN ?? 0}`
+        : totalN !== undefined
+          ? String(totalN)
+          : '';
+    const autoRenew = attr<boolean>(campaign, 'autoRenewEnabled');
+    const autoRenewCell = autoRenew === undefined ? '—' : autoRenew ? 'Y' : 'N';
     return [
       s(attr(campaign, 'name')),
       eligShort,
@@ -398,29 +414,42 @@ export function digestOfferCodes(pages: CollectedPages): string {
       s(attr(campaign, 'duration')),
       s(attr(campaign, 'numberOfPeriods') ?? ''),
       s(attr(campaign, 'active') ?? ''),
+      autoRenewCell,
+      codesCell,
       s(priceCount),
       campaign.id,
     ];
   });
   rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
-  return `${summaryFooter(pages, 'offer code campaigns')} (CUST_ELIG: N=NEW E=EXISTING X=EXPIRED · OFFER_ELIG: STACK=stack-with-intro REPLACE=replace-intro)\n\n${formatTable(columns, rows)}`;
+  return `${summaryFooter(pages, 'offer code campaigns')} (CUST_ELIG: N=NEW E=EXISTING X=EXPIRED · OFFER_ELIG: STACK=stack-with-intro REPLACE=replace-intro · CODES: prod/sbx)\n\n${formatTable(columns, rows)}`;
 }
 
 export function digestOfferCodeOneTimeUseBatches(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'CREATED' },
     { header: 'CODES', align: 'right' },
+    { header: 'ENV' },
     { header: 'EXPIRES' },
     { header: 'ACTIVE' },
     { header: 'BATCH_ID' },
   ];
-  const rows = pages.data.map((batch) => [
-    s(attr(batch, 'createdDate') ?? ''),
-    s(attr(batch, 'numberOfCodes') ?? ''),
-    s(attr(batch, 'expirationDate') ?? ''),
-    s(attr(batch, 'active') ?? ''),
-    batch.id,
-  ]);
+  const rows = pages.data.map((batch) => {
+    // Apple returns environment = "SANDBOX" | "PRODUCTION". Compact to SBX /
+    // PROD so the column stays narrow. Sparse-fieldset responses or pre-
+    // v0.8.1 batches may omit the field — render — so blank reads
+    // distinctly from a known production batch.
+    const envRaw = attr<string>(batch, 'environment');
+    const envCell =
+      envRaw === 'SANDBOX' ? 'SBX' : envRaw === 'PRODUCTION' ? 'PROD' : envRaw ? envRaw : '—';
+    return [
+      s(attr(batch, 'createdDate') ?? ''),
+      s(attr(batch, 'numberOfCodes') ?? ''),
+      envCell,
+      s(attr(batch, 'expirationDate') ?? ''),
+      s(attr(batch, 'active') ?? ''),
+      batch.id,
+    ];
+  });
   // Newest first — operators usually care about the most-recently-generated
   // batch (the one they're about to hand out).
   rows.sort((a, b) => (b[0] ?? '').localeCompare(a[0] ?? ''));
@@ -428,7 +457,36 @@ export function digestOfferCodeOneTimeUseBatches(pages: CollectedPages): string 
     (n, batch) => n + (Number(attr(batch, 'numberOfCodes') ?? 0) || 0),
     0,
   );
-  return `${summaryFooter(pages, 'one-time-use batches')} — ${total} total codes generated\n\n${formatTable(columns, rows)}`;
+  return `${summaryFooter(pages, 'one-time-use batches')} — ${total} total codes generated (ENV: SBX=sandbox PROD=production)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestOfferCodeCustomCodes(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'CUSTOM_CODE' },
+    { header: 'CAP', align: 'right' },
+    { header: 'EXPIRES' },
+    { header: 'ACTIVE' },
+    { header: 'CREATED' },
+    { header: 'CUSTOM_CODE_ID' },
+  ];
+  const rows = pages.data.map((code) => [
+    s(attr(code, 'customCode') ?? ''),
+    s(attr(code, 'numberOfCodes') ?? ''),
+    // Custom codes can omit expirationDate (Swift SDK optional) — render
+    // a dash so an indefinite-redemption code reads distinctly from a
+    // missing-field row.
+    s(attr(code, 'expirationDate') ?? '—'),
+    s(attr(code, 'active') ?? ''),
+    s(attr(code, 'createdDate') ?? ''),
+    code.id,
+  ]);
+  // Newest first by createdDate (column index 4).
+  rows.sort((a, b) => (b[4] ?? '').localeCompare(a[4] ?? ''));
+  const cap = pages.data.reduce(
+    (n, code) => n + (Number(attr(code, 'numberOfCodes') ?? 0) || 0),
+    0,
+  );
+  return `${summaryFooter(pages, 'custom codes')} — ${cap} total redemption cap across all codes\n\n${formatTable(columns, rows)}`;
 }
 
 export function digestIntroOffers(pages: CollectedPages): string {

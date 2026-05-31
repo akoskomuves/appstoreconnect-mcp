@@ -1,18 +1,27 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
-import { digestOfferCodeOneTimeUseBatches, digestOfferCodes } from '../digest.js';
+import {
+  digestOfferCodeCustomCodes,
+  digestOfferCodeOneTimeUseBatches,
+  digestOfferCodes,
+} from '../digest.js';
 import { ASCError } from '../errors.js';
 import { paginate } from '../jsonapi.js';
 import {
+  AutoRenewEnabledSchema,
+  CustomCodeNumberOfCodesSchema,
+  CustomCodeStringSchema,
   CustomerEligibilitiesSchema,
   ExpirationDateSchema,
   NumberOfPeriodsSchema,
+  OfferCodeEnvironmentSchema,
   OfferCodeNameSchema,
   OfferEligibilitySchema,
   OfferModeSchema,
   PricePointIdSchema,
   SubscriptionIdSchema,
+  SubscriptionOfferCodeCustomCodesIdSchema,
   SubscriptionOfferCodeIdSchema,
   SubscriptionOfferCodeOneTimeUseCodesIdSchema,
   SubscriptionOfferDurationSchema,
@@ -60,8 +69,9 @@ import {
 //     scales with batch size; the export tool caps per-call output.
 
 const OFFER_CODE_FIELDS =
-  'name,customerEligibilities,offerEligibility,offerMode,duration,numberOfPeriods,active,totalNumberOfCodes';
-const ONE_TIME_USE_FIELDS = 'numberOfCodes,expirationDate,active,createdDate';
+  'name,customerEligibilities,offerEligibility,offerMode,duration,numberOfPeriods,active,autoRenewEnabled,totalNumberOfCodes,productionCodeCount,sandboxCodeCount';
+const ONE_TIME_USE_FIELDS = 'numberOfCodes,expirationDate,active,createdDate,environment';
+const CUSTOM_CODE_FIELDS = 'customCode,numberOfCodes,expirationDate,active,createdDate';
 
 type OfferMode = z.infer<typeof OfferModeSchema>;
 type OfferDuration = z.infer<typeof SubscriptionOfferDurationSchema>;
@@ -88,6 +98,10 @@ export interface OfferCodeCreateInput {
   // and PAY_UP_FRONT — even though it's logically only meaningful for
   // PAY_AS_YOU_GO. v0.8.0 shipped with it conditional; the post then 409'd.
   numberOfPeriods: number;
+  // Optional: passes through as encodeIfPresent. Omit to take Apple's
+  // default (auto-renew on). Repo uses exactOptionalPropertyTypes — must
+  // explicitly include `undefined` so zod's parsed shape lines up.
+  autoRenewEnabled?: boolean | undefined;
   prices: OfferCodePriceEntry[];
 }
 
@@ -152,6 +166,12 @@ export function buildOfferCodeBody(input: OfferCodeCreateInput): JSONAPIBody {
     duration: input.duration,
     numberOfPeriods: input.numberOfPeriods,
   };
+  // Optional `autoRenewEnabled` — Apple's spec is encodeIfPresent. Omit
+  // the key entirely when undefined so the validator falls back to Apple's
+  // default (auto-renew on) rather than sending an explicit null.
+  if (input.autoRenewEnabled !== undefined) {
+    attributes.autoRenewEnabled = input.autoRenewEnabled;
+  }
 
   const included = buildIncludedPrices(input.prices, input.offerMode);
   return {
@@ -192,21 +212,28 @@ export interface OneTimeUseCreateInput {
   offerCodeId: string;
   numberOfCodes: number;
   expirationDate: string;
+  // Optional: 'SANDBOX' for StoreKit test accounts (free, doesn't bill real
+  // money), 'PRODUCTION' for live App Store accounts. Apple defaults to
+  // PRODUCTION when omitted — encodeIfPresent on the wire.
+  environment?: 'SANDBOX' | 'PRODUCTION' | undefined;
 }
 
 export function buildOneTimeUseBody(input: OneTimeUseCreateInput): JSONAPIBody {
   // Apple's CREATE schema for this resource accepts only numberOfCodes +
-  // expirationDate (+ optional environment, deferred to v0.8.1). The `active`
-  // flag is PATCH-only — sending it on create surfaces as a validation
-  // rejection (live smoke caught this). New batches default to active on
-  // Apple's side.
+  // expirationDate (+ optional environment). The `active` flag is
+  // PATCH-only — sending it on create surfaces as a validation rejection
+  // (live smoke caught this). New batches default to active on Apple's side.
+  const attributes: Record<string, unknown> = {
+    numberOfCodes: input.numberOfCodes,
+    expirationDate: input.expirationDate,
+  };
+  if (input.environment !== undefined) {
+    attributes.environment = input.environment;
+  }
   return {
     data: {
       type: 'subscriptionOfferCodeOneTimeUseCodes',
-      attributes: {
-        numberOfCodes: input.numberOfCodes,
-        expirationDate: input.expirationDate,
-      },
+      attributes,
       relationships: {
         offerCode: {
           data: { type: 'subscriptionOfferCodes', id: input.offerCodeId },
@@ -226,6 +253,55 @@ export function buildOneTimeUsePatchBody(input: OneTimeUsePatchInput): JSONAPIBo
     data: {
       type: 'subscriptionOfferCodeOneTimeUseCodes',
       id: input.oneTimeUseId,
+      attributes: { active: input.active },
+      relationships: {},
+    },
+  };
+}
+
+export interface CustomCodeCreateInput {
+  offerCodeId: string;
+  customCode: string;
+  numberOfCodes: number;
+  // Per Swift SDK this is optional on custom-code create (unlike one-time-use
+  // batches where it's required). Omitting means the code never expires.
+  expirationDate?: string | undefined;
+}
+
+export function buildCustomCodeBody(input: CustomCodeCreateInput): JSONAPIBody {
+  // Apple's CREATE schema for the multi-use custom code resource accepts
+  // customCode + numberOfCodes (+ optional expirationDate). The `active`
+  // flag is PATCH-only — matches the one-time-use batch contract.
+  const attributes: Record<string, unknown> = {
+    customCode: input.customCode,
+    numberOfCodes: input.numberOfCodes,
+  };
+  if (input.expirationDate !== undefined) {
+    attributes.expirationDate = input.expirationDate;
+  }
+  return {
+    data: {
+      type: 'subscriptionOfferCodeCustomCodes',
+      attributes,
+      relationships: {
+        offerCode: {
+          data: { type: 'subscriptionOfferCodes', id: input.offerCodeId },
+        },
+      },
+    },
+  };
+}
+
+export interface CustomCodePatchInput {
+  customCodeId: string;
+  active: boolean;
+}
+
+export function buildCustomCodePatchBody(input: CustomCodePatchInput): JSONAPIBody {
+  return {
+    data: {
+      type: 'subscriptionOfferCodeCustomCodes',
+      id: input.customCodeId,
       attributes: { active: input.active },
       relationships: {},
     },
@@ -319,6 +395,7 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
         numberOfPeriods: NumberOfPeriodsSchema.describe(
           "Required for every offerMode (FREE_TRIAL/PAY_UP_FRONT/PAY_AS_YOU_GO) — Apple's create endpoint rejects requests without it, even though logically it only governs the PAY_AS_YOU_GO period count. Set to 1 for one-shot modes.",
         ),
+        autoRenewEnabled: AutoRenewEnabledSchema.optional(),
         prices: z
           .array(
             z.object({
@@ -439,7 +516,9 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
         offerCodeId: SubscriptionOfferCodeIdSchema,
         active: z
           .boolean()
-          .describe('true to activate, false to deactivate. Toggle is reversible.'),
+          .describe(
+            'true to activate, false to deactivate. ONE-WAY: deactivation cannot be undone — Apple rejects reactivation with STATE_ERROR "Given Subscription OfferCode is inactivate, cannot be updated". The row persists as a tombstone and continues counting against the 10-per-subscription cap. Apple exposes no DELETE.',
+          ),
       },
     },
     async ({ offerCodeId, active }) => {
@@ -517,6 +596,7 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
         offerCodeId: SubscriptionOfferCodeIdSchema,
         numberOfCodes: TotalNumberOfCodesSchema,
         expirationDate: ExpirationDateSchema,
+        environment: OfferCodeEnvironmentSchema.optional(),
       },
     },
     async (input) => {
@@ -526,11 +606,12 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
           method: 'POST',
           body: JSON.stringify(body),
         });
+        const envLabel = input.environment ? ` [${input.environment}]` : '';
         return {
           content: [
             {
               type: 'text',
-              text: `Generated ${input.numberOfCodes} one-time-use codes for offer code ${input.offerCodeId} (expires ${input.expirationDate}).\n\n${JSON.stringify(
+              text: `Generated ${input.numberOfCodes} one-time-use codes${envLabel} for offer code ${input.offerCodeId} (expires ${input.expirationDate}).\n\n${JSON.stringify(
                 data,
                 null,
                 2,
@@ -607,6 +688,118 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
         }
         const summary = `Exported one-time-use code values for batch ${oneTimeUseId}. These strings are redeemable secrets — handle accordingly.\n\n`;
         return { content: [{ type: 'text', text: `${summary}${csv}` }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+      }
+    },
+  );
+
+  // ----- Custom (multi-use) codes -----
+
+  server.registerTool(
+    'asc_list_subscription_offer_code_custom_codes',
+    {
+      title: 'List custom (multi-use) codes for an offer code campaign',
+      description:
+        'List custom multi-use codes under an offer-code campaign. Each custom code is a single developer-chosen string redeemable by many customers (up to numberOfCodes redemptions total). Unlike one-time-use batches, the redeemable string IS the resource attribute — no separate /values export step. Useful for public marketing codes (e.g. "LAUNCH2026" usable by the first 500 customers).',
+      inputSchema: {
+        offerCodeId: SubscriptionOfferCodeIdSchema,
+        maxItems: z.number().int().positive().max(2000).default(500),
+        raw: z.boolean().default(false),
+      },
+    },
+    async ({ offerCodeId, maxItems, raw }) => {
+      const params = new URLSearchParams();
+      params.set('fields[subscriptionOfferCodeCustomCodes]', CUSTOM_CODE_FIELDS);
+      params.set('limit', '200');
+      const path = `/v1/subscriptionOfferCodes/${encodeURIComponent(
+        offerCodeId,
+      )}/customCodes?${params.toString()}`;
+      try {
+        const pages = await paginate(client, path, maxItems);
+        const text = raw ? JSON.stringify(pages, null, 2) : digestOfferCodeCustomCodes(pages);
+        return { content: [{ type: 'text', text }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'asc_post_subscription_offer_code_custom_code',
+    {
+      title: 'Create a custom (multi-use) offer code',
+      description:
+        'Create a custom multi-use code against an existing offer-code campaign. The developer picks the redeemable string (customCode), the redemption cap (numberOfCodes — MINIMUM 500, ceiling 25,000), and optionally an expiration date. ' +
+        "The same string is then redeemable by up to numberOfCodes customers, first-come-first-served. customCode must be unique across the subscription's custom codes. Immutable post-create — PATCH only flips `active`. Apple does NOT expose DELETE on this resource (same constraint as the parent campaign).",
+      inputSchema: {
+        offerCodeId: SubscriptionOfferCodeIdSchema,
+        customCode: CustomCodeStringSchema,
+        numberOfCodes: CustomCodeNumberOfCodesSchema,
+        expirationDate: ExpirationDateSchema.optional().describe(
+          'Optional expiration DATE (YYYY-MM-DD). Omit to make the code redeemable indefinitely until the campaign or this resource is deactivated.',
+        ),
+      },
+    },
+    async (input) => {
+      const body = buildCustomCodeBody(input);
+      try {
+        const data = await client.request<unknown>('/v1/subscriptionOfferCodeCustomCodes', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        const expLabel = input.expirationDate
+          ? `, expires ${input.expirationDate}`
+          : ', no expiration';
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Created custom code "${input.customCode}" (cap ${input.numberOfCodes} redemptions${expLabel}) for offer code ${input.offerCodeId}.\n\n${JSON.stringify(
+                data,
+                null,
+                2,
+              )}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'asc_patch_subscription_offer_code_custom_code',
+    {
+      title: 'Toggle a custom (multi-use) offer code active flag',
+      description:
+        'Activate or deactivate a custom multi-use code. PATCH only flips `active` — customCode, numberOfCodes, and expirationDate are immutable. Deactivating revokes further redemptions of the string; completed redemptions are untouched. Use this to kill a leaked public code without nuking the parent campaign. ' +
+        'DEACTIVATION IS ONE-WAY: Apple rejects reactivation with STATE_ERROR "Given custom code is inactive". Side effect: Apple silently stamps today\'s date into expirationDate when you deactivate, so the row reads as an expired code from then on. Deactivated custom codes still count toward productionCodeCount on the parent campaign.',
+      inputSchema: {
+        customCodeId: SubscriptionOfferCodeCustomCodesIdSchema,
+        active: z.boolean(),
+      },
+    },
+    async ({ customCodeId, active }) => {
+      const body = buildCustomCodePatchBody({ customCodeId, active });
+      try {
+        const data = await client.request<unknown>(
+          `/v1/subscriptionOfferCodeCustomCodes/${encodeURIComponent(customCodeId)}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+        );
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Set active=${active} on custom code ${customCodeId}.\n\n${JSON.stringify(
+                data,
+                null,
+                2,
+              )}`,
+            },
+          ],
+        };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
       }

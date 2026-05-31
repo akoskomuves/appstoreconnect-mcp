@@ -1,13 +1,14 @@
 #!/usr/bin/env tsx
-// Live smoke test for the v0.8.0 offer-codes reads. Not wired into the test
-// suite — meant to be run by a human with real ASC creds in env, exercising
-// the actual /v1/subscriptionOfferCodes and /oneTimeUseCodes endpoints.
+// Live smoke test for the v0.8 offer-codes surface (v0.8.0 + v0.8.1). Not
+// wired into the test suite — meant to be run by a human with real ASC creds
+// in env, exercising the actual /v1/subscriptionOfferCodes,
+// /oneTimeUseCodes, /customCodes, and /values endpoints.
 //
 // Usage:
 //   ASC_ISSUER_ID=… ASC_KEY_ID=… ASC_PRIVATE_KEY_PATH=… \
 //     npx tsx scripts/smoke-offer-codes.ts                       # enumerate apps/groups/subs
 //   ASC_ISSUER_ID=… ASC_KEY_ID=… ASC_PRIVATE_KEY_PATH=… \
-//     npx tsx scripts/smoke-offer-codes.ts --sub <SUB_ID>        # exercise campaign + batch reads
+//     npx tsx scripts/smoke-offer-codes.ts --sub <SUB_ID>        # campaign + batch + customCodes reads
 //   ASC_ISSUER_ID=… ASC_KEY_ID=… ASC_PRIVATE_KEY_PATH=… \
 //     npx tsx scripts/smoke-offer-codes.ts --batch <BATCH_ID>    # exercise the /values endpoint specifically
 //
@@ -20,14 +21,17 @@
 //   3. If any campaigns exist, that `name` is in `data[].attributes` — the
 //      assumption the asc_post pre-flight collision check depends on.
 //   4. The /oneTimeUseCodes sub-resource also walks cleanly.
-//   5. The /values endpoint actually returns `data.attributes.values` as a
-//      string[] — this is the riskiest assumption in v0.8.0 because Apple's
-//      docs are sparse and I haven't seen the response live.
+//   5. The /values endpoint serves text/csv (not JSON) — v0.8.0 fix.
+//   6. v0.8.1: the /customCodes sub-resource walks cleanly, custom-code
+//      attributes include customCode/numberOfCodes, and the new
+//      autoRenewEnabled / productionCodeCount / sandboxCodeCount fields
+//      surface on campaign list responses when Apple sends them.
 
 import { createASCClient } from '../src/client.js';
 import { loadConfig } from '../src/config.js';
 import {
   digestApps,
+  digestOfferCodeCustomCodes,
   digestOfferCodeOneTimeUseBatches,
   digestOfferCodes,
   digestSubscriptionGroups,
@@ -126,20 +130,33 @@ async function smokeSub(
   for (const campaign of campaigns.data) {
     const name = campaign.attributes?.['name'];
     const elig = campaign.attributes?.['customerEligibilities'];
+    const offerElig = campaign.attributes?.['offerEligibility'];
     const mode = campaign.attributes?.['offerMode'];
     const duration = campaign.attributes?.['duration'];
     const periods = campaign.attributes?.['numberOfPeriods'];
     const active = campaign.attributes?.['active'];
+    // v0.8.1 surfaces. Apple may omit any of these on a sparse-fieldset
+    // response — undefined here just means "not in the response", not
+    // "Apple doesn't expose it".
+    const autoRenew = campaign.attributes?.['autoRenewEnabled'];
+    const prodCount = campaign.attributes?.['productionCodeCount'];
+    const sbxCount = campaign.attributes?.['sandboxCodeCount'];
+    const totalCount = campaign.attributes?.['totalNumberOfCodes'];
     console.log(`\n[campaign] ${campaign.id}`);
-    console.log(`  name           = ${name ?? '(MISSING — collision-check would fail)'}`);
-    console.log(`  customerEligib = ${JSON.stringify(elig) ?? '(missing)'}`);
-    console.log(`  offerMode      = ${mode ?? '(missing)'}`);
-    console.log(`  duration       = ${duration ?? '(missing)'}`);
-    console.log(`  numberOfPeriods= ${periods ?? '(n/a unless PAY_AS_YOU_GO)'}`);
-    console.log(`  active         = ${active ?? '(missing)'}`);
+    console.log(`  name             = ${name ?? '(MISSING — collision-check would fail)'}`);
+    console.log(`  customerEligib   = ${JSON.stringify(elig) ?? '(missing)'}`);
+    console.log(`  offerEligibility = ${offerElig ?? '(missing)'}`);
+    console.log(`  offerMode        = ${mode ?? '(missing)'}`);
+    console.log(`  duration         = ${duration ?? '(missing)'}`);
+    console.log(`  numberOfPeriods  = ${periods ?? '(n/a unless PAY_AS_YOU_GO)'}`);
+    console.log(`  active           = ${active ?? '(missing)'}`);
+    console.log(`  autoRenewEnabled = ${autoRenew ?? '(absent — pre-v0.8.1 or sparse fieldset)'}`);
+    console.log(`  productionCodes  = ${prodCount ?? '(absent)'}`);
+    console.log(`  sandboxCodes     = ${sbxCount ?? '(absent)'}`);
+    console.log(`  totalCodes       = ${totalCount ?? '(absent)'}`);
     const pricesRel = campaign.relationships?.['prices']?.data;
     const priceCount = Array.isArray(pricesRel) ? pricesRel.length : 'n/a';
-    console.log(`  prices linkage = ${priceCount} entries (digest PRICES column source)`);
+    console.log(`  prices linkage   = ${priceCount} entries (digest PRICES column source)`);
 
     if (!name) {
       console.log('  [FAIL] `name` is NOT in attributes on the list response.');
@@ -175,6 +192,42 @@ async function smokeSub(
         await smokeValues(client, first.id);
       }
     }
+
+    // v0.8.1: walk custom (multi-use) codes. These are independent of the
+    // one-time-use batches above — same parent campaign, different child
+    // resource type. The customCode string is on the resource itself (no
+    // separate /values export step like one-time-use batches need).
+    console.log(`\n  --- custom (multi-use) codes on ${campaign.id} ---`);
+    const customCodesPath = `/v1/subscriptionOfferCodes/${encodeURIComponent(
+      campaign.id,
+    )}/customCodes?limit=200`;
+    let customCodes: Awaited<ReturnType<typeof paginate>>;
+    try {
+      customCodes = await paginate(client, customCodesPath, 200);
+    } catch (err) {
+      console.log(`  [FAIL] ${customCodesPath}`);
+      console.log(`         ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    console.log(`  raw: data=${customCodes.data.length}\n`);
+    console.log(digestOfferCodeCustomCodes(customCodes));
+
+    if (customCodes.data.length === 0) {
+      console.log('  [warn] No custom codes yet — create one with');
+      console.log('         asc_post_subscription_offer_code_custom_code to exercise the');
+      console.log('         create+patch surfaces.');
+    } else {
+      const sampleCC = customCodes.data[0];
+      const cc = sampleCC?.attributes?.['customCode'];
+      const cap = sampleCC?.attributes?.['numberOfCodes'];
+      if (cc === undefined) {
+        console.log(
+          '  [FAIL] customCode missing from list response — list tool digest will render blank.',
+        );
+      } else {
+        console.log(`  [ok]   sample customCode = "${cc}" (cap ${cap ?? '?'})`);
+      }
+    }
   }
 }
 
@@ -182,52 +235,33 @@ async function smokeValues(
   client: ReturnType<typeof createASCClient>,
   batchId: string,
 ): Promise<void> {
-  // Assumption #2 (the riskiest in v0.8.0): the /values sub-resource returns
-  // a single JSON:API resource whose attributes carry a `values: string[]`.
-  // If Apple returns the codes some other way (a relationship, a different
-  // attribute key, a streaming download URL), we'll see it here.
+  // v0.8.0 live smoke discovered Apple serves /values as text/csv directly,
+  // not JSON:API. The export tool was switched to client.requestText (which
+  // defaults Accept: text/csv); the smoke script now mirrors that. Surface
+  // the first few non-empty CSV lines as a sample so a malformed/empty
+  // response is obvious.
   const path = `/v1/subscriptionOfferCodeOneTimeUseCodes/${encodeURIComponent(batchId)}/values`;
-  let raw: unknown;
+  let csv: string;
   try {
-    raw = await client.request<unknown>(path, { method: 'GET' });
+    csv = await client.requestText(path, { method: 'GET' });
   } catch (err) {
     console.log(`  [FAIL] ${path}`);
     console.log(`         ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
 
-  // Print the top-level shape so deviations from { data: { attributes: { values: [...] } } }
-  // are obvious.
-  const shape = (() => {
-    if (raw === null || typeof raw !== 'object') return typeof raw;
-    const r = raw as Record<string, unknown>;
-    const keys = Object.keys(r);
-    if ('data' in r && r.data && typeof r.data === 'object') {
-      const d = r.data as Record<string, unknown>;
-      const dKeys = Object.keys(d);
-      const attrs = d['attributes'] as Record<string, unknown> | undefined;
-      const attrKeys = attrs ? Object.keys(attrs) : [];
-      return `{ ${keys.join(',')} } / data: { ${dKeys.join(',')} } / data.attributes: { ${attrKeys.join(',')} }`;
-    }
-    return `{ ${keys.join(',')} }`;
-  })();
-  console.log(`  top-level shape: ${shape}`);
-
-  const values = (raw as { data?: { attributes?: { values?: unknown } } })?.data?.attributes
-    ?.values;
-  if (Array.isArray(values)) {
-    console.log(`  [ok]   data.attributes.values is string[] (len=${values.length}).`);
-    if (values.length > 0) {
-      const sample = values.slice(0, 3).map((v) => (typeof v === 'string' ? v : JSON.stringify(v)));
-      console.log(`  sample: ${sample.join(', ')}${values.length > 3 ? ', …' : ''}`);
-    }
-  } else if (values === undefined) {
-    console.log('  [FAIL] data.attributes.values is missing. The /values shape in the');
-    console.log('         CSV export tool needs to be adjusted. Print the full payload:');
-    console.log(`\n${JSON.stringify(raw, null, 2).slice(0, 2000)}`);
-  } else {
-    console.log(`  [FAIL] data.attributes.values is not an array (got ${typeof values}). Full:`);
-    console.log(`\n${JSON.stringify(raw, null, 2).slice(0, 2000)}`);
+  const lines = csv.split(/\r?\n/).filter((l) => l.trim() !== '');
+  if (lines.length === 0) {
+    console.log('  [FAIL] /values returned an empty CSV — no header row.');
+    console.log(`         raw bytes (first 200): ${JSON.stringify(csv.slice(0, 200))}`);
+    return;
+  }
+  console.log(`  [ok]   /values served ${lines.length} CSV line(s), first 3:`);
+  for (const line of lines.slice(0, 3)) {
+    console.log(`         ${line}`);
+  }
+  if (lines.length > 3) {
+    console.log(`         … (+${lines.length - 3} more)`);
   }
 }
 
