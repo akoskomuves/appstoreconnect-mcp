@@ -239,3 +239,200 @@ export const TimestampMillisSchema = z
   .describe(
     'Milliseconds since UNIX epoch (legacy signer only). When omitted, the current time is used. Signature is valid for 24 hours from this timestamp.',
   );
+
+// ---------- TestFlight (v0.9.0) ----------
+
+export const BuildIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'TestFlight build ID from /v1/builds. Apple-generated UUID-style identifier; one per uploaded .ipa. Builds expire 90 days after upload unless explicitly extended; PATCH `expired=true` retires a build early.',
+  );
+
+export const BuildBetaDetailIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'BuildBetaDetail ID from /v1/buildBetaDetails. Per-build companion record carrying autoNotifyEnabled + internalBuildState + externalBuildState. ID is distinct from the parent build ID but 1:1 with it.',
+  );
+
+export const BetaGroupIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Beta group ID from /v1/betaGroups. Beta groups bundle testers; builds are assigned to groups, not directly to testers. Two kinds: internal (org members; up to 100 testers; no review required) and external (up to 10,000 testers; first external build requires Apple beta review).',
+  );
+
+export const BetaTesterIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Beta tester ID from /v1/betaTesters. One record per email address per team — a tester can be in many groups across many apps. Email is the uniqueness key for invites; firstName/lastName are optional.',
+  );
+
+export const BetaBuildLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'BetaBuildLocalization ID from /v1/betaBuildLocalizations. Per-build, per-locale "What to Test" text shown to TestFlight users. Unique per (build, locale). Distinct from BetaAppLocalization which is per-app (the standing beta description).',
+  );
+
+export const BetaAppLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'BetaAppLocalization ID from /v1/betaAppLocalizations. Per-app, per-locale beta description + feedback email + marketing URL + privacy policy URL. Distinct from BetaBuildLocalization which is the per-build "what to test" text.',
+  );
+
+export const BetaAppReviewSubmissionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "BetaAppReviewSubmission ID from /v1/betaAppReviewSubmissions. One submission per external-test build review request — gates whether external testers can receive the build. Apple's review typically takes 24–48h.",
+  );
+
+export const BetaAppReviewDetailIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'BetaAppReviewDetail ID from /v1/betaAppReviewDetails. Per-app standing record for beta-review contact info, demo account, notes, and sign-in requirement. Persists across builds (not per-submission).',
+  );
+
+export const PreReleaseVersionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'PreReleaseVersion ID from /v1/preReleaseVersions. Read-only; one per version string Apple has seen for an app (across platforms). Useful for grouping builds by version train.',
+  );
+
+export const LocaleSchema = z
+  .string()
+  .regex(/^[a-z]{2,3}(-[A-Z]{2})?$/, 'Must be a BCP-47 locale like "en-US" or "zh-Hant"')
+  .describe(
+    'BCP-47 locale identifier as Apple expects it (e.g. "en-US", "de-DE", "ja", "zh-Hans", "zh-Hant"). Used by beta-build-localizations + beta-app-localizations. Apple\'s supported list is a fixed subset of BCP-47; surfaces verbatim if unsupported.',
+  );
+
+export const BuildAudienceTypeSchema = z
+  .enum(['INTERNAL_ONLY', 'APP_STORE_ELIGIBLE'])
+  .describe(
+    'Build audience scope. INTERNAL_ONLY: internal-test only (no external distribution path). APP_STORE_ELIGIBLE: eligible for external TestFlight + App Store submission. Apple-side classification; not directly mutable (changes via the build upload flow / Xcode export options).',
+  );
+
+export const ProcessingStateSchema = z
+  .enum(['PROCESSING', 'FAILED', 'INVALID', 'VALID'])
+  .describe(
+    "Apple's server-side processing state for an uploaded build. PROCESSING: still being ingested (typically 5–30 min). FAILED: processing crashed; build unusable. INVALID: rejected due to validation (entitlements, signing, etc.). VALID: ready for testing distribution. Filter on this when picking the latest distributable build.",
+  );
+
+export const WhatsNewSchema = z
+  .string()
+  .min(1)
+  .max(4000)
+  .describe(
+    'Per-build "What to Test" body shown to TestFlight users. Apple caps at 4000 characters per locale. Localized via betaBuildLocalizations — one record per (build, locale).',
+  );
+
+export const BetaAppDescriptionSchema = z
+  .string()
+  .min(1)
+  .max(4000)
+  .describe(
+    'Per-app standing beta description shown in TestFlight (before "What to Test"). Apple caps at 4000 characters per locale. One record per (app, locale) via betaAppLocalizations.',
+  );
+
+export const FeedbackEmailSchema = z
+  .string()
+  .email()
+  .describe(
+    'Email address shown to testers for in-app feedback. Per (app, locale). Apple validates format but not deliverability.',
+  );
+
+export const MarketingUrlSchema = z
+  .string()
+  .url()
+  .describe(
+    "Marketing URL surfaced in TestFlight beside the app's beta description. Per (app, locale). https required.",
+  );
+
+export const PrivacyPolicyUrlSchema = z
+  .string()
+  .url()
+  .describe(
+    "Privacy policy URL surfaced in TestFlight beside the app's beta description. Per (app, locale). Required by Apple for any app collecting data — TestFlight may refuse submissions without it.",
+  );
+
+export const BetaGroupNameSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .describe(
+    'Display name for the beta group, shown in App Store Connect UI. Apple does not enforce uniqueness server-side, but this tool pre-flights against existing names on the app to surface accidental collisions.',
+  );
+
+export const TesterEmailSchema = z
+  .string()
+  .email()
+  .describe(
+    'Tester email address — the uniqueness key for beta-tester records. One BetaTester resource per (team, email). Apple sends the invite + redemption code to this address.',
+  );
+
+export const TesterFirstNameSchema = z
+  .string()
+  .max(50)
+  .describe(
+    'Tester first name (optional). Apple displays it in the TestFlight invite email and the App Store Connect tester table.',
+  );
+
+export const TesterLastNameSchema = z
+  .string()
+  .max(50)
+  .describe('Tester last name (optional). Same display surfaces as firstName.');
+
+export const ContactFirstNameSchema = z
+  .string()
+  .min(1)
+  .max(50)
+  .describe(
+    "Beta-review contact first name. Per-app via betaAppReviewDetails. Apple's reviewer uses this to address contact emails during beta review.",
+  );
+
+export const ContactLastNameSchema = z
+  .string()
+  .min(1)
+  .max(50)
+  .describe('Beta-review contact last name. Per-app via betaAppReviewDetails.');
+
+export const ContactPhoneSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Beta-review contact phone, including country code (e.g. "+1 415 555 0100"). Per-app via betaAppReviewDetails. Apple may call during review.',
+  );
+
+export const ContactEmailSchema = z
+  .string()
+  .email()
+  .describe(
+    'Beta-review contact email. Per-app via betaAppReviewDetails. Apple sends review-status emails here.',
+  );
+
+export const DemoAccountNameSchema = z
+  .string()
+  .max(200)
+  .describe(
+    'Demo account username for Apple reviewer to sign in (per-app betaAppReviewDetails). Required when the app gates content behind login (demoAccountRequired=true). Plaintext — assume Apple reads it verbatim.',
+  );
+
+export const DemoAccountPasswordSchema = z
+  .string()
+  .max(200)
+  .describe(
+    "Demo account password for Apple reviewer (per-app betaAppReviewDetails). Plaintext. Use a throwaway account; rotate after each review cycle since the value sits in App Store Connect indefinitely. Apple's reviewers see this in cleartext in the review tool.",
+  );
+
+export const ReviewNotesSchema = z
+  .string()
+  .max(4000)
+  .describe(
+    'Notes to Apple beta-review reviewer (per-app betaAppReviewDetails). Capped at 4000 characters. Use to document non-obvious test paths or known issues that the reviewer should bypass.',
+  );

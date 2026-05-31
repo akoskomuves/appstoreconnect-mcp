@@ -8,6 +8,7 @@ import { createASCClient } from './client.js';
 import { loadConfig } from './config.js';
 import { registerAppPricing } from './domains/app-pricing.js';
 import { registerApps } from './domains/apps.js';
+import { registerBuilds } from './domains/builds.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
 import { registerOfferCodes } from './domains/offer-codes.js';
@@ -79,6 +80,7 @@ async function runServer(): Promise<void> {
   registerOfferCodes(server, client);
   registerOfferSigning(server, config.iap);
   registerTerritories(server, client);
+  registerBuilds(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();

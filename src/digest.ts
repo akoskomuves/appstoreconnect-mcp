@@ -532,6 +532,66 @@ export function digestTerritories(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'territories')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestBuilds(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'VERSION' },
+    { header: 'STATE' },
+    { header: 'AUDIENCE' },
+    { header: 'MIN_OS' },
+    { header: 'UPLOADED' },
+    { header: 'EXPIRES' },
+    { header: 'EXP' },
+    { header: 'BUILD_ID' },
+  ];
+  const rows = pages.data.map((build) => {
+    // STATE column: Apple's enum is PROCESSING/FAILED/INVALID/VALID. Compact
+    // labels: PROC/FAIL/INV/OK so the column stays narrow at scale.
+    const stateRaw = attr<string>(build, 'processingState');
+    const stateCell =
+      stateRaw === 'VALID'
+        ? 'OK'
+        : stateRaw === 'PROCESSING'
+          ? 'PROC'
+          : stateRaw === 'FAILED'
+            ? 'FAIL'
+            : stateRaw === 'INVALID'
+              ? 'INV'
+              : (stateRaw ?? '');
+    // AUDIENCE column: INTERNAL_ONLY → INT, APP_STORE_ELIGIBLE → STORE.
+    const audRaw = attr<string>(build, 'buildAudienceType');
+    const audCell =
+      audRaw === 'INTERNAL_ONLY'
+        ? 'INT'
+        : audRaw === 'APP_STORE_ELIGIBLE'
+          ? 'STORE'
+          : (audRaw ?? '');
+    // EXP: Y/N marker for the expired flag (distinct from EXPIRES date — a
+    // build can have a future expiration date AND be marked expired, the
+    // flag wins).
+    const expired = attr<boolean>(build, 'expired');
+    const expCell = expired === true ? 'Y' : expired === false ? 'N' : '—';
+    // Trim ISO datetimes to date portion for the table — minute precision
+    // is just noise here.
+    const upload = (attr<string>(build, 'uploadedDate') ?? '').slice(0, 10);
+    const expires = (attr<string>(build, 'expirationDate') ?? '').slice(0, 10);
+    return [
+      s(attr(build, 'version') ?? ''),
+      stateCell,
+      audCell,
+      s(attr(build, 'minOsVersion') ?? ''),
+      upload,
+      expires,
+      expCell,
+      build.id,
+    ];
+  });
+  // Newest upload first when the list endpoint didn't already sort. The
+  // /v1/apps/{id}/builds path supports sort=-uploadedDate; keep a stable
+  // tie-break for offline-loaded pages.
+  rows.sort((a, b) => (b[4] ?? '').localeCompare(a[4] ?? ''));
+  return `${summaryFooter(pages, 'builds')} (STATE: OK=valid PROC=processing FAIL=failed INV=invalid · AUDIENCE: INT=internal STORE=eligible · EXP: Y=expired N=active —=unknown)\n\n${formatTable(columns, rows)}`;
+}
+
 /**
  * Single-resource digest: when a tool returns one app/subscription/etc., this
  * pretty-prints the most useful attributes without the JSON:API noise.

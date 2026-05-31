@@ -3,6 +3,7 @@ import {
   digestAppPricePoints,
   digestAppPrices,
   digestApps,
+  digestBuilds,
   digestIapPricePoints,
   digestIapPrices,
   digestIaps,
@@ -724,5 +725,183 @@ describe('digestOfferCodeOneTimeUseBatches', () => {
     );
     const row = out.split('\n').find((l) => l.includes('BATCH-LEGACY'));
     expect(row).toContain('—');
+  });
+});
+
+describe('digestBuilds (v0.9.0)', () => {
+  it('renders STATE labels (OK/PROC/FAIL/INV) and AUDIENCE labels (INT/STORE)', () => {
+    const out = digestBuilds(
+      pages({
+        data: [
+          {
+            type: 'builds',
+            id: 'BUILD-OK',
+            attributes: {
+              version: '2.4.1',
+              uploadedDate: '2026-05-30T12:00:00Z',
+              expirationDate: '2026-08-28T12:00:00Z',
+              expired: false,
+              minOsVersion: '17.0',
+              processingState: 'VALID',
+              buildAudienceType: 'APP_STORE_ELIGIBLE',
+            },
+          },
+          {
+            type: 'builds',
+            id: 'BUILD-PROC',
+            attributes: {
+              version: '2.5.0',
+              uploadedDate: '2026-05-31T08:00:00Z',
+              expirationDate: '2026-08-29T08:00:00Z',
+              expired: false,
+              minOsVersion: '17.0',
+              processingState: 'PROCESSING',
+              buildAudienceType: 'INTERNAL_ONLY',
+            },
+          },
+          {
+            type: 'builds',
+            id: 'BUILD-FAIL',
+            attributes: {
+              version: '2.5.0-rc1',
+              uploadedDate: '2026-05-29T09:00:00Z',
+              expirationDate: '2026-08-27T09:00:00Z',
+              expired: false,
+              processingState: 'FAILED',
+              buildAudienceType: 'INTERNAL_ONLY',
+            },
+          },
+          {
+            type: 'builds',
+            id: 'BUILD-INV',
+            attributes: {
+              version: '2.5.0-rc2',
+              uploadedDate: '2026-05-28T10:00:00Z',
+              processingState: 'INVALID',
+              buildAudienceType: 'INTERNAL_ONLY',
+            },
+          },
+        ],
+        total: 4,
+      }),
+    );
+    expect(out).toContain('4 builds');
+    const okRow = out.split('\n').find((l) => l.includes('BUILD-OK'));
+    const procRow = out.split('\n').find((l) => l.includes('BUILD-PROC'));
+    const failRow = out.split('\n').find((l) => l.includes('BUILD-FAIL'));
+    const invRow = out.split('\n').find((l) => l.includes('BUILD-INV'));
+    expect(okRow).toContain('OK');
+    expect(okRow).toContain('STORE');
+    expect(procRow).toContain('PROC');
+    expect(procRow).toContain('INT');
+    expect(failRow).toContain('FAIL');
+    expect(invRow).toContain('INV');
+    // Legend documents the compaction.
+    expect(out).toContain('STATE: OK=valid PROC=processing FAIL=failed INV=invalid');
+    expect(out).toContain('AUDIENCE: INT=internal STORE=eligible');
+  });
+
+  it('renders Y/N/— for the expired flag', () => {
+    const out = digestBuilds(
+      pages({
+        data: [
+          {
+            type: 'builds',
+            id: 'BUILD-EXP',
+            attributes: {
+              version: '1.0.0',
+              uploadedDate: '2026-01-01T12:00:00Z',
+              expired: true,
+              processingState: 'VALID',
+            },
+          },
+          {
+            type: 'builds',
+            id: 'BUILD-LIVE',
+            attributes: {
+              version: '1.1.0',
+              uploadedDate: '2026-02-01T12:00:00Z',
+              expired: false,
+              processingState: 'VALID',
+            },
+          },
+          {
+            type: 'builds',
+            id: 'BUILD-NOEXP',
+            attributes: {
+              version: '1.2.0',
+              uploadedDate: '2026-03-01T12:00:00Z',
+              // expired omitted — sparse fieldset.
+              processingState: 'VALID',
+            },
+          },
+        ],
+      }),
+    );
+    const expRow = out.split('\n').find((l) => l.includes('BUILD-EXP'));
+    const liveRow = out.split('\n').find((l) => l.includes('BUILD-LIVE'));
+    const noexpRow = out.split('\n').find((l) => l.includes('BUILD-NOEXP'));
+    // The version column starts with the row, so check for the EXP column
+    // values in the row. Y/N/— are 1-char tokens; using includes is fine
+    // since the BUILD_ID column is the only other column with letters and
+    // it ends with a different token.
+    expect(expRow).toMatch(/\bY\b/);
+    expect(liveRow).toMatch(/\bN\b/);
+    expect(noexpRow).toContain('—');
+  });
+
+  it('trims ISO datetimes to date portion for UPLOADED/EXPIRES columns', () => {
+    const out = digestBuilds(
+      pages({
+        data: [
+          {
+            type: 'builds',
+            id: 'BUILD-1',
+            attributes: {
+              version: '1.0.0',
+              uploadedDate: '2026-05-30T14:23:11Z',
+              expirationDate: '2026-08-28T14:23:11Z',
+              processingState: 'VALID',
+            },
+          },
+        ],
+      }),
+    );
+    const row = out.split('\n').find((l) => l.includes('BUILD-1'));
+    expect(row).toContain('2026-05-30');
+    expect(row).toContain('2026-08-28');
+    // No time portion visible.
+    expect(row).not.toContain('14:23:11');
+  });
+
+  it('sorts newest upload first', () => {
+    const out = digestBuilds(
+      pages({
+        data: [
+          {
+            type: 'builds',
+            id: 'BUILD-OLD',
+            attributes: {
+              version: '1.0.0',
+              uploadedDate: '2026-01-01T12:00:00Z',
+              processingState: 'VALID',
+            },
+          },
+          {
+            type: 'builds',
+            id: 'BUILD-NEW',
+            attributes: {
+              version: '1.1.0',
+              uploadedDate: '2026-05-30T12:00:00Z',
+              processingState: 'VALID',
+            },
+          },
+        ],
+      }),
+    );
+    const newIdx = out.indexOf('BUILD-NEW');
+    const oldIdx = out.indexOf('BUILD-OLD');
+    expect(newIdx).toBeGreaterThan(-1);
+    expect(oldIdx).toBeGreaterThan(newIdx);
   });
 });
