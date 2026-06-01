@@ -557,7 +557,9 @@ export function digestAppStoreVersions(pages: CollectedPages): string {
       v.id,
     ];
   });
-  // Newest first by createdDate.
+  // Newest first by createdDate — we sort client-side because Apple
+  // rejects `sort` on /v1/apps/{id}/appStoreVersions
+  // (PARAMETER_ERROR.ILLEGAL). String compare on ISO dates is fine.
   rows.sort((a, b) => (b[4] ?? '').localeCompare(a[4] ?? ''));
   return `${summaryFooter(pages, 'app store versions')}\n\n${formatTable(columns, rows)}`;
 }
@@ -614,7 +616,7 @@ export function digestSubscriptionLocalizations(pages: CollectedPages): string {
     ];
   });
   rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
-  return `${summaryFooter(pages, 'subscription localizations')} (STATE: PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED · Apple caps: name 30 · description 45)\n\n${formatTable(columns, rows)}`;
+  return `${summaryFooter(pages, 'subscription localizations')} (STATE: PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED · Apple's documented caps: name 30 · description 45 (live API accepts longer descriptions))\n\n${formatTable(columns, rows)}`;
 }
 
 export function digestIapLocalizations(pages: CollectedPages): string {
@@ -641,7 +643,7 @@ export function digestIapLocalizations(pages: CollectedPages): string {
     ];
   });
   rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
-  return `${summaryFooter(pages, 'IAP localizations')} (STATE: PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED · Apple caps: name 30 · description 45)\n\n${formatTable(columns, rows)}`;
+  return `${summaryFooter(pages, 'IAP localizations')} (STATE: PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED · Apple's documented caps: name 30 · description 45 (live API accepts longer descriptions))\n\n${formatTable(columns, rows)}`;
 }
 
 export function digestBetaTesters(pages: CollectedPages): string {

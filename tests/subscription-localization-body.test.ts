@@ -3,6 +3,10 @@ import {
   buildSubscriptionLocalizationCreateBody,
   buildSubscriptionLocalizationPatchBody,
 } from '../src/domains/subscription-localizations.js';
+import {
+  IapLocalizationDescriptionSchema,
+  SubscriptionLocalizationDescriptionSchema,
+} from '../src/schemas.js';
 
 // Pin the wire shape for the two writable SubscriptionLocalization endpoints:
 //   POST  /v1/subscriptionLocalizations
@@ -105,5 +109,36 @@ describe('buildSubscriptionLocalizationPatchBody', () => {
       name: 'X',
     }) as Body;
     expect('relationships' in body.data).toBe(false);
+  });
+});
+
+describe('description schema relaxation (v0.10 smoke fix)', () => {
+  // Live smoke (2026-06-01) found an APPROVED SubscriptionLocalization on a
+  // shipped app with a 50-character description string. Apple's public docs
+  // say 45, but the live API accepts more. Initial v0.10 capped at 45 and
+  // would have client-side-rejected legitimate copy. Schemas now have no
+  // max — Apple is the source of truth.
+  it('SubscriptionLocalizationDescriptionSchema accepts a 50-character string', () => {
+    const fifty = '0123456789012345678901234567890123456789012345678';
+    expect(fifty).toHaveLength(49);
+    const result = SubscriptionLocalizationDescriptionSchema.safeParse(`${fifty}.`);
+    expect(result.success).toBe(true);
+  });
+
+  it('SubscriptionLocalizationDescriptionSchema accepts a 200-character string (no upper bound)', () => {
+    const long = 'x'.repeat(200);
+    const result = SubscriptionLocalizationDescriptionSchema.safeParse(long);
+    expect(result.success).toBe(true);
+  });
+
+  it('SubscriptionLocalizationDescriptionSchema still rejects empty strings (min(1) kept)', () => {
+    const result = SubscriptionLocalizationDescriptionSchema.safeParse('');
+    expect(result.success).toBe(false);
+  });
+
+  it('IapLocalizationDescriptionSchema accepts a 50-character string (same fix)', () => {
+    const long = 'x'.repeat(50);
+    const result = IapLocalizationDescriptionSchema.safeParse(long);
+    expect(result.success).toBe(true);
   });
 });

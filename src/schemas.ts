@@ -520,9 +520,8 @@ export const SubscriptionLocalizationNameSchema = z
 export const SubscriptionLocalizationDescriptionSchema = z
   .string()
   .min(1)
-  .max(45)
   .describe(
-    'Customer-facing subscription description shown beneath the name in the App Store, per locale. Apple caps at 45 characters per locale. Often a one-sentence value prop. Optional at create time (Apple permits localizations with only name set), but recommended for review compliance.',
+    "Customer-facing subscription description shown beneath the name in the App Store, per locale. Apple's public docs document a 45-character cap, but the live API accepts values ≥50 characters (confirmed against APPROVED localizations). No client-side max enforced — Apple's API is the authoritative source; surface validation errors verbatim. Optional at create time (Apple permits localizations with only name set), but recommended for review compliance.",
   );
 
 export const IapLocalizationNameSchema = z
@@ -536,9 +535,8 @@ export const IapLocalizationNameSchema = z
 export const IapLocalizationDescriptionSchema = z
   .string()
   .min(1)
-  .max(45)
   .describe(
-    'Customer-facing IAP description shown beneath the name in the App Store, per locale. Apple caps at 45 characters per locale. Optional at create time.',
+    "Customer-facing IAP description shown beneath the name in the App Store, per locale. Apple's public docs document a 45-character cap, but the live API has been seen accepting longer values on APPROVED records (same as SubscriptionLocalizationDescriptionSchema). No client-side max enforced — Apple's API is the authoritative source. Optional at create time.",
   );
 
 export const PlatformSchema = z

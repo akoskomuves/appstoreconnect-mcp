@@ -37,13 +37,11 @@ export function registerAppStoreVersions(server: McpServer, client: ASCClient): 
   server.registerTool(
     'asc_list_app_store_versions',
     {
-      title: 'List App Store versions',
+      title: 'List App Store versions for an app',
       description:
-        'List App Store versions for an app (or team-wide). Each row shows platform, versionString, current state, and IDs. Use to find a version ID before fetching or editing its localizations. The default sort is newest first by createdDate.',
+        'List App Store versions for ONE app. appId is required — Apple\'s /v1/appStoreVersions collection is write-only on the GET side (returns FORBIDDEN_ERROR: "does not allow GET_COLLECTION"), so the only way to enumerate versions is via the per-app relationship path /v1/apps/{id}/appStoreVersions. Returns rows with platform, versionString, current state, and IDs in Apple\'s default order (no `sort` parameter is accepted on this path — Apple rejects it). Use raw:true and post-sort client-side if a specific order is needed.',
       inputSchema: {
-        appId: AppIdSchema.optional().describe(
-          'When provided, list via /v1/apps/{id}/appStoreVersions (scoped). When omitted, list via /v1/appStoreVersions (team-wide).',
-        ),
+        appId: AppIdSchema,
         platform: PlatformSchema.optional().describe(
           'Optional filter — narrow to one platform (IOS/MAC_OS/TV_OS/WATCH_OS/VISION_OS).',
         ),
@@ -55,11 +53,11 @@ export function registerAppStoreVersions(server: McpServer, client: ASCClient): 
       const params = new URLSearchParams();
       params.set('fields[appStoreVersions]', APP_STORE_VERSION_FIELDS);
       params.set('limit', '200');
-      params.set('sort', '-createdDate');
+      // Apple rejects `sort` on this endpoint (PARAMETER_ERROR.ILLEGAL).
+      // Default response order is acceptable; raw:true + client-side sort
+      // is the escape hatch.
       if (platform) params.set('filter[platform]', platform);
-      const path = appId
-        ? `/v1/apps/${encodeURIComponent(appId)}/appStoreVersions?${params.toString()}`
-        : `/v1/appStoreVersions?${params.toString()}`;
+      const path = `/v1/apps/${encodeURIComponent(appId)}/appStoreVersions?${params.toString()}`;
       try {
         const pages = await paginate(client, path, maxItems);
         const text = raw ? JSON.stringify(pages, null, 2) : digestAppStoreVersions(pages);
