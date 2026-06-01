@@ -547,3 +547,64 @@ export const PlatformSchema = z
   .describe(
     "Apple's Platform enum used across builds, AppStoreVersion, and elsewhere. IOS / MAC_OS / TV_OS / WATCH_OS / VISION_OS. Note: an `IOS` AppStoreVersion is also distributable to Apple Silicon Macs and Vision Pro if buildAudienceType permits — Platform here is the ASC categorization, not the runtime target list.",
   );
+
+// ---------- App Store Version write surface + Review Submission (v0.11.0) ----------
+
+export const VersionStringSchema = z
+  .string()
+  .min(1)
+  .max(20)
+  .regex(/^[0-9]+(\.[0-9]+){0,2}$/, 'Must be a 1-3 segment numeric version (e.g. "2.5" or "2.5.1")')
+  .describe(
+    'User-visible version string (e.g. "2.5" or "2.5.1"). 1-3 numeric segments. Apple enforces monotonic ordering — a new version\'s string must compare HIGHER than every prior version\'s. Immutable post-release; mutable while the version is still in PREPARE_FOR_SUBMISSION.',
+  );
+
+export const CopyrightSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .describe(
+    'Copyright notice shown on the App Store product page (typically "© 2026 Your Name"). Per-version, not per-locale. Apple\'s docs document no hard cap; 200 chars is a practical upper bound based on observed limits.',
+  );
+
+export const ReleaseTypeSchema = z
+  .enum(['MANUAL', 'AFTER_APPROVAL', 'SCHEDULED'])
+  .describe(
+    'Release strategy after Apple approves the version. MANUAL: developer triggers release manually via asc_patch_app_store_version (state flips through PENDING_DEVELOPER_RELEASE). AFTER_APPROVAL: auto-release the moment Apple approves. SCHEDULED: release on a specific earliestReleaseDate (requires earliestReleaseDate to be set in the same call).',
+  );
+
+export const EarliestReleaseDateSchema = z
+  .string()
+  .regex(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([Zz]|[+-]\d{2}:?\d{2})$/,
+    'Must be ISO 8601 timestamp with timezone (e.g. 2026-08-01T00:00:00Z)',
+  )
+  .describe(
+    'Earliest release date+time. ISO 8601 with timezone (e.g. 2026-08-01T00:00:00Z). Only meaningful when releaseType is SCHEDULED — Apple holds the release until this moment after approval. Apple requires the date be at least 24h in the future at SCHEDULED-state set time. Date-time format here, NOT date-only — distinct from StartDateSchema on the pricing surface.',
+  );
+
+export const ReviewTypeSchema = z
+  .enum(['APP_STORE', 'NOTARIZATION'])
+  .describe(
+    'Review track. APP_STORE: standard App Store review. NOTARIZATION: macOS notarization-only flow (skips store review, just signs the app for outside-the-store distribution). Optional at create; defaults to APP_STORE.',
+  );
+
+export const ReviewSubmissionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Review submission ID from /v1/reviewSubmissions. The V2 multi-item review surface — each submission can bundle multiple items (a version + IAPs + in-app events) into one Apple review. Distinct from V1 /v1/appStoreVersionSubmissions (single-version legacy surface, deprecated).',
+  );
+
+export const ReviewSubmissionItemIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Review submission item ID from /v1/reviewSubmissionItems. One item attaches one resource (an App Store version, an IAP, an in-app event, etc.) to a parent review submission. Items in a READY_FOR_REVIEW submission can be added/removed; once the submission is submitted, items are frozen.',
+  );
+
+export const ReviewSubmissionActionSchema = z
+  .enum(['submit', 'cancel'])
+  .describe(
+    'Action to apply to a review submission. "submit": flip Apple\'s `submitted` attribute to true — actually sends it to Apple for review (state walks READY_FOR_REVIEW → WAITING_FOR_REVIEW → IN_REVIEW). "cancel": flip `canceled` to true — withdraw a submission from Apple\'s review queue (only works while state is WAITING_FOR_REVIEW or IN_REVIEW; complete and canceling states reject).',
+  );

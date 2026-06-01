@@ -23,6 +23,7 @@ import { registerOfferSigning } from './domains/offer-signing.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPricing } from './domains/pricing.js';
 import { registerPromoOffers } from './domains/promo-offers.js';
+import { registerReviewSubmissions } from './domains/review-submissions.js';
 import { registerSubscriptionLocalizations } from './domains/subscription-localizations.js';
 import { registerSubscriptions } from './domains/subscriptions.js';
 import { registerTerritories } from './domains/territories.js';
@@ -95,6 +96,7 @@ async function runServer(): Promise<void> {
   registerBetaReview(server, client);
   registerAppStoreVersions(server, client);
   registerAppStoreVersionLocalizations(server, client);
+  registerReviewSubmissions(server, client);
   registerSubscriptionLocalizations(server, client);
   registerIapLocalizations(server, client);
   registerPpp(server, client);

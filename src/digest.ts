@@ -532,6 +532,28 @@ export function digestTerritories(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'territories')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestReviewSubmissions(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'STATE' },
+    { header: 'PLATFORM' },
+    { header: 'SUBMITTED' },
+    { header: 'SUBMISSION_ID' },
+  ];
+  const rows = pages.data.map((sub) => {
+    // Apple's State enum is long (READY_FOR_REVIEW, UNRESOLVED_ISSUES,
+    // etc.). Pass through verbatim — the labels are informative enough
+    // and compaction would make state diagnosis harder.
+    const state = attr<string>(sub, 'state') ?? '';
+    const platform = attr<string>(sub, 'platform') ?? '';
+    const submitted = (attr<string>(sub, 'submittedDate') ?? '').slice(0, 10);
+    return [state, platform, submitted, sub.id];
+  });
+  // Newest first by submittedDate (drafts that never got submitted will
+  // have an empty submittedDate and sort last alphabetically — acceptable).
+  rows.sort((a, b) => (b[2] ?? '').localeCompare(a[2] ?? ''));
+  return `${summaryFooter(pages, 'review submissions')} (STATE: READY_FOR_REVIEW=draft · WAITING_FOR_REVIEW=submitted · IN_REVIEW · UNRESOLVED_ISSUES=Apple flagged · CANCELING / COMPLETING / COMPLETE)\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestAppStoreVersions(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'VERSION' },
