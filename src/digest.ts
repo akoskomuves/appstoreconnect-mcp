@@ -532,6 +532,52 @@ export function digestTerritories(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'territories')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestBetaGroups(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'KIND' },
+    { header: 'ALL_BUILDS' },
+    { header: 'PUB_LINK' },
+    { header: 'LIMIT', align: 'right' },
+    { header: 'FEEDBACK' },
+    { header: 'CREATED' },
+    { header: 'GROUP_ID' },
+  ];
+  const rows = pages.data.map((group) => {
+    // KIND: INT/EXT — Apple's isInternalGroup is a bool, default behavior
+    // is external. Render — when sparse-fieldset / unknown.
+    const isInternal = attr<boolean>(group, 'isInternalGroup');
+    const kindCell = isInternal === true ? 'INT' : isInternal === false ? 'EXT' : '—';
+    // ALL_BUILDS: Y/N/— for hasAccessToAllBuilds (auto-assignment of new
+    // builds to this group).
+    const allBuilds = attr<boolean>(group, 'hasAccessToAllBuilds');
+    const allBuildsCell = allBuilds === true ? 'Y' : allBuilds === false ? 'N' : '—';
+    // PUB_LINK: Y/N/— for publicLinkEnabled.
+    const pubLink = attr<boolean>(group, 'publicLinkEnabled');
+    const pubLinkCell = pubLink === true ? 'Y' : pubLink === false ? 'N' : '—';
+    // LIMIT: empty if publicLinkLimitEnabled is false/absent.
+    const limitEnabled = attr<boolean>(group, 'publicLinkLimitEnabled');
+    const limit = attr<number>(group, 'publicLinkLimit');
+    const limitCell = limitEnabled === true && limit !== undefined ? String(limit) : '';
+    const feedback = attr<boolean>(group, 'feedbackEnabled');
+    const feedbackCell = feedback === true ? 'Y' : feedback === false ? 'N' : '—';
+    const created = (attr<string>(group, 'createdDate') ?? '').slice(0, 10);
+    return [
+      s(attr(group, 'name') ?? ''),
+      kindCell,
+      allBuildsCell,
+      pubLinkCell,
+      limitCell,
+      feedbackCell,
+      created,
+      group.id,
+    ];
+  });
+  // Sort by name for stable display.
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'beta groups')} (KIND: INT=internal EXT=external · ALL_BUILDS/PUB_LINK/FEEDBACK: Y/N/—)\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestBuilds(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'VERSION' },

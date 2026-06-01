@@ -3,6 +3,7 @@ import {
   digestAppPricePoints,
   digestAppPrices,
   digestApps,
+  digestBetaGroups,
   digestBuilds,
   digestIapPricePoints,
   digestIapPrices,
@@ -903,5 +904,135 @@ describe('digestBuilds (v0.9.0)', () => {
     const oldIdx = out.indexOf('BUILD-OLD');
     expect(newIdx).toBeGreaterThan(-1);
     expect(oldIdx).toBeGreaterThan(newIdx);
+  });
+});
+
+describe('digestBetaGroups (v0.9.0)', () => {
+  it('renders KIND (INT/EXT) and feature flags (Y/N/—)', () => {
+    const out = digestBetaGroups(
+      pages({
+        data: [
+          {
+            type: 'betaGroups',
+            id: 'BG-INT',
+            attributes: {
+              name: 'Internal QA',
+              createdDate: '2026-03-01T12:00:00Z',
+              isInternalGroup: true,
+              hasAccessToAllBuilds: true,
+              publicLinkEnabled: false,
+              feedbackEnabled: true,
+            },
+          },
+          {
+            type: 'betaGroups',
+            id: 'BG-EXT',
+            attributes: {
+              name: 'External Beta',
+              createdDate: '2026-04-01T12:00:00Z',
+              isInternalGroup: false,
+              hasAccessToAllBuilds: false,
+              publicLinkEnabled: true,
+              publicLinkLimitEnabled: true,
+              publicLinkLimit: 500,
+              feedbackEnabled: true,
+            },
+          },
+        ],
+        total: 2,
+      }),
+    );
+    expect(out).toContain('2 beta groups');
+    const intRow = out.split('\n').find((l) => l.includes('BG-INT'));
+    const extRow = out.split('\n').find((l) => l.includes('BG-EXT'));
+    expect(intRow).toContain('INT');
+    expect(extRow).toContain('EXT');
+    // ALL_BUILDS column: Y for internal, N for external in this fixture.
+    // Use word-boundary regex since Y/N could appear inside the BUILD_ID
+    // hash too (though our test IDs don't contain them).
+    expect(intRow).toMatch(/\bY\b/);
+    expect(extRow).toMatch(/\bN\b/);
+    // PUB_LINK column: only external has Y. Limit visible only when both
+    // publicLinkLimitEnabled=true AND publicLinkLimit is set.
+    expect(extRow).toContain('500');
+    expect(intRow).not.toContain('500');
+    // Legend documents the abbreviations.
+    expect(out).toContain('KIND: INT=internal EXT=external');
+  });
+
+  it('renders em-dash for unknown flags (sparse fieldset)', () => {
+    const out = digestBetaGroups(
+      pages({
+        data: [
+          {
+            type: 'betaGroups',
+            id: 'BG-UNKNOWN',
+            attributes: {
+              name: 'Bare',
+              createdDate: '2026-01-01T12:00:00Z',
+              // All flags omitted.
+            },
+          },
+        ],
+      }),
+    );
+    const row = out.split('\n').find((l) => l.includes('BG-UNKNOWN'));
+    // Three em-dash columns (KIND, ALL_BUILDS, PUB_LINK, FEEDBACK).
+    expect(row).toContain('—');
+  });
+
+  it('hides LIMIT when publicLinkLimitEnabled is false (limit may still be set as a leftover)', () => {
+    const out = digestBetaGroups(
+      pages({
+        data: [
+          {
+            type: 'betaGroups',
+            id: 'BG-NOLIMIT',
+            attributes: {
+              name: 'No Limit',
+              createdDate: '2026-01-01T12:00:00Z',
+              isInternalGroup: false,
+              publicLinkEnabled: true,
+              publicLinkLimitEnabled: false,
+              publicLinkLimit: 9999, // residual; should not display
+              feedbackEnabled: true,
+            },
+          },
+        ],
+      }),
+    );
+    const row = out.split('\n').find((l) => l.includes('BG-NOLIMIT'));
+    expect(row).not.toContain('9999');
+  });
+
+  it('sorts by name alphabetically', () => {
+    const out = digestBetaGroups(
+      pages({
+        data: [
+          {
+            type: 'betaGroups',
+            id: 'BG-Z',
+            attributes: {
+              name: 'Zebra',
+              createdDate: '2026-01-01T12:00:00Z',
+              isInternalGroup: false,
+            },
+          },
+          {
+            type: 'betaGroups',
+            id: 'BG-A',
+            attributes: {
+              name: 'Alpha',
+              createdDate: '2026-01-01T12:00:00Z',
+              isInternalGroup: false,
+            },
+          },
+        ],
+      }),
+    );
+    const aIdx = out.indexOf('Alpha');
+    const zIdx = out.indexOf('Zebra');
+    expect(aIdx).toBeGreaterThan(-1);
+    expect(zIdx).toBeGreaterThan(aIdx);
   });
 });
