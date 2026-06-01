@@ -198,7 +198,8 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
     {
       title: 'Patch an IAP localization',
       description:
-        'Update name and/or description on an existing InAppPurchaseLocalization. Both optional (encodeIfPresent). Locale immutable; state server-managed. Tool refuses empty PATCH.',
+        'Update name and/or description on an existing InAppPurchaseLocalization. Both optional (encodeIfPresent). Locale immutable; state server-managed. Tool refuses empty PATCH. ' +
+        '** PARENT-STATE GATE (likely): ** Same structural pattern as SubscriptionLocalization — Apple likely locks name/description while the parent IAP is WAITING_FOR_REVIEW or APPROVED. If Apple returns STATE_ERROR "cannot be edited at this time", that\'s the cause. Constraint not yet pre-checked client-side (deferred to a future patch once verified live).',
       inputSchema: {
         iapLocalizationId: InAppPurchaseLocalizationIdSchema,
         name: IapLocalizationNameSchema.optional(),

@@ -128,6 +128,159 @@ function formatASCError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// State-aware pre-check for asc_patch_app_store_version_localization.
+//
+// Apple's AppStoreVersion lives in a state machine that gates which
+// localization attributes are mutable:
+//
+//   PREPARE_FOR_SUBMISSION / DEVELOPER_REJECTED / METADATA_REJECTED /
+//   REJECTED / DEVELOPER_REMOVED_FROM_SALE / INVALID_BINARY
+//     -> all six fields mutable (the editable set)
+//
+//   WAITING_FOR_REVIEW / IN_REVIEW / PROCESSING_FOR_APP_STORE
+//     -> NOTHING mutable (Apple holds the resource for review/processing)
+//
+//   READY_FOR_SALE / PENDING_DEVELOPER_RELEASE / REPLACED_WITH_NEW_VERSION /
+//   REMOVED_FROM_SALE
+//     -> only `promotionalText` mutable. This is Apple's documented escape
+//        hatch — promotionalText edits don't require a new review cycle.
+//
+// Apple enforces this server-side via 409 STATE_ERROR with detail like
+// "Attribute 'marketingUrl' cannot be edited at this time", which doesn't
+// say WHY or WHAT TO DO. The pre-check fetches the parent version's state
+// in one round-trip and refuses client-side with a structured message
+// when the input combination is incompatible.
+
+// Apple's `AppStoreVersionState` enum buckets. Defensively-empty sets so
+// new states Apple adds get the "pass-through" treatment by default.
+const PROMO_ONLY_STATES = new Set<string>([
+  'READY_FOR_SALE',
+  'PENDING_DEVELOPER_RELEASE',
+  'REPLACED_WITH_NEW_VERSION',
+  'REMOVED_FROM_SALE',
+]);
+
+const FROZEN_STATES = new Set<string>([
+  'WAITING_FOR_REVIEW',
+  'IN_REVIEW',
+  'PROCESSING_FOR_APP_STORE',
+]);
+
+interface AVLPatchInput {
+  whatsNew?: string | undefined;
+  description?: string | undefined;
+  keywords?: string | undefined;
+  promotionalText?: string | undefined;
+  marketingUrl?: string | undefined;
+  supportUrl?: string | undefined;
+}
+
+export interface StateGateResult {
+  allow: boolean;
+  state: string | undefined;
+  allowed: string[];
+  blocked: string[];
+  reason?: string;
+  nextEditablePath?: string;
+}
+
+export function evaluateStateGate(
+  state: string | undefined,
+  input: AVLPatchInput,
+): StateGateResult {
+  const requestedFields = Object.entries({
+    whatsNew: input.whatsNew,
+    description: input.description,
+    keywords: input.keywords,
+    promotionalText: input.promotionalText,
+    marketingUrl: input.marketingUrl,
+    supportUrl: input.supportUrl,
+  })
+    .filter(([, v]) => v !== undefined)
+    .map(([k]) => k);
+
+  // Unknown state -> pass through. Apple's API stays the authoritative gate.
+  if (!state) return { allow: true, state, allowed: requestedFields, blocked: [] };
+
+  if (FROZEN_STATES.has(state)) {
+    return {
+      allow: false,
+      state,
+      allowed: [],
+      blocked: requestedFields,
+      reason: `parent version is in ${state} — Apple holds all localization attributes during review/processing`,
+      nextEditablePath:
+        'Wait for review to complete (Apple typically takes 24-72h). If the version is rejected, the state flips to DEVELOPER_REJECTED / METADATA_REJECTED and all fields become editable again.',
+    };
+  }
+
+  if (PROMO_ONLY_STATES.has(state)) {
+    const blocked = requestedFields.filter((f) => f !== 'promotionalText');
+    if (blocked.length === 0) {
+      return { allow: true, state, allowed: ['promotionalText'], blocked: [] };
+    }
+    return {
+      allow: false,
+      state,
+      allowed: ['promotionalText'],
+      blocked,
+      reason: `parent version is in ${state} — Apple only permits promotionalText edits without a new app-review cycle in this state`,
+      nextEditablePath:
+        'To edit other fields, create a new App Store version (asc_post_app_store_version — coming in v0.10.x) and patch its localizations. To keep your current promo edit, retry this call with promotionalText alone.',
+    };
+  }
+
+  // Editable state (PREPARE_FOR_SUBMISSION, *_REJECTED, etc.) — pass through.
+  return { allow: true, state, allowed: requestedFields, blocked: [] };
+}
+
+function formatStateGateRefusal(g: StateGateResult): string {
+  return [
+    `Refused: AppStoreVersionLocalization PATCH blocked by parent App Store Version state.`,
+    ``,
+    `State:    ${g.state ?? '(unknown)'}`,
+    `Allowed:  ${g.allowed.length > 0 ? g.allowed.join(', ') : '(none — version is frozen)'}`,
+    `Blocked:  ${g.blocked.join(', ')}`,
+    `Reason:   ${g.reason ?? ''}`,
+    ``,
+    `Next:     ${g.nextEditablePath ?? ''}`,
+  ].join('\n');
+}
+
+interface AVLWithVersionResponse {
+  data?: { type?: string; id?: string };
+  included?: Array<{
+    type?: string;
+    id?: string;
+    attributes?: { appStoreState?: string; appVersionState?: string };
+  }>;
+}
+
+async function fetchParentVersionState(
+  client: ASCClient,
+  appStoreVersionLocalizationId: string,
+): Promise<string | undefined> {
+  // One round-trip with sparse fieldset: returns the localization +
+  // the parent version's state in `included[]`. Cheaper than two GETs.
+  const path =
+    `/v1/appStoreVersionLocalizations/${encodeURIComponent(appStoreVersionLocalizationId)}` +
+    `?include=appStoreVersion` +
+    `&fields[appStoreVersions]=appStoreState,appVersionState` +
+    `&fields[appStoreVersionLocalizations]=locale`;
+  try {
+    const res = await client.request<AVLWithVersionResponse>(path, { method: 'GET' });
+    const version = (res?.included ?? []).find((r) => r.type === 'appStoreVersions');
+    // Prefer appStoreState (the long-established field). Fall back to
+    // appVersionState (Apple's newer attribute that may eventually
+    // replace appStoreState).
+    return version?.attributes?.appStoreState ?? version?.attributes?.appVersionState;
+  } catch {
+    // Pre-check failure should NOT block the PATCH. Apple's server-side
+    // error is informative enough for the rare case where this read fails.
+    return undefined;
+  }
+}
+
 export function registerAppStoreVersionLocalizations(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_list_app_store_version_localizations',
@@ -235,8 +388,13 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
     {
       title: 'Patch an App Store version localization',
       description:
-        'Update one or more attrs on an existing AppStoreVersionLocalization. All six attrs are individually optional (encodeIfPresent — only what you pass is sent). Locale is immutable. Tool refuses empty PATCH. ' +
-        'Special case: promotionalText is the ONLY field that can be mutated after a version has been released without triggering a new app-review cycle — all other fields require version review on re-release. Apple silently surfaces this constraint via state machine errors; use accordingly.',
+        'Update attrs on an existing AppStoreVersionLocalization. ' +
+        '** PARENT VERSION STATE GATES WHICH FIELDS ARE MUTABLE: ** ' +
+        '(a) In PREPARE_FOR_SUBMISSION / *_REJECTED / DEVELOPER_REMOVED_FROM_SALE — all six fields editable. ' +
+        '(b) In READY_FOR_SALE / PENDING_DEVELOPER_RELEASE / REPLACED_WITH_NEW_VERSION / REMOVED_FROM_SALE — ONLY promotionalText is editable. To change anything else, create a new App Store version (asc_post_app_store_version — coming in v0.10.x). ' +
+        '(c) In WAITING_FOR_REVIEW / IN_REVIEW / PROCESSING_FOR_APP_STORE — NOTHING is editable until Apple finishes the cycle. ' +
+        'The tool pre-checks the parent version state with one GET (one round-trip) and refuses incompatible PATCHes client-side with a structured {state, allowed, blocked, reason, nextEditablePath} message — rather than letting Apple return a bare "Attribute X cannot be edited at this time" error and rejecting the whole batch atomically. ' +
+        'All attrs are encodeIfPresent (only what you pass is sent). Locale is immutable.',
       inputSchema: {
         appStoreVersionLocalizationId: AppStoreVersionLocalizationIdSchema,
         whatsNew: ReleaseNotesSchema.optional(),
@@ -267,6 +425,20 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
           isError: true,
         };
       }
+      // State-aware pre-check: fetch the parent version state in one
+      // round-trip and refuse incompatible batches client-side. See
+      // evaluateStateGate's comment block for the state machine spec.
+      const parentState = await fetchParentVersionState(
+        client,
+        input.appStoreVersionLocalizationId,
+      );
+      const gate = evaluateStateGate(parentState, input);
+      if (!gate.allow) {
+        return {
+          content: [{ type: 'text', text: formatStateGateRefusal(gate) }],
+          isError: true,
+        };
+      }
       const body = buildAppStoreVersionLocalizationPatchBody({
         appStoreVersionLocalizationId: input.appStoreVersionLocalizationId,
         ...(input.whatsNew !== undefined ? { whatsNew: input.whatsNew } : {}),
@@ -287,11 +459,26 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
           content: [
             {
               type: 'text',
-              text: `Patched AppStoreVersionLocalization ${input.appStoreVersionLocalizationId}.\n\n${JSON.stringify(data, null, 2)}`,
+              text: `Patched AppStoreVersionLocalization ${input.appStoreVersionLocalizationId} (parent version state: ${gate.state ?? 'unknown'}).\n\n${JSON.stringify(data, null, 2)}`,
             },
           ],
         };
       } catch (err) {
+        // Fallback enrichment when the pre-check passed but Apple still
+        // returned a state-machine error. Covers the race window between
+        // pre-check fetch and PATCH (rare — a version transitioned mid-call).
+        const msg = err instanceof ASCError ? `${err.message}` : '';
+        if (msg.includes('cannot be edited at this time') || msg.includes('STATE_ERROR')) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Apple rejected the PATCH with a state-machine error. The parent version state may have transitioned between the pre-check (${gate.state ?? 'unknown'}) and the PATCH call. Retry asc_get_app_store_version on the parent to see the current state.\n\n${formatASCError(err)}`,
+              },
+            ],
+            isError: true,
+          };
+        }
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
       }
     },

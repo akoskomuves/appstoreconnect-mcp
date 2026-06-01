@@ -351,7 +351,10 @@ export const MarketingUrlSchema = z
   .string()
   .url()
   .describe(
-    "Marketing URL surfaced in TestFlight beside the app's beta description. Per (app, locale). https required.",
+    'Marketing URL. Two App Store Connect surfaces both expose a field named `marketingUrl`: ' +
+      "(1) AppStoreVersionLocalization — per-version, per-locale; appears on the App Store product page as the 'Developer Website' link below the description. " +
+      '(2) BetaAppLocalization — per-app, per-locale; shown in TestFlight beside the beta description. ' +
+      'Optional in both contexts. https required.',
   );
 
 export const PrivacyPolicyUrlSchema = z

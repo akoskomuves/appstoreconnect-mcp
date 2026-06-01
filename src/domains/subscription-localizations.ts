@@ -201,7 +201,8 @@ export function registerSubscriptionLocalizations(server: McpServer, client: ASC
     {
       title: 'Patch a subscription localization',
       description:
-        'Update name and/or description on an existing SubscriptionLocalization. Both optional (encodeIfPresent). Locale is immutable; state is server-managed and rejected from PATCH bodies. Tool refuses empty PATCH.',
+        'Update name and/or description on an existing SubscriptionLocalization. Both optional (encodeIfPresent). Locale is immutable; state is server-managed and rejected from PATCH bodies. Tool refuses empty PATCH. ' +
+        '** PARENT-STATE GATE (likely): ** SubscriptionLocalization\'s state attribute walks PREPARE_FOR_SUBMISSION → WAITING_FOR_REVIEW → APPROVED. Apple\'s pattern across localization resources is to lock name/description while the parent subscription is in review. If Apple returns a STATE_ERROR "cannot be edited at this time", the subscription is in WAITING_FOR_REVIEW or APPROVED — the constraint is undocumented and not yet pre-checked client-side (deferred to a future patch once verified live).',
       inputSchema: {
         subscriptionLocalizationId: SubscriptionLocalizationIdSchema,
         name: SubscriptionLocalizationNameSchema.optional(),
