@@ -182,7 +182,7 @@ Then ask Claude: *"Rebalance my subscription prices using the ppp-rebalance skil
 
 ## Roadmap
 
-v0.1–v0.8 cover the full monetization surface: reads + writes + one-shot PPP rebalance across subscriptions, paid apps, in-app purchases, introductory offers, promotional offers, and offer-code campaigns — plus the cryptographic signers that make promo offers redeemable in-app via StoreKit. The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
+v0.1–v0.9 cover monetization + beta distribution: the full pricing/IAP/offers surface (subscriptions, paid apps, IAPs, intro offers, promo offers, offer-code campaigns, signers) plus TestFlight (builds, beta groups, beta testers, beta localizations, beta review submissions). The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — translations, review responses, pricing positioning — that a model can draft and a human approves.
 
 | Phase | Domain | What it unlocks |
 | --- | --- | --- |
@@ -195,7 +195,7 @@ v0.1–v0.8 cover the full monetization surface: reads + writes + one-shot PPP r
 | **v0.7.0** ✓ | Subscription offer signing: three signers (legacy ECDSA, JWS v2 promo, JWS v2 intro eligibility) covering every current Apple-supported format | StoreKit redemption end-to-end — promo offers from v0.6 are now usable in an iOS app, not just configurable in ASC. |
 | **v0.8.0** ✓ | Subscription offer codes (campaign CRUD-minus-D · per-territory prices · one-time-use code batches · text/csv export via /values) · PPP extended to offer-code campaigns | Promo-code redemption campaigns (App Store Connect → "Offer codes") — generate, deactivate, export CSV. |
 | **v0.8.1** ✓ | Subscription offer codes follow-ons: custom (multi-use) codes (list/post/patch) · `environment: SANDBOX\|PRODUCTION` on batch create · `autoRenewEnabled` on campaign create · campaign digest now surfaces autoRenew + prod/sbx code counts · PPP apply forwards autoRenewEnabled | Public-facing redeemable strings (one string, many redemptions) + sandbox-vs-production batch tagging + non-renewing one-shot offer codes. |
-| **v0.9** | TestFlight: builds · beta groups · beta testers · build localizations · beta app review | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
+| **v0.9.0** ✓ | TestFlight surface across 5 sub-domains: builds (list/get/expire/build-beta-detail) · beta groups (CRUD + tester linkage + build linkage) · beta testers (CRUD + invitation send/resend) · beta build localizations (CRUD per build × locale) · beta app localizations (CRUD per app × locale) · beta app review submissions + details · pre-release versions (read-only). 32 new tools. | "Invite these 30 testers to the new build with this test note in EN/ES/JA." |
 | **v0.10** | App version localizations · subscription localizations · IAP localizations | The biggest LLM win. Translate release notes into 35 locales using existing localizations as voice reference, present diff, push on approval. |
 | **v0.11** | Customer reviews (read · respond · filter by sentiment/version) | "Draft a response to every 1-star review on the latest version that mentions the export bug. Show me before posting." |
 | **v0.12** | Sales/trends · finance reports · app analytics | "Why did MRR drop in Brazil last week? Compare to the rebalance activation date." |
