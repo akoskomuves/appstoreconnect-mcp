@@ -130,38 +130,22 @@ export function registerBetaTesters(server: McpServer, client: ASCClient): void 
     {
       title: 'List beta testers',
       description:
-        'List beta testers. Pass appId to scope to one app, betaGroupId to scope to one group, or omit both for team-wide. Each row shows email + firstName + lastName + invite state. Use the digest to find a tester ID before adding/removing from groups or removing from the team.',
+        'List beta testers. Pass betaGroupId to scope to one group, or omit it to list team-wide. Per-app scoping is NOT supported by Apple — /v1/apps/{id}/betaTesters returns 403 FORBIDDEN_ERROR ("does not allow GET_RELATED. Allowed operation is: DELETE"). To get every tester on an app, list the app\'s groups with asc_list_beta_groups, then iterate this tool with each betaGroupId and dedupe by tester ID. Each row shows email + firstName + lastName + invite state.',
       inputSchema: {
-        appId: AppIdSchema.optional().describe(
-          'When provided, list via /v1/apps/{id}/betaTesters (scoped to one app). Mutually exclusive with betaGroupId.',
-        ),
         betaGroupId: BetaGroupIdSchema.optional().describe(
-          'When provided, list via /v1/betaGroups/{id}/betaTesters (scoped to one group). Mutually exclusive with appId.',
+          'When provided, list via /v1/betaGroups/{id}/betaTesters (scoped to one group). When omitted, list via /v1/betaTesters (team-wide across all groups and apps).',
         ),
         maxItems: z.number().int().positive().max(5000).default(500),
         raw: z.boolean().default(false),
       },
     },
-    async ({ appId, betaGroupId, maxItems, raw }) => {
-      if (appId && betaGroupId) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'Refused: pass at most one of appId / betaGroupId. They scope to different endpoints; pick one.',
-            },
-          ],
-          isError: true,
-        };
-      }
+    async ({ betaGroupId, maxItems, raw }) => {
       const params = new URLSearchParams();
       params.set('fields[betaTesters]', BETA_TESTER_FIELDS);
       params.set('limit', '200');
-      const path = appId
-        ? `/v1/apps/${encodeURIComponent(appId)}/betaTesters?${params.toString()}`
-        : betaGroupId
-          ? `/v1/betaGroups/${encodeURIComponent(betaGroupId)}/betaTesters?${params.toString()}`
-          : `/v1/betaTesters?${params.toString()}`;
+      const path = betaGroupId
+        ? `/v1/betaGroups/${encodeURIComponent(betaGroupId)}/betaTesters?${params.toString()}`
+        : `/v1/betaTesters?${params.toString()}`;
       try {
         const pages = await paginate(client, path, maxItems);
         const text = raw ? JSON.stringify(pages, null, 2) : digestBetaTesters(pages);

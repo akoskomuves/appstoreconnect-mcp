@@ -33,3 +33,12 @@ A minor bump because the entire localization domain is new — four sub-domains 
 **Roadmap shuffle.** v0.10 row in `README.md` flipped to ✓ and reworded to enumerate the four shipped sub-domains. Roadmap intro extended to "v0.1–v0.10". Next: v0.11 (customer reviews — read, respond, filter by sentiment/version) and v0.12 (sales/analytics — finance reports, app metrics, MRR tracking).
 
 **Out of scope for v0.10.0 (deferred):** App Store version create/update/delete + submission flows (heavy enough to deserve their own domain). Screenshot sets + preview sets (asset upload is its own beast — likely a v0.11 or v0.12 split). Custom product pages + their version localizations (niche, fewer users). App-clip invocations. tvOsPrivacyPolicy on app-store-version localizations (Apple exposes it on `BetaAppLocalization` only per the Swift SDK — not on this resource). These will likely land as a v0.10.1 patch or its own v0.10.2 if/when a real workflow needs them.
+
+**Folded in: v0.9 spec-compliance fixes from the v0.10 smoke pass.**
+
+The v0.10 live smoke surfaced two latent bugs in v0.9.0 (already published) — folded into this release rather than shipped as v0.10.1:
+
+- **`asc_list_builds`**: `sort=-uploadedDate` is rejected on the per-app relationship path `/v1/apps/{id}/builds` (PARAMETER_ERROR.ILLEGAL — same constraint as `/v1/apps/{id}/appStoreVersions`). `sort` is now emitted only when listing team-wide via `/v1/builds`. `digestBuilds` already client-side-sorts newest-first, so the operator view is unchanged.
+- **`asc_list_beta_testers`**: the `appId` parameter is removed — Apple's `/v1/apps/{id}/betaTesters` relationship is DELETE-only (returns 403 FORBIDDEN_ERROR "does not allow GET_RELATED. Allowed operation is: DELETE"). The team-wide path and the group-scoped path remain. Callers wanting "every tester on app X" must orchestrate: list groups → list testers per group → dedupe by tester ID. Tool description now spells this out so the next LLM caller doesn't try to pass appId again.
+
+Both fixes are wire-layer corrections, not feature changes. The schema-level removal of `appId` from `asc_list_beta_testers` would technically be a breaking change if anyone were using it, but the path never worked end-to-end on the live API, so no functional caller could have depended on it.

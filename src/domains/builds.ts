@@ -123,9 +123,12 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
       const params = new URLSearchParams();
       params.set('fields[builds]', BUILD_FIELDS);
       params.set('limit', '200');
-      // Newest first — Apple supports `sort` and most workflows want the
-      // freshest upload at the top.
-      params.set('sort', '-uploadedDate');
+      // Apple accepts `sort` on the team-wide /v1/builds collection but
+      // REJECTS it on the per-app relationship path /v1/apps/{id}/builds
+      // (PARAMETER_ERROR.ILLEGAL). digestBuilds always client-side-sorts
+      // newest first, so this is purely an Apple-side optimization for the
+      // team-wide path; on the per-app path the client-side sort suffices.
+      if (!appId) params.set('sort', '-uploadedDate');
       if (processingState) params.set('filter[processingState]', processingState);
       const path = appId
         ? `/v1/apps/${encodeURIComponent(appId)}/builds?${params.toString()}`
