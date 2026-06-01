@@ -532,6 +532,158 @@ export function digestTerritories(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'territories')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestBetaTesters(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'EMAIL' },
+    { header: 'FIRST' },
+    { header: 'LAST' },
+    { header: 'INVITE' },
+    { header: 'STATE' },
+    { header: 'TESTER_ID' },
+  ];
+  const rows = pages.data.map((tester) => {
+    // Apple's BetaInviteType enum: EMAIL / PUBLIC_LINK. Compact when present.
+    const inviteRaw = attr<string>(tester, 'inviteType');
+    const inviteCell =
+      inviteRaw === 'EMAIL' ? 'EMAIL' : inviteRaw === 'PUBLIC_LINK' ? 'LINK' : (inviteRaw ?? '');
+    // BetaTesterState enum: NOT_INVITED / INVITED / ACCEPTED / INSTALLED.
+    // These are short enough to render verbatim.
+    return [
+      s(attr(tester, 'email') ?? ''),
+      s(attr(tester, 'firstName') ?? ''),
+      s(attr(tester, 'lastName') ?? ''),
+      inviteCell,
+      s(attr(tester, 'state') ?? ''),
+      tester.id,
+    ];
+  });
+  // Sort by email for stable display.
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'beta testers')} (INVITE: EMAIL / LINK · STATE: NOT_INVITED / INVITED / ACCEPTED / INSTALLED)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestBetaBuildLocalizations(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'LOCALE' },
+    { header: 'WHATS_NEW_LEN', align: 'right' },
+    { header: 'WHATS_NEW_PREVIEW' },
+    { header: 'LOC_ID' },
+  ];
+  const rows = pages.data.map((loc) => {
+    const wn = attr<string>(loc, 'whatsNew') ?? '';
+    // Show a 60-char preview so the table stays readable across many locales.
+    const preview = wn.length <= 60 ? wn : `${wn.slice(0, 57)}...`;
+    return [
+      s(attr(loc, 'locale') ?? ''),
+      s(wn.length),
+      // Strip newlines for table rendering (whatsNew often has them).
+      preview.replace(/\s+/g, ' '),
+      loc.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'beta build localizations')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestBetaAppLocalizations(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'LOCALE' },
+    { header: 'DESC_LEN', align: 'right' },
+    { header: 'FEEDBACK_EMAIL' },
+    { header: 'MARKETING_URL' },
+    { header: 'PRIVACY_URL' },
+    { header: 'LOC_ID' },
+  ];
+  const rows = pages.data.map((loc) => {
+    const desc = attr<string>(loc, 'description') ?? '';
+    // Compact URL display: show host only when present, em-dash when not.
+    const mark = attr<string>(loc, 'marketingUrl');
+    const priv = attr<string>(loc, 'privacyPolicyUrl');
+    return [
+      s(attr(loc, 'locale') ?? ''),
+      s(desc.length),
+      s(attr(loc, 'feedbackEmail') ?? '—'),
+      mark ? compactUrl(mark) : '—',
+      priv ? compactUrl(priv) : '—',
+      loc.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'beta app localizations')} (URL columns show host only — fetch the row to see the full URL)\n\n${formatTable(columns, rows)}`;
+}
+
+// Helper: render a URL as host-only for compact table display.
+function compactUrl(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url.length <= 30 ? url : `${url.slice(0, 27)}...`;
+  }
+}
+
+export function digestBetaAppReviewSubmissions(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'STATE' },
+    { header: 'SUBMITTED' },
+    { header: 'BUILD_ID' },
+    { header: 'SUBMISSION_ID' },
+  ];
+  const rows = pages.data.map((sub) => {
+    // betaReviewState enum: WAITING_FOR_REVIEW / IN_REVIEW / APPROVED /
+    // REJECTED. Compact labels: WAIT/REVIEW/OK/NO.
+    const stateRaw = attr<string>(sub, 'betaReviewState');
+    const stateCell =
+      stateRaw === 'WAITING_FOR_REVIEW'
+        ? 'WAIT'
+        : stateRaw === 'IN_REVIEW'
+          ? 'REVIEW'
+          : stateRaw === 'APPROVED'
+            ? 'OK'
+            : stateRaw === 'REJECTED'
+              ? 'NO'
+              : (stateRaw ?? '');
+    const submitted = (attr<string>(sub, 'submittedDate') ?? '').slice(0, 10);
+    const buildRel = rel(sub, 'build');
+    return [stateCell, submitted, s(buildRel?.id ?? ''), sub.id];
+  });
+  // Newest submission first.
+  rows.sort((a, b) => (b[1] ?? '').localeCompare(a[1] ?? ''));
+  return `${summaryFooter(pages, 'beta app review submissions')} (STATE: WAIT=waiting REVIEW=in-review OK=approved NO=rejected)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestBetaAppReviewDetails(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'CONTACT' },
+    { header: 'EMAIL' },
+    { header: 'DEMO_REQ' },
+    { header: 'NOTES_LEN', align: 'right' },
+    { header: 'DETAIL_ID' },
+  ];
+  const rows = pages.data.map((d) => {
+    const first = attr<string>(d, 'contactFirstName') ?? '';
+    const last = attr<string>(d, 'contactLastName') ?? '';
+    const fullName = `${first} ${last}`.trim() || '—';
+    const demoReq = attr<boolean>(d, 'demoAccountRequired');
+    const demoCell = demoReq === true ? 'Y' : demoReq === false ? 'N' : '—';
+    const notes = attr<string>(d, 'notes') ?? '';
+    return [fullName, s(attr(d, 'contactEmail') ?? '—'), demoCell, s(notes.length), d.id];
+  });
+  return `${summaryFooter(pages, 'beta app review details')} (DEMO_REQ: Y/N/— per demoAccountRequired)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestPreReleaseVersions(pages: CollectedPages): string {
+  const columns: Column[] = [{ header: 'VERSION' }, { header: 'PLATFORM' }, { header: 'PRV_ID' }];
+  const rows = pages.data.map((v) => [
+    s(attr(v, 'version') ?? ''),
+    s(attr(v, 'platform') ?? ''),
+    v.id,
+  ]);
+  // Sort by version descending (rough — string compare on semver-ish strings
+  // is imperfect, but useful enough for the table view).
+  rows.sort((a, b) => (b[0] ?? '').localeCompare(a[0] ?? ''));
+  return `${summaryFooter(pages, 'pre-release versions')}\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestBetaGroups(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'NAME' },

@@ -9,6 +9,9 @@ import { loadConfig } from './config.js';
 import { registerAppPricing } from './domains/app-pricing.js';
 import { registerApps } from './domains/apps.js';
 import { registerBetaGroups } from './domains/beta-groups.js';
+import { registerBetaLocalizations } from './domains/beta-localizations.js';
+import { registerBetaReview } from './domains/beta-review.js';
+import { registerBetaTesters } from './domains/beta-testers.js';
 import { registerBuilds } from './domains/builds.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
@@ -83,6 +86,9 @@ async function runServer(): Promise<void> {
   registerTerritories(server, client);
   registerBuilds(server, client);
   registerBetaGroups(server, client);
+  registerBetaTesters(server, client);
+  registerBetaLocalizations(server, client);
+  registerBetaReview(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();
