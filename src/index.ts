@@ -8,18 +8,22 @@ import { createASCClient } from './client.js';
 import { loadConfig } from './config.js';
 import { registerAppPricing } from './domains/app-pricing.js';
 import { registerApps } from './domains/apps.js';
+import { registerAppStoreVersionLocalizations } from './domains/appstore-version-localizations.js';
+import { registerAppStoreVersions } from './domains/appstore-versions.js';
 import { registerBetaGroups } from './domains/beta-groups.js';
 import { registerBetaLocalizations } from './domains/beta-localizations.js';
 import { registerBetaReview } from './domains/beta-review.js';
 import { registerBetaTesters } from './domains/beta-testers.js';
 import { registerBuilds } from './domains/builds.js';
 import { registerIaps } from './domains/iap.js';
+import { registerIapLocalizations } from './domains/iap-localizations.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
 import { registerOfferCodes } from './domains/offer-codes.js';
 import { registerOfferSigning } from './domains/offer-signing.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPricing } from './domains/pricing.js';
 import { registerPromoOffers } from './domains/promo-offers.js';
+import { registerSubscriptionLocalizations } from './domains/subscription-localizations.js';
 import { registerSubscriptions } from './domains/subscriptions.js';
 import { registerTerritories } from './domains/territories.js';
 
@@ -89,6 +93,10 @@ async function runServer(): Promise<void> {
   registerBetaTesters(server, client);
   registerBetaLocalizations(server, client);
   registerBetaReview(server, client);
+  registerAppStoreVersions(server, client);
+  registerAppStoreVersionLocalizations(server, client);
+  registerSubscriptionLocalizations(server, client);
+  registerIapLocalizations(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();

@@ -436,3 +436,113 @@ export const ReviewNotesSchema = z
   .describe(
     'Notes to Apple beta-review reviewer (per-app betaAppReviewDetails). Capped at 4000 characters. Use to document non-obvious test paths or known issues that the reviewer should bypass.',
   );
+
+// ---------- App Store product page localizations (v0.10.0) ----------
+
+export const AppStoreVersionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'App Store Version ID from /v1/appStoreVersions. One per (app, platform, versionString) Apple has seen. Carries the release-track copy (release notes via localizations, copyright, releaseType MANUAL/AFTER_APPROVAL/SCHEDULED, reviewType APP_STORE/NOTARIZATION) — distinct from PreReleaseVersion which is the TestFlight-track grouping.',
+  );
+
+export const AppStoreVersionLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppStoreVersionLocalization ID from /v1/appStoreVersionLocalizations. Per (appStoreVersion, locale). Carries description + whatsNew (release notes) + keywords + promotionalText + marketingUrl + supportUrl. The big LLM-win surface — what users see on the App Store product page.',
+  );
+
+export const SubscriptionLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'SubscriptionLocalization ID from /v1/subscriptionLocalizations. Per (subscription, locale). Carries the customer-facing name + description Apple shows in the App Store under the subscription product. Has a state attribute (PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED) reflecting Apple-side review status — read-only.',
+  );
+
+export const InAppPurchaseLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'InAppPurchaseLocalization ID from /v1/inAppPurchaseLocalizations. Per (IAP, locale). Same shape as SubscriptionLocalization (name + description + state). Parent relationship is `inAppPurchaseV2` (the v2 IAP surface this project uses).',
+  );
+
+export const ReleaseNotesSchema = z
+  .string()
+  .min(1)
+  .max(4000)
+  .describe(
+    'Per-version, per-locale "What\'s New in This Version" release notes (the whatsNew attribute on AppStoreVersionLocalization). Apple caps at 4000 characters per locale. Localized via appStoreVersionLocalizations — one record per (version, locale). This is the highest-LLM-leverage field: translate from a single source locale into N target locales.',
+  );
+
+export const ProductDescriptionSchema = z
+  .string()
+  .min(1)
+  .max(4000)
+  .describe(
+    'Per-version, per-locale long product description shown on the App Store product page. Apple caps at 4000 characters per locale. Persists across versions unless explicitly updated — patching this on a new version usually means refreshing copy across all locales.',
+  );
+
+export const KeywordsSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .describe(
+    'Per-version, per-locale comma-separated search keywords. Apple caps the TOTAL string at 100 characters (including separators) — count carefully. Whitespace is fine but does not count as a separator; use commas. Keywords drive ASO discovery and are immutable post-release (within a given version).',
+  );
+
+export const PromotionalTextSchema = z
+  .string()
+  .min(1)
+  .max(170)
+  .describe(
+    'Per-version, per-locale promotional text shown above the description on the App Store product page. Apple caps at 170 characters. UNLIKE description/keywords, this field is mutable AFTER release without requiring a new app version review — useful for ongoing campaigns within a released version.',
+  );
+
+export const SupportUrlSchema = z
+  .string()
+  .url()
+  .describe(
+    "Per-version, per-locale support URL shown on the App Store product page. Required by Apple for every locale; review may reject submissions without it. Wire key is `supportUrl` (camelCase) — NOT all-caps despite Swift's URL suffix convention.",
+  );
+
+// Note: MarketingUrlSchema already exists (added in v0.9.0 for beta-app
+// localizations — same wire shape works here).
+
+export const SubscriptionLocalizationNameSchema = z
+  .string()
+  .min(1)
+  .max(30)
+  .describe(
+    'Customer-facing subscription name shown in the App Store, per locale. Apple caps at 30 characters per locale. This is what shows up next to the price in the subscription product surface.',
+  );
+
+export const SubscriptionLocalizationDescriptionSchema = z
+  .string()
+  .min(1)
+  .max(45)
+  .describe(
+    'Customer-facing subscription description shown beneath the name in the App Store, per locale. Apple caps at 45 characters per locale. Often a one-sentence value prop. Optional at create time (Apple permits localizations with only name set), but recommended for review compliance.',
+  );
+
+export const IapLocalizationNameSchema = z
+  .string()
+  .min(1)
+  .max(30)
+  .describe(
+    'Customer-facing IAP name shown in the App Store, per locale. Apple caps at 30 characters per locale. Same shape as subscription localization name — they share a wire structure.',
+  );
+
+export const IapLocalizationDescriptionSchema = z
+  .string()
+  .min(1)
+  .max(45)
+  .describe(
+    'Customer-facing IAP description shown beneath the name in the App Store, per locale. Apple caps at 45 characters per locale. Optional at create time.',
+  );
+
+export const PlatformSchema = z
+  .enum(['IOS', 'MAC_OS', 'TV_OS', 'WATCH_OS', 'VISION_OS'])
+  .describe(
+    "Apple's Platform enum used across builds, AppStoreVersion, and elsewhere. IOS / MAC_OS / TV_OS / WATCH_OS / VISION_OS. Note: an `IOS` AppStoreVersion is also distributable to Apple Silicon Macs and Vision Pro if buildAudienceType permits — Platform here is the ASC categorization, not the runtime target list.",
+  );

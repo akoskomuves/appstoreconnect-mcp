@@ -532,6 +532,118 @@ export function digestTerritories(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'territories')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestAppStoreVersions(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'VERSION' },
+    { header: 'PLATFORM' },
+    { header: 'STATE' },
+    { header: 'REL_TYPE' },
+    { header: 'CREATED' },
+    { header: 'VERSION_ID' },
+  ];
+  const rows = pages.data.map((v) => {
+    // appStoreState enum values are long (e.g.
+    // READY_FOR_DISTRIBUTION). Pass through as Apple sends — the
+    // identifying token is in the prefix and operators learn the set.
+    const state = attr<string>(v, 'appStoreState') ?? attr<string>(v, 'appVersionState') ?? '';
+    const relType = attr<string>(v, 'releaseType') ?? '';
+    const created = (attr<string>(v, 'createdDate') ?? '').slice(0, 10);
+    return [
+      s(attr(v, 'versionString') ?? ''),
+      s(attr(v, 'platform') ?? ''),
+      state,
+      relType,
+      created,
+      v.id,
+    ];
+  });
+  // Newest first by createdDate.
+  rows.sort((a, b) => (b[4] ?? '').localeCompare(a[4] ?? ''));
+  return `${summaryFooter(pages, 'app store versions')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppStoreVersionLocalizations(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'LOCALE' },
+    { header: 'WHATS_NEW_LEN', align: 'right' },
+    { header: 'DESC_LEN', align: 'right' },
+    { header: 'KEYWORDS_LEN', align: 'right' },
+    { header: 'PROMO_LEN', align: 'right' },
+    { header: 'WHATS_NEW_PREVIEW' },
+    { header: 'LOC_ID' },
+  ];
+  const rows = pages.data.map((loc) => {
+    const wn = attr<string>(loc, 'whatsNew') ?? '';
+    const desc = attr<string>(loc, 'description') ?? '';
+    const kw = attr<string>(loc, 'keywords') ?? '';
+    const promo = attr<string>(loc, 'promotionalText') ?? '';
+    const preview = wn.length <= 50 ? wn : `${wn.slice(0, 47)}...`;
+    return [
+      s(attr(loc, 'locale') ?? ''),
+      s(wn.length),
+      s(desc.length),
+      s(kw.length),
+      s(promo.length),
+      preview.replace(/\s+/g, ' '),
+      loc.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'app store version localizations')} (Apple caps: whatsNew/description 4000 · keywords 100 · promotionalText 170)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestSubscriptionLocalizations(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'LOCALE' },
+    { header: 'NAME' },
+    { header: 'DESC_LEN', align: 'right' },
+    { header: 'DESC_PREVIEW' },
+    { header: 'STATE' },
+    { header: 'LOC_ID' },
+  ];
+  const rows = pages.data.map((loc) => {
+    const desc = attr<string>(loc, 'description') ?? '';
+    const preview = desc.length <= 45 ? desc : `${desc.slice(0, 42)}...`;
+    return [
+      s(attr(loc, 'locale') ?? ''),
+      s(attr(loc, 'name') ?? ''),
+      s(desc.length),
+      preview.replace(/\s+/g, ' '),
+      s(attr(loc, 'state') ?? ''),
+      loc.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'subscription localizations')} (STATE: PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED · Apple caps: name 30 · description 45)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestIapLocalizations(pages: CollectedPages): string {
+  // Same shape as subscription localizations — share columns + caps. Apple
+  // even reuses the same state enum.
+  const columns: Column[] = [
+    { header: 'LOCALE' },
+    { header: 'NAME' },
+    { header: 'DESC_LEN', align: 'right' },
+    { header: 'DESC_PREVIEW' },
+    { header: 'STATE' },
+    { header: 'LOC_ID' },
+  ];
+  const rows = pages.data.map((loc) => {
+    const desc = attr<string>(loc, 'description') ?? '';
+    const preview = desc.length <= 45 ? desc : `${desc.slice(0, 42)}...`;
+    return [
+      s(attr(loc, 'locale') ?? ''),
+      s(attr(loc, 'name') ?? ''),
+      s(desc.length),
+      preview.replace(/\s+/g, ' '),
+      s(attr(loc, 'state') ?? ''),
+      loc.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'IAP localizations')} (STATE: PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED · Apple caps: name 30 · description 45)\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestBetaTesters(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'EMAIL' },
