@@ -47,3 +47,8 @@ v0.12.0 — App Info + structured-ASO catalog. The per-app metadata layer (subti
 - AppInfo age-rating PATCH (heavy — Apple requires the full age-rating questionnaire flow which is its own multi-step surface; not currently in any release plan)
 
 **Coming next (v0.13):** Screenshots + App Previews (asset upload per locale × device-class) + Custom Product Pages (channel-specific copy variants).
+
+**Live-smoke spec corrections (caught on 2026-06-04, fixed in this release):**
+
+- **`asc_list_search_keywords`**: `fields[appKeywords]=keyword` returns 400 `PARAMETER_ERROR.INVALID "'keyword' is not a valid field name"`. `AppKeyword` has NO attributes per Apple's contract — only `id` + `links`. The sparse-fieldset call dropped entirely.
+- **Important discovery**: the `AppKeyword.id` IS the human-readable keyword string (Apple uses the keyword as the primary key — e.g. `bluegill`, `solunar`, `walleye` — not opaque UUIDs). The `digestSearchKeywords` table now reads `KEYWORD` column rendered from the bare id. Apple's surface is **broader than the version-level `keywords` field** — it includes terms Apple discovered from app content, useful for diagnosing ASO impression drivers.

@@ -614,12 +614,18 @@ export function digestAppTags(pages: CollectedPages): string {
 }
 
 export function digestSearchKeywords(pages: CollectedPages): string {
-  // AppKeyword has only `id` + optional `keyword` attribute (Apple's
-  // contract minimal). Render whatever's there.
-  const columns: Column[] = [{ header: 'KEYWORD' }, { header: 'KEYWORD_ID' }];
-  const rows = pages.data.map((kw) => [s(attr(kw, 'keyword') ?? '—'), kw.id]);
+  // AppKeyword has NO attributes per Apple's contract — only `id`.
+  // BUT: live smoke (2026-06-04) confirmed the IDs ARE the
+  // human-readable keyword strings (Apple uses the keyword text as
+  // the primary key). So `id` rendered alone is the actual keyword.
+  // The set is BROADER than the version-level `keywords` field on
+  // AppStoreVersionLocalization — Apple discovers additional terms
+  // from app content. Useful for diagnosing "why does my app show
+  // up for X" or "what searches drive impressions".
+  const columns: Column[] = [{ header: 'KEYWORD' }];
+  const rows = pages.data.map((kw) => [kw.id]);
   rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
-  return `${summaryFooter(pages, 'search keywords')}\n\n${formatTable(columns, rows)}`;
+  return `${summaryFooter(pages, 'search keywords')} (each ID is the keyword string itself — Apple uses the keyword as the primary key)\n\n${formatTable(columns, rows)}`;
 }
 
 export function digestReviewSubmissions(pages: CollectedPages): string {

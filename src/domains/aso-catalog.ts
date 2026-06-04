@@ -41,7 +41,11 @@ import {
 
 const APP_CATEGORY_FIELDS = 'platforms';
 const APP_TAG_FIELDS = 'name,visibleInAppStore';
-const APP_KEYWORD_FIELDS = 'keyword';
+// AppKeyword has NO attributes per Apple's contract — only id + links.
+// Verified live: passing `fields[appKeywords]=keyword` returns 400
+// PARAMETER_ERROR.INVALID "'keyword' is not a valid field name". Don't
+// emit a sparse fieldset for this resource at all — the ID is the
+// keyword content.
 
 interface JSONAPIBody {
   data: {
@@ -202,8 +206,8 @@ export function registerAsoCatalog(server: McpServer, client: ASCClient): void {
     },
     async ({ appId, platform, locale, maxItems, raw }) => {
       const params = new URLSearchParams();
-      params.set('fields[appKeywords]', APP_KEYWORD_FIELDS);
       params.set('limit', '200');
+      // No fields[appKeywords] — AppKeyword has no attributes.
       if (platform) params.set('filter[platform]', platform);
       if (locale) params.set('filter[locale]', locale);
       const path = `/v1/apps/${encodeURIComponent(appId)}/searchKeywords?${params.toString()}`;
