@@ -6,10 +6,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import { createASCClient } from './client.js';
 import { loadConfig } from './config.js';
+import { registerAppInfo } from './domains/app-info.js';
 import { registerAppPricing } from './domains/app-pricing.js';
 import { registerApps } from './domains/apps.js';
 import { registerAppStoreVersionLocalizations } from './domains/appstore-version-localizations.js';
 import { registerAppStoreVersions } from './domains/appstore-versions.js';
+import { registerAsoCatalog } from './domains/aso-catalog.js';
 import { registerBetaGroups } from './domains/beta-groups.js';
 import { registerBetaLocalizations } from './domains/beta-localizations.js';
 import { registerBetaReview } from './domains/beta-review.js';
@@ -99,6 +101,8 @@ async function runServer(): Promise<void> {
   registerReviewSubmissions(server, client);
   registerSubscriptionLocalizations(server, client);
   registerIapLocalizations(server, client);
+  registerAppInfo(server, client);
+  registerAsoCatalog(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();

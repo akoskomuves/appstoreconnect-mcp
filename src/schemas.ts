@@ -608,3 +608,76 @@ export const ReviewSubmissionActionSchema = z
   .describe(
     'Action to apply to a review submission. "submit": flip Apple\'s `submitted` attribute to true — actually sends it to Apple for review (state walks READY_FOR_REVIEW → WAITING_FOR_REVIEW → IN_REVIEW). "cancel": flip `canceled` to true — withdraw a submission from Apple\'s review queue (only works while state is WAITING_FOR_REVIEW or IN_REVIEW; complete and canceling states reject).',
   );
+
+// ---------- App Info + structured ASO (v0.12.0) ----------
+
+export const AppInfoIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppInfo ID from /v1/apps/{id}/appInfos. Per-app metadata layer above the version: carries primary/secondary categories (+ subcategories one/two), kidsAgeBand, appStoreAgeRating. Apple manages create/delete automatically (typically one per app, sometimes more across NOTARIZATION/APP_STORE tracks); only PATCH is exposed for setting category relationships.',
+  );
+
+export const AppInfoLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppInfoLocalization ID from /v1/appInfoLocalizations. Per-app, per-locale name/subtitle/privacy URLs. Distinct from AppStoreVersionLocalization (per-version) — this is the persistent app-level copy that survives across versions.',
+  );
+
+export const AppCategoryIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "App Category ID from /v1/appCategories. Apple's structured-ASO category catalog. Each category may have subcategories (parent → subcategories to-many relationship) and applies to one or more platforms (iOS/macOS/tvOS/visionOS).",
+  );
+
+export const AppTagIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "AppTag ID. Apple's structured-ASO tag surface — picks from a catalog and applies per-app per-territory. PATCH toggles isVisibleInAppStore (wire: visibleInAppStore, stripped prefix). Tag membership management (add/remove a tag from an app) is via the App.appTags linkage — not yet wrapped, coming in v0.12.1.",
+  );
+
+export const AppKeywordIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "AppKeyword ID from /v1/apps/{id}/searchKeywords. Apple's aggregated search-keyword surface — surfaces every keyword the app has indexed across all locales × platforms. Read-only at this resource level; actual keyword writes still happen via the per-version keywords field on AppStoreVersionLocalization (v0.10).",
+  );
+
+export const AppInfoLocalizationNameSchema = z
+  .string()
+  .min(1)
+  .max(30)
+  .describe(
+    "App display name shown in the App Store, per locale. Apple's documented cap is 30 characters. This is the name customers see — distinct from `sku` (your internal identifier) and `bundleId` (the build identifier). Required at create; immutable would be ideal but Apple permits PATCH.",
+  );
+
+export const SubtitleSchema = z
+  .string()
+  .min(1)
+  .max(30)
+  .describe(
+    "Short subtitle shown below the app name on the App Store product page, per locale. Apple's documented cap is 30 characters. Higher-ASO leverage than description for many indie apps — the only second-impression slot on a search result row.",
+  );
+
+export const PrivacyPolicyTextSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Full privacy policy TEXT (not URL) for territories where Apple requires inline text rather than a URL. Per (app, locale). Apple's docs document an upper bound around 10000 characters but no client-side cap is enforced — Apple's API stays the source of truth.",
+  );
+
+export const PrivacyChoicesUrlSchema = z
+  .string()
+  .url()
+  .describe(
+    "Privacy choices URL — Apple's surface for apps that offer user-facing privacy choices (typically required for apps subject to CCPA/CPRA or similar). Per (app, locale). Wire key is `privacyChoicesUrl` (camelCase, NOT all-caps despite Swift's URL suffix convention) — same strip pattern as marketingUrl/supportUrl.",
+  );
+
+export const VisibleInAppStoreSchema = z
+  .boolean()
+  .describe(
+    "Whether an AppTag is shown in the App Store search results / product page surface. Wire key `visibleInAppStore` (Apple strips Swift's `is` prefix). Toggling false hides the tag without removing it from the app's tag list.",
+  );

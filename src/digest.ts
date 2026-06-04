@@ -532,6 +532,96 @@ export function digestTerritories(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'territories')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestAppInfos(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'STATE' },
+    { header: 'STORE_STATE' },
+    { header: 'AGE_RATING' },
+    { header: 'KIDS_BAND' },
+    { header: 'APPINFO_ID' },
+  ];
+  const rows = pages.data.map((info) => [
+    s(attr(info, 'state') ?? ''),
+    s(attr(info, 'appStoreState') ?? ''),
+    s(attr(info, 'appStoreAgeRating') ?? '—'),
+    s(attr(info, 'kidsAgeBand') ?? '—'),
+    info.id,
+  ]);
+  return `${summaryFooter(pages, 'app infos')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppInfoLocalizations(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'LOCALE' },
+    { header: 'NAME' },
+    { header: 'SUBTITLE' },
+    { header: 'PRIV_URL' },
+    { header: 'PRIV_CHOICES' },
+    { header: 'PRIV_TEXT_LEN', align: 'right' },
+    { header: 'LOC_ID' },
+  ];
+  const rows = pages.data.map((loc) => {
+    const ppt = attr<string>(loc, 'privacyPolicyText') ?? '';
+    const pUrl = attr<string>(loc, 'privacyPolicyUrl');
+    const pChoices = attr<string>(loc, 'privacyChoicesUrl');
+    return [
+      s(attr(loc, 'locale') ?? ''),
+      s(attr(loc, 'name') ?? ''),
+      s(attr(loc, 'subtitle') ?? '—'),
+      pUrl ? compactUrl(pUrl) : '—',
+      pChoices ? compactUrl(pChoices) : '—',
+      s(ppt.length),
+      loc.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'app info localizations')} (URL columns show host only)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppCategories(pages: CollectedPages): string {
+  const index = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'CATEGORY_ID' },
+    { header: 'PLATFORMS' },
+    { header: 'SUBCATEGORIES' },
+  ];
+  const rows = pages.data.map((cat) => {
+    const platforms = attr<string[]>(cat, 'platforms') ?? [];
+    const subRel = cat.relationships?.['subcategories']?.data;
+    const subIds: string[] = Array.isArray(subRel) ? subRel.map((d) => d.id) : [];
+    // Resolve subcategory IDs to names via the included index.
+    const subNames = subIds
+      .map((id) => {
+        const sub = lookupIncluded(index, 'appCategories', id);
+        return sub?.id ?? id;
+      })
+      .join(', ');
+    return [cat.id, platforms.join(','), subNames || '—'];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'app categories')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppTags(pages: CollectedPages): string {
+  const columns: Column[] = [{ header: 'NAME' }, { header: 'VISIBLE' }, { header: 'TAG_ID' }];
+  const rows = pages.data.map((tag) => {
+    const visible = attr<boolean>(tag, 'visibleInAppStore');
+    const visCell = visible === true ? 'Y' : visible === false ? 'N' : '—';
+    return [s(attr(tag, 'name') ?? ''), visCell, tag.id];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'app tags')} (VISIBLE: Y=shown in App Store · N=hidden)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestSearchKeywords(pages: CollectedPages): string {
+  // AppKeyword has only `id` + optional `keyword` attribute (Apple's
+  // contract minimal). Render whatever's there.
+  const columns: Column[] = [{ header: 'KEYWORD' }, { header: 'KEYWORD_ID' }];
+  const rows = pages.data.map((kw) => [s(attr(kw, 'keyword') ?? '—'), kw.id]);
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'search keywords')}\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestReviewSubmissions(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'STATE' },
