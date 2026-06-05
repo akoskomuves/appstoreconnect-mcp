@@ -1040,3 +1040,108 @@ export function digestSingle(resource: JSONAPIResource, label: string): string {
   }
   return lines.join('\n');
 }
+
+// ----- v0.13.0: Asset upload + Custom Product Pages -----
+
+export function digestAppScreenshotSets(pages: CollectedPages): string {
+  const columns: Column[] = [{ header: 'DISPLAY_TYPE' }, { header: 'SET_ID' }];
+  const rows = pages.data.map((set) => [s(attr(set, 'screenshotDisplayType') ?? ''), set.id]);
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'screenshot sets')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppScreenshots(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'FILE_NAME' },
+    { header: 'SIZE', align: 'right' },
+    { header: 'STATE' },
+    { header: 'CHECKSUM' },
+    { header: 'SCREENSHOT_ID' },
+  ];
+  const rows = pages.data.map((shot) => {
+    const checksum = attr<string>(shot, 'sourceFileChecksum');
+    return [
+      s(attr(shot, 'fileName') ?? ''),
+      s(attr(shot, 'fileSize') ?? ''),
+      s(attr(shot, 'assetDeliveryState')) || '',
+      checksum ? 'committed' : 'pending',
+      shot.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'screenshots')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppPreviewSets(pages: CollectedPages): string {
+  const columns: Column[] = [{ header: 'PREVIEW_TYPE' }, { header: 'SET_ID' }];
+  const rows = pages.data.map((set) => [s(attr(set, 'previewType') ?? ''), set.id]);
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'preview sets')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppPreviews(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'FILE_NAME' },
+    { header: 'SIZE', align: 'right' },
+    { header: 'FRAME' },
+    { header: 'ASSET_STATE' },
+    { header: 'VIDEO_STATE' },
+    { header: 'PREVIEW_ID' },
+  ];
+  const rows = pages.data.map((preview) => [
+    s(attr(preview, 'fileName') ?? ''),
+    s(attr(preview, 'fileSize') ?? ''),
+    s(attr(preview, 'previewFrameTimeCode') ?? ''),
+    s(attr(preview, 'assetDeliveryState') ?? ''),
+    s(attr(preview, 'videoDeliveryState') ?? ''),
+    preview.id,
+  ]);
+  return `${summaryFooter(pages, 'previews')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppCustomProductPages(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'VISIBLE' },
+    { header: 'URL' },
+    { header: 'CPP_ID' },
+  ];
+  const rows = pages.data.map((page) => [
+    s(attr(page, 'name') ?? ''),
+    s(attr(page, 'visible') ?? ''),
+    s(attr(page, 'url') ?? ''),
+    page.id,
+  ]);
+  return `${summaryFooter(pages, 'custom product pages')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppCustomProductPageVersions(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'VERSION' },
+    { header: 'STATE' },
+    { header: 'DEEP_LINK' },
+    { header: 'VERSION_ID' },
+  ];
+  const rows = pages.data.map((v) => [
+    s(attr(v, 'version') ?? ''),
+    s(attr(v, 'state') ?? ''),
+    s(attr(v, 'deepLink') ?? ''),
+    v.id,
+  ]);
+  return `${summaryFooter(pages, 'CPP versions')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppCustomProductPageLocalizations(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'LOCALE' },
+    { header: 'PROMO_LEN', align: 'right' },
+    { header: 'PROMO_PREVIEW' },
+    { header: 'LOC_ID' },
+  ];
+  const rows = pages.data.map((loc) => {
+    const promo = attr<string>(loc, 'promotionalText') ?? '';
+    const preview = promo.length <= 50 ? promo : `${promo.slice(0, 47)}...`;
+    return [s(attr(loc, 'locale') ?? ''), s(promo.length), preview.replace(/\s+/g, ' '), loc.id];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'CPP localizations')} (Apple cap: promotionalText 170)\n\n${formatTable(columns, rows)}`;
+}

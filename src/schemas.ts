@@ -681,3 +681,198 @@ export const VisibleInAppStoreSchema = z
   .describe(
     "Whether an AppTag is shown in the App Store search results / product page surface. Wire key `visibleInAppStore` (Apple strips Swift's `is` prefix). Toggling false hides the tag without removing it from the app's tag list.",
   );
+
+// ---------- Asset upload + Custom Product Pages (v0.13.0) ----------
+
+export const AppScreenshotSetIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppScreenshotSet ID from /v1/appScreenshotSets. One set per (parent localization, screenshotDisplayType) — e.g. en-US × APP_IPHONE_67. The set is the container; individual AppScreenshot resources live under it. Parent can be AppStoreVersionLocalization, AppCustomProductPageLocalization, or AppStoreVersionExperimentTreatmentLocalization (one-of — exactly one parent per set).',
+  );
+
+export const AppScreenshotIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppScreenshot ID from /v1/appScreenshots. Carries the file payload metadata (fileSize, fileName, sourceFileChecksum), assetDeliveryState (UPLOAD_COMPLETE / PROCESSING / COMPLETE), and the uploadOperations[] returned at reserve time. Three-step lifecycle: POST reserves and returns operations → PUT each chunk to Apple storage → PATCH commits with sourceFileChecksum + uploaded=true.',
+  );
+
+export const AppPreviewSetIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppPreviewSet ID from /v1/appPreviewSets. One set per (parent localization, previewType — e.g. IPHONE_67). Same three-way parent options as AppScreenshotSet (one-of). Distinct enum from ScreenshotDisplayType — previewType strips the `APP_` prefix (IPHONE_67, not APP_IPHONE_67).',
+  );
+
+export const AppPreviewIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppPreview ID from /v1/appPreviews. Video asset (vs screenshot images). Same three-step lifecycle as AppScreenshot. Extra attrs over a screenshot: previewFrameTimeCode (poster-frame selector), mimeType (often inferred), videoUrl (read-only post-ingest — Swift `videoURL` maps to wire `videoUrl`).',
+  );
+
+export const AppCustomProductPageIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppCustomProductPage ID from /v1/appCustomProductPages. A CPP is an alternate product-page variant attached to an app — visible via a unique URL, used for paid-ads landing pages, campaign-specific copy, etc. Each page has one or more versions; the current version is what customers see.',
+  );
+
+export const AppCustomProductPageVersionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppCustomProductPageVersion ID from /v1/appCustomProductPageVersions. Versions are the editable units — new copy/screenshots/previews land on a new version. State machine (PREPARE_FOR_SUBMISSION / READY_FOR_REVIEW / WAITING_FOR_REVIEW / IN_REVIEW / ACCEPTED / APPROVED / REPLACED_WITH_NEW_VERSION / REJECTED) parallels AppInfo. Localizations + screenshot sets + preview sets attach to the version.',
+  );
+
+export const AppCustomProductPageLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppCustomProductPageLocalization ID from /v1/appCustomProductPageLocalizations. Per (CPP version, locale). Carries only `promotionalText` (170 chars) as a copy attribute — the rest of the product-page surface (description, keywords, name) inherits from the parent AppStoreVersionLocalization. Screenshot sets + preview sets + search keywords can attach here to override the version-level assets.',
+  );
+
+export const ScreenshotDisplayTypeSchema = z
+  .enum([
+    'APP_IPHONE_67',
+    'APP_IPHONE_65',
+    'APP_IPHONE_61',
+    'APP_IPHONE_58',
+    'APP_IPHONE_55',
+    'APP_IPHONE_47',
+    'APP_IPHONE_40',
+    'APP_IPHONE_35',
+    'APP_IPAD_PRO_3GEN_129',
+    'APP_IPAD_PRO_3GEN_11',
+    'APP_IPAD_PRO_129',
+    'APP_IPAD_105',
+    'APP_IPAD_97',
+    'APP_DESKTOP',
+    'APP_WATCH_ULTRA',
+    'APP_WATCH_SERIES_10',
+    'APP_WATCH_SERIES_7',
+    'APP_WATCH_SERIES_4',
+    'APP_WATCH_SERIES_3',
+    'APP_APPLE_TV',
+    'APP_APPLE_VISION_PRO',
+    'IMESSAGE_APP_IPHONE_67',
+    'IMESSAGE_APP_IPHONE_65',
+    'IMESSAGE_APP_IPHONE_61',
+    'IMESSAGE_APP_IPHONE_58',
+    'IMESSAGE_APP_IPHONE_55',
+    'IMESSAGE_APP_IPHONE_47',
+    'IMESSAGE_APP_IPHONE_40',
+    'IMESSAGE_APP_IPAD_PRO_3GEN_129',
+    'IMESSAGE_APP_IPAD_PRO_3GEN_11',
+    'IMESSAGE_APP_IPAD_PRO_129',
+    'IMESSAGE_APP_IPAD_105',
+    'IMESSAGE_APP_IPAD_97',
+  ])
+  .describe(
+    'Screenshot display category — the device-class enum scoping a set. APP_IPHONE_67 = 6.7" iPhone Pro Max. APP_IPAD_PRO_3GEN_129 = 12.9" iPad Pro 3rd gen+. IMESSAGE_* variants are for iMessage extension screenshots. Each (parent localization, display type) gets exactly one AppScreenshotSet — uniqueness enforced server-side.',
+  );
+
+export const PreviewTypeSchema = z
+  .enum([
+    'IPHONE_67',
+    'IPHONE_65',
+    'IPHONE_61',
+    'IPHONE_58',
+    'IPHONE_55',
+    'IPHONE_47',
+    'IPHONE_40',
+    'IPHONE_35',
+    'IPAD_PRO_3GEN_129',
+    'IPAD_PRO_3GEN_11',
+    'IPAD_PRO_129',
+    'IPAD_105',
+    'IPAD_97',
+    'DESKTOP',
+    'APPLE_TV',
+    'APPLE_VISION_PRO',
+  ])
+  .describe(
+    'App preview (video) display category. SAME device classes as ScreenshotDisplayType but WITHOUT the `APP_` prefix — e.g. IPHONE_67 (not APP_IPHONE_67). The enums are distinct; values are NOT interchangeable. No iMessage variants (no preview videos for iMessage extensions).',
+  );
+
+export const ScreenshotSetParentTypeSchema = z
+  .enum([
+    'appStoreVersionLocalizations',
+    'appCustomProductPageLocalizations',
+    'appStoreVersionExperimentTreatmentLocalizations',
+  ])
+  .describe(
+    'Parent resource type for a screenshot or preview set. Apple permits exactly one of the three: a standard version localization, a Custom Product Page localization, or an A/B-test treatment localization. Pass the matching ID as parentLocalizationId. Swift contract marks the relationships block as optional but Apple rejects POSTs that omit all three.',
+  );
+
+export const FileNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Original file name (e.g. "iphone-67-1.png", "preview-ja.mov"). Sent at reserve time; surfaces in App Store Connect UI + read responses. Apple uses the extension to validate format compatibility against the parent set\'s display type.',
+  );
+
+export const FileSizeSchema = z
+  .number()
+  .int()
+  .positive()
+  .describe(
+    'File size in bytes. Apple chunks the upload based on this — the reserve response returns one uploadOperation per chunk, each with its own offset+length. For composite asc_upload_* tools this is computed via fs.stat; for the raw asc_post_app_screenshot / asc_post_app_preview you must pass it explicitly.',
+  );
+
+export const SourceFileChecksumSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Lowercase hex MD5 of the source file (the full file, NOT individual chunks). Sent at commit time alongside uploaded=true. Apple may reject if it does not match what it received. For composite asc_upload_* tools this is computed automatically; for raw asc_patch_app_screenshot / asc_patch_app_preview you must pass it.',
+  );
+
+export const LocalFilePathSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Absolute or tilde-expanded local path to the asset file. The composite asc_upload_* tools read this file directly — its size becomes fileSize, its MD5 becomes sourceFileChecksum, and Apple's chunk operations slice into it at offset+length. Apple's recommended formats: screenshots — PNG or JPEG; previews — MOV (H.264 or HEVC), ≤ 500 MB, 15–30s.",
+  );
+
+export const PreviewFrameTimeCodeSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'SMPTE-style timecode selecting the poster frame for an app preview (e.g. "00:00:05:00" = 5 seconds in, 0 frames). Apple\'s docs use HH:MM:SS:frames. Tweakable post-upload via asc_patch_app_preview without re-uploading the file.',
+  );
+
+export const PreviewMimeTypeSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'MIME type of the preview video (e.g. "video/quicktime" for .mov, "video/mp4"). Optional at reserve — Apple infers from the file when omitted. Pass only to override an incorrect inference.',
+  );
+
+export const CustomProductPageNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Reference name for a CPP, shown in App Store Connect UI (not customer-facing). Required at create; mutable via PATCH. No client-side max enforced — Apple's API is the authoritative source; surface validation errors verbatim.",
+  );
+
+export const CustomProductPageVisibleSchema = z
+  .boolean()
+  .describe(
+    "Whether the CPP's URL is publicly resolvable. Wire key `visible` (Apple strips Swift's `is` prefix, same pattern as AppTag.visibleInAppStore and AppScreenshot.uploaded). Toggling false retracts the page without deletion.",
+  );
+
+export const CustomProductPageDeepLinkSchema = z
+  .string()
+  .url()
+  .describe(
+    'Optional deep link URL appended to the CPP click-through. Carried on AppCustomProductPageVersion (not the page itself). Useful for ad campaigns to land users on a specific in-app surface.',
+  );
+
+export const CustomProductPagePromotionalTextSchema = z
+  .string()
+  .min(1)
+  .max(170)
+  .describe(
+    'Per-CPP-localization promotional text (170 chars). Overrides the AppStoreVersionLocalization promotionalText for customers landing via this CPP URL. Same cap as the version-level field. Mutable across CPP version states — Apple lets it change post-approval, same as the version-level promotional text.',
+  );
