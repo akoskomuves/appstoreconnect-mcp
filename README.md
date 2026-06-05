@@ -182,7 +182,7 @@ Then ask Claude: *"Rebalance my subscription prices using the ppp-rebalance skil
 
 ## Roadmap
 
-v0.1–v0.10 cover monetization + beta distribution + product page localizations: the full pricing/IAP/offers surface (subscriptions, paid apps, IAPs, intro offers, promo offers, offer-code campaigns, signers), TestFlight (builds, beta groups, beta testers, beta localizations, beta review submissions), and the App Store product page copy (release notes, descriptions, keywords, promotional text — per locale, for app versions + subscriptions + IAPs). The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — review responses, pricing positioning — that a model can draft and a human approves.
+v0.1–v0.13 cover monetization + beta distribution + the full App Store product-page surface: the full pricing/IAP/offers surface (subscriptions, paid apps, IAPs, intro offers, promo offers, offer-code campaigns, signers), TestFlight (builds, beta groups, beta testers, beta localizations, beta review submissions), the per-locale product-page copy (release notes, descriptions, keywords, promotional text), the release lifecycle (App Store Version write + V2 Review Submission), the App Info / category / tag / search-keyword surfaces (v0.12), and screenshot + preview asset upload + Custom Product Pages (v0.13). The rest is fertile ground for LLM-driven ops because so much App Store work is judgment-heavy text — review responses, pricing positioning — that a model can draft and a human approves.
 
 | Phase | Domain | What it unlocks |
 | --- | --- | --- |
