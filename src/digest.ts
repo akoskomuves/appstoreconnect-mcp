@@ -1043,6 +1043,18 @@ export function digestSingle(resource: JSONAPIResource, label: string): string {
 
 // ----- v0.13.0: Asset upload + Custom Product Pages -----
 
+// AppMediaAssetState / AppMediaVideoState are STRUCTS in Apple's contract,
+// not enums: { errors: [], warnings: null, state: "COMPLETE" }. Pull the
+// inner `state` for digest rendering; raw:true still emits the full object
+// for callers that need errors/warnings.
+function deliveryStateLabel(raw: unknown): string {
+  if (raw && typeof raw === 'object' && 'state' in raw) {
+    const inner = (raw as { state?: unknown }).state;
+    if (typeof inner === 'string') return inner;
+  }
+  return '';
+}
+
 export function digestAppScreenshotSets(pages: CollectedPages): string {
   const columns: Column[] = [{ header: 'DISPLAY_TYPE' }, { header: 'SET_ID' }];
   const rows = pages.data.map((set) => [s(attr(set, 'screenshotDisplayType') ?? ''), set.id]);
@@ -1063,7 +1075,7 @@ export function digestAppScreenshots(pages: CollectedPages): string {
     return [
       s(attr(shot, 'fileName') ?? ''),
       s(attr(shot, 'fileSize') ?? ''),
-      s(attr(shot, 'assetDeliveryState')) || '',
+      deliveryStateLabel(attr(shot, 'assetDeliveryState')),
       checksum ? 'committed' : 'pending',
       shot.id,
     ];
@@ -1091,8 +1103,8 @@ export function digestAppPreviews(pages: CollectedPages): string {
     s(attr(preview, 'fileName') ?? ''),
     s(attr(preview, 'fileSize') ?? ''),
     s(attr(preview, 'previewFrameTimeCode') ?? ''),
-    s(attr(preview, 'assetDeliveryState') ?? ''),
-    s(attr(preview, 'videoDeliveryState') ?? ''),
+    deliveryStateLabel(attr(preview, 'assetDeliveryState')),
+    deliveryStateLabel(attr(preview, 'videoDeliveryState')),
     preview.id,
   ]);
   return `${summaryFooter(pages, 'previews')}\n\n${formatTable(columns, rows)}`;

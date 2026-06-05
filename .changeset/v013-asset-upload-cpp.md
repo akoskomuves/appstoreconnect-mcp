@@ -63,3 +63,7 @@ v0.13.0 — Asset upload + Custom Product Pages. Screenshots + App Previews (the
 - `AppStoreVersionExperimentTreatment` writes (the third parent option for sets — readable through `parentType` filter but treatment CRUD itself is deferred).
 
 **Coming next (v0.14):** In-App Events (live promotional events visible on the App Store product page) + Promoted Purchases (in-store IAP promotion surface).
+
+**Live-smoke spec corrections (caught on 2026-06-05, fixed in this release):**
+
+- **`digestAppScreenshots` / `digestAppPreviews` STATE columns**: Apple's `AppMediaAssetState` and `AppMediaVideoState` are **structs**, not enum strings — the wire shape is `{ errors: [], warnings: null, state: "COMPLETE" }`. The digests previously stringified the entire wrapper object into the STATE / ASSET_STATE / VIDEO_STATE cell, producing `{"errors":[],"warnings":null,"state":"COMPLETE"}` instead of `COMPLETE`. Added `deliveryStateLabel()` helper that pulls `.state` out of the wrapper for display; `raw:true` output is unchanged (errors + warnings still surface for callers that need them). Verified live on a shipped app's APP_IPHONE_67 set (7 screenshots, all `COMPLETE`).
