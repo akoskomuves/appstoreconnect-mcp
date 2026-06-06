@@ -1042,3 +1042,83 @@ export const PromotedPurchaseEnabledSchema = z
   .describe(
     "Whether the promoted purchase is enabled at all. Wire key `enabled` (Apple strips Swift's `is` prefix). Optional at create (defaults to false). Toggle to retire a promotion without deleting the linkage.",
   );
+
+// ---------- App Availability + Phased Release + Encryption Declarations (v0.15.0) ----------
+
+export const AppAvailabilityIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppAvailabilityV2 ID from /v1/appAvailabilities. Per-app record carrying the master `availableInNewTerritories` flag and the linkage to the set of territoryAvailabilities the app is currently sold in. POST-only (no PATCH / DELETE) — replace by POSTing a new record with the full territory list.',
+  );
+
+export const PhasedReleaseIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppStoreVersionPhasedRelease ID from /v1/appStoreVersionPhasedReleases. Attached to ONE AppStoreVersion. State machine: INACTIVE (created but not started) / ACTIVE (rolling out) / PAUSED (developer paused) / COMPLETE (100% rolled out). currentDayNumber reflects how many days into the 7-day rollout the release is on.',
+  );
+
+export const AppEncryptionDeclarationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppEncryptionDeclaration ID from /v1/appEncryptionDeclarations. Per-app US export-compliance record. Has 6 states (CREATED / IN_REVIEW / APPROVED / REJECTED / INVALID / EXPIRED) and a codeValue (the U.S. export ECCN classification code Apple assigns after review). Declarations are append-only — create new ones rather than mutating existing ones.',
+  );
+
+export const AppEncryptionDeclarationDocumentIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppEncryptionDeclarationDocument ID from /v1/appEncryptionDeclarationDocuments. Asset record for the supporting document (typically a PDF questionnaire) attached to a declaration. Uses the same three-step reserve / chunk-PUT / commit protocol as v0.13 AppScreenshot — reserve returns uploadOperations[], commit takes sourceFileChecksum + uploaded=true.',
+  );
+
+export const PhasedReleaseStateSchema = z
+  .enum(['INACTIVE', 'ACTIVE', 'PAUSED', 'COMPLETE'])
+  .describe(
+    "Phased release state. Apple's lifecycle: INACTIVE (just created, not started) → ACTIVE (rolling out — Apple bumps the rollout 1% / 2% / 5% / 10% / 20% / 50% / 100% across 7 days) → PAUSED (developer hit pause; user-installed % is frozen) → COMPLETE (100% rollout, lifecycle terminal). Valid transitions: INACTIVE → ACTIVE, ACTIVE ↔ PAUSED, ACTIVE → COMPLETE (force-complete / immediate 100% bump). Apple may also force-complete on its own after the 7-day window.",
+  );
+
+export const EncryptionDeclarationStateSchema = z
+  .enum(['CREATED', 'IN_REVIEW', 'APPROVED', 'REJECTED', 'INVALID', 'EXPIRED'])
+  .describe(
+    "Encryption declaration state. CREATED: developer submitted, awaiting Apple review. IN_REVIEW: Apple is reviewing. APPROVED: cleared for export. REJECTED: Apple disagreed with the developer's classification. INVALID: declaration became invalid (e.g. app encryption profile changed). EXPIRED: rolling annual expiry (US export compliance recertifies yearly). Read-only — set by Apple after review.",
+  );
+
+export const AvailableInNewTerritoriesSchema = z
+  .boolean()
+  .describe(
+    "Whether the app automatically becomes available in NEW territories Apple adds in the future. Wire key `availableInNewTerritories` (Apple strips Swift's `is` prefix, same pattern as v0.13 AppCustomProductPage.isVisible). Set explicitly at create — Apple does not infer it.",
+  );
+
+export const TerritoryAvailabilityIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "TerritoryAvailability ID. NOTE: Apple's `territoryAvailabilities` IDs ARE the 3-letter ISO territory codes themselves (e.g. `USA`, `BRA`, `JPN`) — same discovery as v0.12 AppKeyword where the ID is the human-readable string. Pass the territory code directly. Use asc_list_territories (v0.1) to enumerate the valid set.",
+  );
+
+export const AppEncryptionDeclarationDescriptionSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Free-text description of how the app uses encryption. Required at create. Apple's reviewer reads this to classify the export-compliance status. Surface validation errors verbatim — Apple's docs do not document a hard cap.",
+  );
+
+export const ContainsProprietaryCryptographySchema = z
+  .boolean()
+  .describe(
+    'Whether the app contains proprietary (non-standard, custom-developed) cryptographic algorithms. Triggers a more involved Apple review path when true. Required at create.',
+  );
+
+export const ContainsThirdPartyCryptographySchema = z
+  .boolean()
+  .describe(
+    'Whether the app contains third-party (open-source or licensed) cryptographic algorithms beyond what Apple ships. Required at create.',
+  );
+
+export const AvailableOnFrenchStoreSchema = z
+  .boolean()
+  .describe(
+    'Whether the app is offered on the French App Store. Required at create — French export law requires explicit attestation. WIRE KEY GOTCHA: Swift `isAvailableOnFrenchStore` → wire `availableOnFrenchStore` (same is-prefix strip).',
+  );

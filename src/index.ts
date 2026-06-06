@@ -6,6 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import { createASCClient } from './client.js';
 import { loadConfig } from './config.js';
+import { registerAppAvailability } from './domains/app-availability.js';
 import { registerAppEventScreenshots } from './domains/app-event-screenshots.js';
 import { registerAppEventVideoClips } from './domains/app-event-video-clips.js';
 import { registerAppEvents } from './domains/app-events.js';
@@ -22,11 +23,13 @@ import { registerBetaReview } from './domains/beta-review.js';
 import { registerBetaTesters } from './domains/beta-testers.js';
 import { registerBuilds } from './domains/builds.js';
 import { registerCustomProductPages } from './domains/custom-product-pages.js';
+import { registerEncryptionDeclarations } from './domains/encryption-declarations.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIapLocalizations } from './domains/iap-localizations.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
 import { registerOfferCodes } from './domains/offer-codes.js';
 import { registerOfferSigning } from './domains/offer-signing.js';
+import { registerPhasedRelease } from './domains/phased-release.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPreviews } from './domains/previews.js';
 import { registerPricing } from './domains/pricing.js';
@@ -119,6 +122,9 @@ async function runServer(): Promise<void> {
   registerAppEventScreenshots(server, client);
   registerAppEventVideoClips(server, client);
   registerPromotedPurchases(server, client);
+  registerAppAvailability(server, client);
+  registerPhasedRelease(server, client);
+  registerEncryptionDeclarations(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();

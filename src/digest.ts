@@ -1280,3 +1280,51 @@ export function digestPromotedPurchases(pages: CollectedPages): string {
   });
   return `${summaryFooter(pages, 'promoted purchases')} (STATE: PREPARE_FOR_SUBMISSION / IN_REVIEW / APPROVED / REJECTED)\n\n${formatTable(columns, rows)}`;
 }
+
+// ----- v0.15.0: App Availability + Phased Release + Encryption Declarations -----
+
+export function digestTerritoryAvailabilities(pages: CollectedPages): string {
+  // TerritoryAvailability.id IS the 3-letter ISO territory code itself
+  // (same discovery pattern as v0.12 AppKeyword.id = the keyword string).
+  // Apple uses the code as the primary key.
+  const columns: Column[] = [
+    { header: 'TERR' },
+    { header: 'AVAILABLE' },
+    { header: 'RELEASE_DATE' },
+    { header: 'PRE_ORDER' },
+    { header: 'PRE_ORDER_DATE' },
+  ];
+  const rows = pages.data.map((ta) => [
+    ta.id,
+    s(attr(ta, 'available') ?? ''),
+    s(attr(ta, 'releaseDate') ?? ''),
+    s(attr(ta, 'preOrderEnabled') ?? ''),
+    s(attr(ta, 'preOrderPublishDate') ?? ''),
+  ]);
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'territory availabilities')} (id IS the ISO 3-letter code)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppEncryptionDeclarations(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'STATE' },
+    { header: 'CODE' },
+    { header: 'EXEMPT' },
+    { header: 'PROPRIETARY' },
+    { header: 'THIRD_PARTY' },
+    { header: 'FRANCE' },
+    { header: 'CREATED' },
+    { header: 'DECL_ID' },
+  ];
+  const rows = pages.data.map((d) => [
+    s(attr(d, 'appEncryptionDeclarationState') ?? ''),
+    s(attr(d, 'codeValue') ?? ''),
+    s(attr(d, 'exempt') ?? ''),
+    s(attr(d, 'containsProprietaryCryptography') ?? ''),
+    s(attr(d, 'containsThirdPartyCryptography') ?? ''),
+    s(attr(d, 'availableOnFrenchStore') ?? ''),
+    s(attr(d, 'createdDate') ?? ''),
+    d.id,
+  ]);
+  return `${summaryFooter(pages, 'encryption declarations')} (STATE: CREATED / IN_REVIEW / APPROVED / REJECTED / INVALID / EXPIRED)\n\n${formatTable(columns, rows)}`;
+}
