@@ -876,3 +876,169 @@ export const CustomProductPagePromotionalTextSchema = z
   .describe(
     'Per-CPP-localization promotional text (170 chars). Overrides the AppStoreVersionLocalization promotionalText for customers landing via this CPP URL. Same cap as the version-level field. Mutable across CPP version states — Apple lets it change post-approval, same as the version-level promotional text.',
   );
+
+// ---------- In-App Events + Promoted Purchases (v0.14.0) ----------
+
+export const AppEventIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppEvent ID from /v1/appEvents. Per-app live promotional event surfaced on the App Store product page (e.g. "Salmon Season Opens", "Spring Sale"). Carries a reference name, badge (LIVE_EVENT / PREMIERE / CHALLENGE / …), purpose, priority, and one or more TerritorySchedule entries that say WHERE the event runs, WHEN it publishes, and the event start + end times. Distinct from CustomProductPage (variant landing pages) — events are time-bound and ride on the standard product page.',
+  );
+
+export const AppEventLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppEventLocalization ID from /v1/appEventLocalizations. Per (AppEvent, locale). Carries the customer-facing copy: name (event title), shortDescription (event card subline), longDescription (event details page body). Per-locale screenshot + video clip sets attach here.',
+  );
+
+export const AppEventScreenshotIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppEventScreenshot ID from /v1/appEventScreenshots. Image asset for an event localization. Uses the same three-step upload protocol as v0.13 AppScreenshot (reserve → chunk-PUT → commit). The appEventAssetType slot determines whether this image shows on the EVENT_CARD (product-page tile) or the EVENT_DETAILS_PAGE (full event view).',
+  );
+
+export const AppEventVideoClipIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppEventVideoClip ID from /v1/appEventVideoClips. Video asset for an event localization. Same three-step upload + appEventAssetType slot (EVENT_CARD / EVENT_DETAILS_PAGE) as AppEventScreenshot. Carries previewFrameTimeCode (poster frame) — Swift `videoURL` is `videoUrl` on the wire.',
+  );
+
+export const PromotedPurchaseIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'PromotedPurchase ID from /v1/promotedPurchases. Per-app linkage to ONE IAP or subscription that surfaces it on the storefront tile + the in-app-purchases section of the product page. Carries a tiny attribute surface: visibleForAllUsers + enabled (both wire-key-stripped from Swift `isVisibleForAllUsers` / `isEnabled`). State machine: PREPARE_FOR_SUBMISSION / IN_REVIEW / APPROVED / REJECTED.',
+  );
+
+export const AppEventBadgeSchema = z
+  .enum([
+    'LIVE_EVENT',
+    'PREMIERE',
+    'CHALLENGE',
+    'COMPETITION',
+    'NEW_SEASON',
+    'MAJOR_UPDATE',
+    'SPECIAL_EVENT',
+  ])
+  .describe(
+    "Event badge label shown on the App Store event tile. Apple's enum: LIVE_EVENT (stream / live broadcast), PREMIERE (first showing of new content), CHALLENGE (limited-time goal-based event), COMPETITION (PvP / tournament), NEW_SEASON (multiplayer / battle-pass refresh), MAJOR_UPDATE (large feature drop), SPECIAL_EVENT (catch-all). Optional but recommended — drives the badge styling.",
+  );
+
+export const AppEventPurchaseRequirementSchema = z
+  .enum(['NO_COST_ASSOCIATED', 'IN_APP_PURCHASE'])
+  .describe(
+    'Whether participating in the event requires an IAP. NO_COST_ASSOCIATED: free for all users. IN_APP_PURCHASE: requires an IAP / active subscription. Apple uses this in event search results + filters.',
+  );
+
+export const AppEventPrioritySchema = z
+  .enum(['HIGH', 'NORMAL'])
+  .describe(
+    "Event priority signalling to Apple's event surfacing. HIGH: pitch for editorial featuring + higher impression rate. NORMAL: standard. Apple caps the number of HIGH events per app — abusing it can result in rejection.",
+  );
+
+export const AppEventPurposeSchema = z
+  .enum([
+    'APPROPRIATE_FOR_ALL_USERS',
+    'ATTRACT_NEW_USERS',
+    'KEEP_ACTIVE_USERS_INFORMED',
+    'BRING_BACK_LAPSED_USERS',
+  ])
+  .describe(
+    'Who the event is FOR. APPROPRIATE_FOR_ALL_USERS: broad. ATTRACT_NEW_USERS: aimed at non-installers. KEEP_ACTIVE_USERS_INFORMED: aimed at current users (in-app surfacing). BRING_BACK_LAPSED_USERS: aimed at uninstallers / lapsed (re-engagement). Apple uses this to decide which audiences see the event card.',
+  );
+
+export const AppEventAssetTypeSchema = z
+  .enum(['EVENT_CARD', 'EVENT_DETAILS_PAGE'])
+  .describe(
+    'Asset slot that this AppEventScreenshot / AppEventVideoClip targets. EVENT_CARD: small tile shown on the product page + search results. EVENT_DETAILS_PAGE: full-bleed asset shown on the event details view (after the tile is tapped). One asset per (localization, slot) — uploading a second to the same slot replaces it.',
+  );
+
+export const AppEventReferenceNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Reference name for an event — internal-only, NOT customer-facing. Required at create; mutable via PATCH. Apple's docs do not document a hard cap; surfaces in App Store Connect UI for picking events out of the list.",
+  );
+
+export const AppEventDeepLinkSchema = z
+  .string()
+  .url()
+  .describe(
+    "Deep link URL appended to the event tile / details page tap. Takes users to a specific in-app surface when they engage with the event card. Optional. Apple's accepted schemes include universal links and app-specific custom URL schemes.",
+  );
+
+export const AppEventPrimaryLocaleSchema = z
+  .string()
+  .regex(/^[a-z]{2,3}(-[A-Z]{2})?$/, 'Must be a BCP-47 locale')
+  .describe(
+    "BCP-47 locale that is the master copy for the event. Used as the fallback when a customer's locale has no AppEventLocalization. Set once at create time.",
+  );
+
+export const AppEventTerritorySchedulesSchema = z
+  .array(
+    z.object({
+      territories: z.array(z.string().length(3)).min(1),
+      publishStart: z
+        .string()
+        .regex(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([Zz]|[+-]\d{2}:?\d{2})$/,
+          'publishStart must be ISO 8601 with timezone',
+        ),
+      eventStart: z
+        .string()
+        .regex(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([Zz]|[+-]\d{2}:?\d{2})$/,
+          'eventStart must be ISO 8601 with timezone',
+        ),
+      eventEnd: z
+        .string()
+        .regex(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([Zz]|[+-]\d{2}:?\d{2})$/,
+          'eventEnd must be ISO 8601 with timezone',
+        ),
+    }),
+  )
+  .min(1)
+  .describe(
+    'Per-territory schedule(s) for the event. Each entry: { territories: [ISO3], publishStart: ISO8601, eventStart: ISO8601, eventEnd: ISO8601 }. publishStart is when the event tile becomes visible; eventStart/eventEnd bound the active window. Multiple entries let an event run on different schedules per territory cluster (e.g. US runs first, EU one week later). Apple holds Dates with timezone — distinct from the date-only StartDate schema on pricing.',
+  );
+
+export const AppEventNameSchema = z
+  .string()
+  .min(1)
+  .max(30)
+  .describe(
+    "Customer-facing event name (per locale). Apple's documented cap is 30 characters. Surfaces on the event card + details page header.",
+  );
+
+export const AppEventShortDescriptionSchema = z
+  .string()
+  .min(1)
+  .max(50)
+  .describe(
+    "Customer-facing one-liner shown beneath the event name on the tile (per locale). Apple's documented cap is 50 characters.",
+  );
+
+export const AppEventLongDescriptionSchema = z
+  .string()
+  .min(1)
+  .max(120)
+  .describe(
+    "Customer-facing event body shown on the event details page (per locale). Apple's documented cap is 120 characters — tighter than most other surfaces.",
+  );
+
+export const PromotedPurchaseVisibleForAllUsersSchema = z
+  .boolean()
+  .describe(
+    "Whether this promoted purchase is shown to ALL users. Wire key `visibleForAllUsers` (Apple strips Swift's `is` prefix, same pattern as AppCustomProductPage.isVisible → `visible`, AppTag.isVisibleInAppStore → `visibleInAppStore`). Required at create. false hides the promotion from new users while leaving it active server-side.",
+  );
+
+export const PromotedPurchaseEnabledSchema = z
+  .boolean()
+  .describe(
+    "Whether the promoted purchase is enabled at all. Wire key `enabled` (Apple strips Swift's `is` prefix). Optional at create (defaults to false). Toggle to retire a promotion without deleting the linkage.",
+  );

@@ -6,6 +6,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import { createASCClient } from './client.js';
 import { loadConfig } from './config.js';
+import { registerAppEventScreenshots } from './domains/app-event-screenshots.js';
+import { registerAppEventVideoClips } from './domains/app-event-video-clips.js';
+import { registerAppEvents } from './domains/app-events.js';
 import { registerAppInfo } from './domains/app-info.js';
 import { registerAppPricing } from './domains/app-pricing.js';
 import { registerApps } from './domains/apps.js';
@@ -28,6 +31,7 @@ import { registerPpp } from './domains/ppp.js';
 import { registerPreviews } from './domains/previews.js';
 import { registerPricing } from './domains/pricing.js';
 import { registerPromoOffers } from './domains/promo-offers.js';
+import { registerPromotedPurchases } from './domains/promoted-purchases.js';
 import { registerReviewSubmissions } from './domains/review-submissions.js';
 import { registerScreenshots } from './domains/screenshots.js';
 import { registerSubscriptionLocalizations } from './domains/subscription-localizations.js';
@@ -111,6 +115,10 @@ async function runServer(): Promise<void> {
   registerPreviews(server, client);
   registerAssetUpload(server);
   registerCustomProductPages(server, client);
+  registerAppEvents(server, client);
+  registerAppEventScreenshots(server, client);
+  registerAppEventVideoClips(server, client);
+  registerPromotedPurchases(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();

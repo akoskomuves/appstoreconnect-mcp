@@ -1157,3 +1157,126 @@ export function digestAppCustomProductPageLocalizations(pages: CollectedPages): 
   rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
   return `${summaryFooter(pages, 'CPP localizations')} (Apple cap: promotionalText 170)\n\n${formatTable(columns, rows)}`;
 }
+
+// ----- v0.14.0: In-App Events + Promoted Purchases -----
+
+export function digestAppEvents(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'REFERENCE_NAME' },
+    { header: 'STATE' },
+    { header: 'BADGE' },
+    { header: 'PRIORITY' },
+    { header: 'PURPOSE' },
+    { header: 'TERR_COUNT', align: 'right' },
+    { header: 'EVENT_ID' },
+  ];
+  const rows = pages.data.map((ev) => {
+    const schedules = attr<unknown[]>(ev, 'territorySchedules');
+    const territoryCount = Array.isArray(schedules) ? schedules.length : 0;
+    return [
+      s(attr(ev, 'referenceName') ?? ''),
+      s(attr(ev, 'eventState') ?? ''),
+      s(attr(ev, 'badge') ?? ''),
+      s(attr(ev, 'priority') ?? ''),
+      s(attr(ev, 'purpose') ?? ''),
+      s(territoryCount),
+      ev.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'app events')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppEventLocalizations(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'LOCALE' },
+    { header: 'NAME' },
+    { header: 'SHORT_LEN', align: 'right' },
+    { header: 'LONG_LEN', align: 'right' },
+    { header: 'LOC_ID' },
+  ];
+  const rows = pages.data.map((loc) => {
+    const short = attr<string>(loc, 'shortDescription') ?? '';
+    const long = attr<string>(loc, 'longDescription') ?? '';
+    return [
+      s(attr(loc, 'locale') ?? ''),
+      s(attr(loc, 'name') ?? ''),
+      s(short.length),
+      s(long.length),
+      loc.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'event localizations')} (Apple caps: name 30 · shortDescription 50 · longDescription 120)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppEventScreenshots(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'FILE_NAME' },
+    { header: 'SIZE', align: 'right' },
+    { header: 'SLOT' },
+    { header: 'STATE' },
+    { header: 'SCREENSHOT_ID' },
+  ];
+  const rows = pages.data.map((shot) => [
+    s(attr(shot, 'fileName') ?? ''),
+    s(attr(shot, 'fileSize') ?? ''),
+    s(attr(shot, 'appEventAssetType') ?? ''),
+    deliveryStateLabel(attr(shot, 'assetDeliveryState')),
+    shot.id,
+  ]);
+  return `${summaryFooter(pages, 'event screenshots')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAppEventVideoClips(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'FILE_NAME' },
+    { header: 'SIZE', align: 'right' },
+    { header: 'SLOT' },
+    { header: 'FRAME' },
+    { header: 'ASSET_STATE' },
+    { header: 'VIDEO_STATE' },
+    { header: 'CLIP_ID' },
+  ];
+  const rows = pages.data.map((clip) => [
+    s(attr(clip, 'fileName') ?? ''),
+    s(attr(clip, 'fileSize') ?? ''),
+    s(attr(clip, 'appEventAssetType') ?? ''),
+    s(attr(clip, 'previewFrameTimeCode') ?? ''),
+    deliveryStateLabel(attr(clip, 'assetDeliveryState')),
+    deliveryStateLabel(attr(clip, 'videoDeliveryState')),
+    clip.id,
+  ]);
+  return `${summaryFooter(pages, 'event video clips')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestPromotedPurchases(pages: CollectedPages): string {
+  const index = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'PRODUCT_ID' },
+    { header: 'KIND' },
+    { header: 'VISIBLE_ALL' },
+    { header: 'ENABLED' },
+    { header: 'STATE' },
+    { header: 'PP_ID' },
+  ];
+  const rows = pages.data.map((pp) => {
+    const iapRel = rel(pp, 'inAppPurchaseV2');
+    const subRel = rel(pp, 'subscription');
+    const linked = iapRel
+      ? lookupIncluded(index, 'inAppPurchases', iapRel.id)
+      : subRel
+        ? lookupIncluded(index, 'subscriptions', subRel.id)
+        : undefined;
+    const productId = linked ? s(attr(linked, 'productId') ?? linked.id) : '';
+    const kind = iapRel ? 'IAP' : subRel ? 'SUB' : '';
+    return [
+      productId,
+      kind,
+      s(attr(pp, 'visibleForAllUsers') ?? ''),
+      s(attr(pp, 'enabled') ?? ''),
+      s(attr(pp, 'state') ?? ''),
+      pp.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'promoted purchases')} (STATE: PREPARE_FOR_SUBMISSION / IN_REVIEW / APPROVED / REJECTED)\n\n${formatTable(columns, rows)}`;
+}
