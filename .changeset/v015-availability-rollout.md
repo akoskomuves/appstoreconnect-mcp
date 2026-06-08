@@ -60,3 +60,8 @@ v0.15.0 — App Availability + Phased Release + Encryption Declarations. The ter
 - AppEncryptionDeclaration deprecated read attrs (`usesEncryption`, `uploadedDate`, `documentURL`, `documentName`, `documentType`) are surfaced via `raw:true` for legacy declarations but excluded from writes.
 
 **Coming next (v0.16):** TestFlight follow-ons — Beta Feedback Submissions (tester screenshots + crashes), Build Beta Notifications, and Beta Recruitment Criteria (auto-recruit via public link).
+
+**Live-smoke spec corrections (caught on 2026-06-08, fixed in this release):**
+
+- **`asc_list_territory_availabilities` was hitting the wrong URL** (`/v1/apps/{appId}/appAvailabilityV2/territoryAvailabilities` — Apple returns PATH_ERROR). The actual endpoint surfaced in the `asc_get_app_availability_v2` response's `related` link lives at `/v2/appAvailabilities/{id}/territoryAvailabilities`. Two things going on: it's `/v2` (not `/v1`) and the base path is the standalone AppAvailabilities resource (not the per-app accessor). Discovery: Apple shares the numeric identifier between AppAvailability and App — `appAvailability.id == appId` on the wire (added to `AppAvailabilityIdSchema` describe). Tool description updated to mention this.
+- **`asc_get_app_store_version_phased_release` description claimed 404 on no-attachment** but Apple actually returns `{ data: null }`. Description corrected.

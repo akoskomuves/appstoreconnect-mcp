@@ -103,7 +103,7 @@ export function registerPhasedRelease(server: McpServer, client: ASCClient): voi
     {
       title: 'Get the phased release for an App Store version',
       description:
-        "Fetch the AppStoreVersionPhasedRelease attached to an AppStoreVersion. Returns the current phasedReleaseState (INACTIVE / ACTIVE / PAUSED / COMPLETE), startDate, totalPauseDuration (seconds the rollout has been paused), and currentDayNumber (how many days into Apple's 7-day rollout the release is on). Returns 404 if no phased release is attached.",
+        "Fetch the AppStoreVersionPhasedRelease attached to an AppStoreVersion. Returns the current phasedReleaseState (INACTIVE / ACTIVE / PAUSED / COMPLETE), startDate, totalPauseDuration (seconds the rollout has been paused), and currentDayNumber (how many days into Apple's 7-day rollout the release is on). Returns `{ data: null }` if no phased release is attached (NOT a 404).",
       inputSchema: {
         appStoreVersionId: AppStoreVersionIdSchema,
       },

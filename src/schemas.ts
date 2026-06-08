@@ -1049,7 +1049,7 @@ export const AppAvailabilityIdSchema = z
   .string()
   .min(1)
   .describe(
-    'AppAvailabilityV2 ID from /v1/appAvailabilities. Per-app record carrying the master `availableInNewTerritories` flag and the linkage to the set of territoryAvailabilities the app is currently sold in. POST-only (no PATCH / DELETE) — replace by POSTing a new record with the full territory list.',
+    'AppAvailabilityV2 ID. NOTE: Apple shares the numeric identifier between AppAvailability and App — appAvailability.id == appId on the wire. Per-app record carrying the master `availableInNewTerritories` flag and the linkage to the set of territoryAvailabilities the app is currently sold in. POST-only (no PATCH / DELETE) — replace by POSTing a new record with the full territory list.',
   );
 
 export const PhasedReleaseIdSchema = z

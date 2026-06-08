@@ -132,7 +132,7 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
     {
       title: 'List territory availabilities for an app',
       description:
-        "List TerritoryAvailability records for an app. Each row carries the territory ID (= the 3-letter ISO code itself, e.g. USA / BRA / JPN), whether the app is currently `available` there, releaseDate (soft-launch date if scheduled), preOrderEnabled, preOrderPublishDate, and content-rating statuses. Apple's `territoryAvailabilities` IDs ARE the territory codes themselves — same discovery pattern as v0.12 AppKeyword.",
+        "List TerritoryAvailability records for an app. Each row carries the territory ID (= the 3-letter ISO code itself, e.g. USA / BRA / JPN), whether the app is currently `available` there, releaseDate (soft-launch date if scheduled), preOrderEnabled, preOrderPublishDate, and content-rating statuses. Apple's `territoryAvailabilities` IDs ARE the territory codes themselves — same discovery pattern as v0.12 AppKeyword. NOTE: Apple's AppAvailability resource ID equals the app ID — both surfaces share the numeric identifier.",
       inputSchema: {
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
@@ -143,7 +143,11 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
       const params = new URLSearchParams();
       params.set('fields[territoryAvailabilities]', TERRITORY_AVAILABILITY_FIELDS);
       params.set('limit', '200');
-      const path = `/v1/apps/${encodeURIComponent(appId)}/appAvailabilityV2/territoryAvailabilities?${params.toString()}`;
+      // Apple's territoryAvailabilities listing lives at /v2/appAvailabilities/{id}.
+      // AppAvailability.id == appId (Apple shares the numeric identifier across
+      // the two surfaces). The v1 /apps/{id}/appAvailabilityV2/territoryAvailabilities
+      // path does not exist (PATH_ERROR on the live API).
+      const path = `/v2/appAvailabilities/${encodeURIComponent(appId)}/territoryAvailabilities?${params.toString()}`;
       try {
         const pages = await paginate(client, path, maxItems);
         const text = raw ? JSON.stringify(pages, null, 2) : digestTerritoryAvailabilities(pages);
