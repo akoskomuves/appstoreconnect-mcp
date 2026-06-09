@@ -23,9 +23,12 @@ import {
 //     availability, POST a NEW record with the full territory list.
 //     Apple swaps over atomically.
 //
-//   * TerritoryAvailability IDs ARE the 3-letter ISO territory codes
-//     themselves (same as v0.12 AppKeyword.id = the keyword string).
-//     Pass "USA" / "BRA" / etc. directly.
+//   * TerritoryAvailability IDs are APPLE-OPAQUE per-(app, territory)
+//     composites: base64 of `{"s":<appId>,"t":<3-letter-code>}`. NOT the
+//     bare territory code. Discovered live 2026-06-09 — opposite of
+//     v0.12 AppKeyword (where id IS the human-readable string). Get IDs
+//     from asc_list_territory_availabilities, then pass them through to
+//     POST / end-preorder verbatim.
 //
 //   * AppAvailabilityV2CreateRequest also accepts `included[]` for
 //     TerritoryAvailabilityInlineCreate (per-territory release dates =
@@ -132,7 +135,7 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
     {
       title: 'List territory availabilities for an app',
       description:
-        "List TerritoryAvailability records for an app. Each row carries the territory ID (= the 3-letter ISO code itself, e.g. USA / BRA / JPN), whether the app is currently `available` there, releaseDate (soft-launch date if scheduled), preOrderEnabled, preOrderPublishDate, and content-rating statuses. Apple's `territoryAvailabilities` IDs ARE the territory codes themselves — same discovery pattern as v0.12 AppKeyword. NOTE: Apple's AppAvailability resource ID equals the app ID — both surfaces share the numeric identifier.",
+        'List TerritoryAvailability records for an app. The digest TERR column shows the decoded 3-letter ISO territory code (e.g. USA / BRA / JPN), but the actual TERR_ID column is an Apple-opaque base64 composite — `{"s":<appId>,"t":<code>}`. Each row carries whether the app is currently `available`, releaseDate (soft-launch date if scheduled), preOrderEnabled, preOrderPublishDate. Pass the TERR_ID (not the 3-letter code) to asc_post_app_availability_v2 / asc_end_app_availability_pre_order. NOTE: Apple\'s AppAvailability resource ID equals the app ID — both surfaces share the numeric identifier.',
       inputSchema: {
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
@@ -163,7 +166,7 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
     {
       title: 'Replace the AppAvailabilityV2 for an app (POST-only — full replacement)',
       description:
-        'Create a new AppAvailabilityV2 for an app — Apple atomically swaps over to it. There is NO PATCH for this resource; you replace the whole availability by POSTing a new record. Required: appId + availableInNewTerritories + the FULL list of territory IDs the app should be sold in (3-letter ISO codes; missing ones get removed). Wire-key gotcha: Swift `isAvailableInNewTerritories` → wire `availableInNewTerritories`. Use asc_list_territory_availabilities + asc_list_territories to enumerate available codes.',
+        'Create a new AppAvailabilityV2 for an app — Apple atomically swaps over to it. There is NO PATCH for this resource; you replace the whole availability by POSTing a new record. Required: appId + availableInNewTerritories + the FULL list of TerritoryAvailability IDs the app should be sold in (Apple-opaque base64 composites from asc_list_territory_availabilities; missing ones get removed). Wire-key gotcha: Swift `isAvailableInNewTerritories` → wire `availableInNewTerritories`. The IDs are NOT 3-letter codes — they are per-(app, territory) opaque blobs.',
       inputSchema: {
         appId: AppIdSchema,
         availableInNewTerritories: AvailableInNewTerritoriesSchema,
@@ -171,7 +174,7 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
           .array(TerritoryAvailabilityIdSchema)
           .min(1)
           .describe(
-            'Full list of 3-letter ISO territory codes (e.g. ["USA", "BRA", "JPN"]) that the app should be sold in. Apple uses this as the COMPLETE list — any territories not in the array are removed.',
+            'Full list of TerritoryAvailability IDs (Apple-opaque base64 composites, NOT bare 3-letter codes — get them from asc_list_territory_availabilities). Apple uses this as the COMPLETE list; any territories not in the array are removed.',
           ),
       },
     },
@@ -205,13 +208,13 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
     {
       title: 'End app pre-order in selected territories',
       description:
-        'POST an EndAppAvailabilityPreOrder resource carrying the list of territoryAvailability IDs in which to end pre-order. Apple stops accepting pre-orders in those territories — the app either goes live (if past releaseDate) or back to "not-yet-available". Relationships-only body (no attributes). Pass 3-letter ISO codes (TerritoryAvailability IDs ARE the codes themselves).',
+        'POST an EndAppAvailabilityPreOrder resource carrying the list of TerritoryAvailability IDs in which to end pre-order. Apple stops accepting pre-orders in those territories — the app either goes live (if past releaseDate) or back to "not-yet-available". Relationships-only body (no attributes). Pass the opaque base64 IDs from asc_list_territory_availabilities (NOT bare 3-letter codes).',
       inputSchema: {
         territoryIds: z
           .array(TerritoryAvailabilityIdSchema)
           .min(1)
           .describe(
-            'List of territoryAvailability IDs (3-letter ISO codes) in which to end pre-order. Apple ends pre-order only in these territories; other territories continue their pre-order schedules.',
+            'List of TerritoryAvailability IDs (Apple-opaque base64 composites — get them from asc_list_territory_availabilities) in which to end pre-order. Apple ends pre-order only in these territories; other territories continue their pre-order schedules.',
           ),
       },
     },

@@ -1283,26 +1283,40 @@ export function digestPromotedPurchases(pages: CollectedPages): string {
 
 // ----- v0.15.0: App Availability + Phased Release + Encryption Declarations -----
 
+// TerritoryAvailability.id is Apple-opaque: base64 of
+// `{"s":<appId>,"t":<3-letter-code>}`. Decode for the human-readable
+// TERR column; surface the full ID in TERR_ID so callers can pass it
+// back verbatim to POST / end-preorder endpoints.
+function decodeTerritoryCode(id: string): string {
+  try {
+    const json = Buffer.from(id, 'base64').toString('utf-8');
+    const parsed = JSON.parse(json) as { t?: unknown };
+    if (typeof parsed.t === 'string') return parsed.t;
+  } catch {
+    // not a base64 / JSON composite — fall back to raw id
+  }
+  return id;
+}
+
 export function digestTerritoryAvailabilities(pages: CollectedPages): string {
-  // TerritoryAvailability.id IS the 3-letter ISO territory code itself
-  // (same discovery pattern as v0.12 AppKeyword.id = the keyword string).
-  // Apple uses the code as the primary key.
   const columns: Column[] = [
     { header: 'TERR' },
     { header: 'AVAILABLE' },
     { header: 'RELEASE_DATE' },
     { header: 'PRE_ORDER' },
     { header: 'PRE_ORDER_DATE' },
+    { header: 'TERR_ID' },
   ];
   const rows = pages.data.map((ta) => [
-    ta.id,
+    decodeTerritoryCode(ta.id),
     s(attr(ta, 'available') ?? ''),
     s(attr(ta, 'releaseDate') ?? ''),
     s(attr(ta, 'preOrderEnabled') ?? ''),
     s(attr(ta, 'preOrderPublishDate') ?? ''),
+    ta.id,
   ]);
   rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
-  return `${summaryFooter(pages, 'territory availabilities')} (id IS the ISO 3-letter code)\n\n${formatTable(columns, rows)}`;
+  return `${summaryFooter(pages, 'territory availabilities')} (TERR decoded from id; TERR_ID is the Apple-opaque base64 composite to pass back to POST / end-preorder)\n\n${formatTable(columns, rows)}`;
 }
 
 export function digestAppEncryptionDeclarations(pages: CollectedPages): string {

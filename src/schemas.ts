@@ -1095,7 +1095,7 @@ export const TerritoryAvailabilityIdSchema = z
   .string()
   .min(1)
   .describe(
-    "TerritoryAvailability ID. NOTE: Apple's `territoryAvailabilities` IDs ARE the 3-letter ISO territory codes themselves (e.g. `USA`, `BRA`, `JPN`) — same discovery as v0.12 AppKeyword where the ID is the human-readable string. Pass the territory code directly. Use asc_list_territories (v0.1) to enumerate the valid set.",
+    'TerritoryAvailability ID. APPLE-OPAQUE composite: base64 of `{"s":<appId>,"t":<3-letter-code>}` (e.g. `eyJzIjoiMTIzNDUiLCJ0IjoiVVNBIn0=` for app 12345 in USA). The ID is per-(app, territory), NOT the bare territory code — DO NOT pass `"USA"` directly. Get IDs by calling asc_list_territory_availabilities first, then pass them through to asc_post_app_availability_v2 / asc_end_app_availability_pre_order verbatim.',
   );
 
 export const AppEncryptionDeclarationDescriptionSchema = z
