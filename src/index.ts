@@ -17,10 +17,13 @@ import { registerAppStoreVersionLocalizations } from './domains/appstore-version
 import { registerAppStoreVersions } from './domains/appstore-versions.js';
 import { registerAsoCatalog } from './domains/aso-catalog.js';
 import { registerAssetUpload } from './domains/asset-upload.js';
+import { registerBetaFeedback } from './domains/beta-feedback.js';
 import { registerBetaGroups } from './domains/beta-groups.js';
 import { registerBetaLocalizations } from './domains/beta-localizations.js';
+import { registerBetaRecruitment } from './domains/beta-recruitment.js';
 import { registerBetaReview } from './domains/beta-review.js';
 import { registerBetaTesters } from './domains/beta-testers.js';
+import { registerBuildBetaNotifications } from './domains/build-beta-notifications.js';
 import { registerBuilds } from './domains/builds.js';
 import { registerCustomProductPages } from './domains/custom-product-pages.js';
 import { registerEncryptionDeclarations } from './domains/encryption-declarations.js';
@@ -125,6 +128,9 @@ async function runServer(): Promise<void> {
   registerAppAvailability(server, client);
   registerPhasedRelease(server, client);
   registerEncryptionDeclarations(server, client);
+  registerBetaFeedback(server, client);
+  registerBuildBetaNotifications(server, client);
+  registerBetaRecruitment(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();

@@ -1122,3 +1122,52 @@ export const AvailableOnFrenchStoreSchema = z
   .describe(
     'Whether the app is offered on the French App Store. Required at create — French export law requires explicit attestation. WIRE KEY GOTCHA: Swift `isAvailableOnFrenchStore` → wire `availableOnFrenchStore` (same is-prefix strip).',
   );
+
+// ---------- TestFlight follow-ons (v0.16) ----------
+
+export const BetaFeedbackScreenshotSubmissionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'BetaFeedbackScreenshotSubmission ID from /v1/apps/{id}/betaFeedbackScreenshotSubmissions. One record per screenshot feedback a tester sends from TestFlight (shake-to-report or screenshot markup). Read-only resource — testers create them from the device; the API can list, get, and delete.',
+  );
+
+export const BetaFeedbackCrashSubmissionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'BetaFeedbackCrashSubmission ID from /v1/apps/{id}/betaFeedbackCrashSubmissions. One record per crash feedback a tester agreed to share from TestFlight. The crash log text itself lives behind /v1/betaFeedbackCrashSubmissions/{id}/crashLog (asc_get_beta_feedback_crash_log).',
+  );
+
+export const BetaRecruitmentCriterionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'BetaRecruitmentCriterion ID from /v1/betaGroups/{id}/betaRecruitmentCriteria. A beta group has AT MOST ONE criterion record (to-one relationship) holding deviceFamilyOsVersionFilters that gate who can join via the public link. Created via POST /v1/betaRecruitmentCriteria, mutated via PATCH, removed via DELETE.',
+  );
+
+export const DeviceFamilySchema = z
+  .enum(['IPHONE', 'IPAD', 'APPLE_TV', 'APPLE_WATCH', 'MAC', 'VISION'])
+  .describe('Apple device family. VISION is Apple Vision Pro.');
+
+export const DeviceFamilyOsVersionFilterSchema = z
+  .object({
+    deviceFamily: DeviceFamilySchema,
+    minimumOsInclusive: z
+      .string()
+      .optional()
+      .describe('Lowest OS version (inclusive) that may join, e.g. "17.0". Omit for no floor.'),
+    maximumOsInclusive: z
+      .string()
+      .optional()
+      .describe('Highest OS version (inclusive) that may join, e.g. "18.4". Omit for no ceiling.'),
+  })
+  .describe(
+    'One device-family + OS-version window a public-link tester must match to auto-join the group. Wire keys are verbatim camelCase (deviceFamily / minimumOsInclusive / maximumOsInclusive) — no is-prefix or URL strips on this shape. Valid OS versions per family come from asc_list_beta_recruitment_criterion_options.',
+  );
+
+export const FeedbackPlatformFilterSchema = z
+  .enum(['IOS', 'MAC_OS', 'TV_OS', 'VISION_OS'])
+  .describe(
+    'Platform filter for beta feedback lists. Note this is the PLATFORM enum (IOS / MAC_OS / TV_OS / VISION_OS), not the DeviceFamily enum — feedback filters use platform, recruitment criteria use device family.',
+  );

@@ -1342,3 +1342,78 @@ export function digestAppEncryptionDeclarations(pages: CollectedPages): string {
   ]);
   return `${summaryFooter(pages, 'encryption declarations')} (STATE: CREATED / IN_REVIEW / APPROVED / REJECTED / INVALID / EXPIRED)\n\n${formatTable(columns, rows)}`;
 }
+
+function commentPreview(v: unknown): string {
+  const c = s(v);
+  return c.length <= 45 ? c : `${c.slice(0, 42)}...`;
+}
+
+export function digestBetaFeedbackScreenshotSubmissions(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'CREATED' },
+    { header: 'DEVICE' },
+    { header: 'OS' },
+    { header: 'COMMENT' },
+    { header: 'SHOTS' },
+    { header: 'BUILD_ID' },
+    { header: 'TESTER_ID' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((sub) => {
+    const shots = attr<unknown[]>(sub, 'screenshots');
+    return [
+      (attr<string>(sub, 'createdDate') ?? '').slice(0, 10),
+      s(attr(sub, 'deviceModel') ?? ''),
+      s(attr(sub, 'osVersion') ?? ''),
+      commentPreview(attr(sub, 'comment') ?? ''),
+      shots ? String(shots.length) : '',
+      rel(sub, 'build')?.id ?? '',
+      rel(sub, 'tester')?.id ?? '',
+      sub.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'screenshot feedback submissions')} (screenshot image URLs expire — fetch a single submission with asc_get_beta_feedback_screenshot_submission to see url + expirationDate per image)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestBetaFeedbackCrashSubmissions(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'CREATED' },
+    { header: 'DEVICE' },
+    { header: 'OS' },
+    { header: 'PLATFORM' },
+    { header: 'COMMENT' },
+    { header: 'BUILD_ID' },
+    { header: 'TESTER_ID' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((sub) => [
+    (attr<string>(sub, 'createdDate') ?? '').slice(0, 10),
+    s(attr(sub, 'deviceModel') ?? ''),
+    s(attr(sub, 'osVersion') ?? ''),
+    s(attr(sub, 'devicePlatform') ?? ''),
+    commentPreview(attr(sub, 'comment') ?? ''),
+    rel(sub, 'build')?.id ?? '',
+    rel(sub, 'tester')?.id ?? '',
+    sub.id,
+  ]);
+  return `${summaryFooter(pages, 'crash feedback submissions')} (crash log text: asc_get_beta_feedback_crash_log with the ID)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestBetaRecruitmentCriterionOptions(pages: CollectedPages): string {
+  // The options endpoint returns resource(s) whose attributes hold
+  // deviceFamilyOsVersions: [{ deviceFamily, osVersions: [...] }] — flatten to
+  // one row per device family.
+  const columns: Column[] = [{ header: 'DEVICE_FAMILY' }, { header: 'OS_VERSIONS' }];
+  const rows: string[][] = [];
+  for (const opt of pages.data) {
+    const families =
+      attr<Array<{ deviceFamily?: string; osVersions?: string[] }>>(
+        opt,
+        'deviceFamilyOsVersions',
+      ) ?? [];
+    for (const fam of families) {
+      rows.push([s(fam.deviceFamily ?? ''), (fam.osVersions ?? []).join(', ')]);
+    }
+  }
+  return `${summaryFooter(pages, 'criterion option records')} (one row per device family; OS_VERSIONS are the values Apple accepts in deviceFamilyOsVersionFilters min/max)\n\n${formatTable(columns, rows)}`;
+}
