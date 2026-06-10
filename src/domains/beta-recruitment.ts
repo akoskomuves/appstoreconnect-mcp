@@ -22,6 +22,17 @@ import {
 //     plural but the response is a SINGLE resource, not a list). Create a
 //     second one for the same group and Apple rejects it — PATCH the
 //     existing record instead.
+//   - LIVE-SMOKE FINDINGS (2026-06-10), group WITHOUT a criterion:
+//       * GET …/betaRecruitmentCriteria → 409 ENTITY_ERROR.RELATIONSHIP
+//         .INVALID, detail "BetaRecruitmentCriteria with id '<THE GROUP
+//         ID>' does not exist" — NOT an empty 200 or clean 404. The error
+//         resolving the criterion BY THE GROUP'S OWN ID is strong evidence
+//         the criterion shares its id with the beta group (4th shared-ID
+//         quirk, same family as v0.15 AppAvailabilityV2.id == app.id) —
+//         unconfirmed by a live create, treat as likely.
+//       * GET …/betaRecruitmentCriterionCompatibleBuildCheck → 404 with
+//         id 'Not Defined'. Both tools catch these and say "no criterion
+//         yet" instead of dumping the raw error.
 //   - Lifecycle lives on /v1/betaRecruitmentCriteria: POST (with betaGroup
 //     relationship) / PATCH /{id} / DELETE /{id}. DELETE is documented by
 //     Apple but missing from the Swift SDK as of v0.16 (confirmed against
@@ -121,7 +132,7 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
     {
       title: 'Get the recruitment criterion of a beta group',
       description:
-        "GET /v1/betaGroups/{id}/betaRecruitmentCriteria — the group's single recruitment criterion (a beta group has at most one; the plural path segment is Apple's naming, the response is one resource). Returns deviceFamilyOsVersionFilters + lastModifiedDate, or a 404-style error when the group has no criterion yet (then use asc_post_beta_recruitment_criterion).",
+        "GET /v1/betaGroups/{id}/betaRecruitmentCriteria — the group's single recruitment criterion (a beta group has at most one; the plural path segment is Apple's naming, the response is one resource). Returns deviceFamilyOsVersionFilters + lastModifiedDate. When the group has NO criterion yet, Apple answers 409 ENTITY_ERROR (observed live) — this tool translates that to a clear 'no criterion yet' message; create one with asc_post_beta_recruitment_criterion.",
       inputSchema: {
         betaGroupId: BetaGroupIdSchema,
       },
@@ -132,6 +143,20 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
         const data = await client.request<unknown>(path, { method: 'GET' });
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
       } catch (err) {
+        // LIVE-SMOKE FINDING (2026-06-10): no-criterion groups return 409
+        // ENTITY_ERROR.RELATIONSHIP.INVALID ("BetaRecruitmentCriteria with
+        // id '<groupId>' does not exist"), not an empty 200 or clean 404.
+        if (err instanceof ASCError && (err.status === 409 || err.status === 404)) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Beta group ${betaGroupId} has no recruitment criterion yet — its public link (if enabled) accepts any device. Create one with asc_post_beta_recruitment_criterion.\n\n${formatASCError(err)}`,
+              },
+            ],
+            isError: true,
+          };
+        }
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
       }
     },
@@ -286,7 +311,7 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
     {
       title: 'Check recruitment criteria against available builds',
       description:
-        'GET /v1/betaGroups/{id}/betaRecruitmentCriterionCompatibleBuildCheck — hasCompatibleBuild tells you whether the group currently distributes at least one build that devices matching the recruitment criteria could install. false means public-link joiners who pass the criteria would find NO installable build — fix the criteria or assign a compatible build before promoting the link.',
+        'GET /v1/betaGroups/{id}/betaRecruitmentCriterionCompatibleBuildCheck — hasCompatibleBuild tells you whether the group currently distributes at least one build that devices matching the recruitment criteria could install. false means public-link joiners who pass the criteria would find NO installable build — fix the criteria or assign a compatible build before promoting the link. 404s when the group has no criterion at all (observed live) — the check only exists once a criterion does.',
       inputSchema: {
         betaGroupId: BetaGroupIdSchema,
       },
@@ -310,6 +335,20 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
           content: [{ type: 'text', text: `${verdict}\n\n${JSON.stringify(data, null, 2)}` }],
         };
       } catch (err) {
+        // LIVE-SMOKE FINDING (2026-06-10): on a group with no criterion this
+        // endpoint 404s with "no resource of type 'betaRecruitmentCriteria'
+        // with id 'Not Defined'" — the check only exists once a criterion does.
+        if (err instanceof ASCError && err.status === 404) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Beta group ${betaGroupId} has no recruitment criterion, so there is nothing to check against — the compatible-build check only exists once a criterion does. Create one with asc_post_beta_recruitment_criterion first.\n\n${formatASCError(err)}`,
+              },
+            ],
+            isError: true,
+          };
+        }
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
       }
     },

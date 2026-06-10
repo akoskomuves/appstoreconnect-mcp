@@ -35,6 +35,13 @@ v0.16 — TestFlight follow-ons: Beta Feedback Submissions + Build Beta Notifica
 6. **SDK lag on DELETEs**: DELETE on `/v1/betaFeedbackScreenshotSubmissions/{id}`, `/v1/betaFeedbackCrashSubmissions/{id}`, and `/v1/betaRecruitmentCriteria/{id}` is documented by Apple (verified against Apple doc JSON 2026-06-10) but MISSING from the AvdLee Swift SDK — implemented per Apple docs, flagged for live-smoke attention.
 7. **To-one with plural path**: `/v1/betaGroups/{id}/betaRecruitmentCriteria` returns a single resource despite the plural segment.
 
+**Live-smoke spec corrections caught on 2026-06-10** (WikiCatch, 3 real crash submissions):
+
+1. **Feedback lists now send `include=build,tester`** — without include, Apple omits the build/tester relationship objects entirely (sparse fieldsets alone don't materialize them) and the digest's BUILD_ID / TESTER_ID columns rendered empty. Pinned by a query-builder test.
+2. **Crash logs expire server-side**: all three ~4-month-old submissions 404 on the crashLog related link even though the URL matches Apple's own `links.related` — the tool now explains the absence instead of dumping a bare NOT_FOUND.
+3. **No-criterion beta group: GET criterion → 409 ENTITY_ERROR** (not an empty 200 / clean 404), with a detail that resolves the criterion BY THE GROUP'S OWN ID — strong evidence `BetaRecruitmentCriterion.id == betaGroup.id` (4th shared-ID quirk, after AppKeyword / AppAvailabilityV2 / TerritoryAvailability). Tool translates the 409 to "no criterion yet".
+4. **Compatible-build check on a criterion-less group 404s** ("id 'Not Defined'") — the check only exists once a criterion does; tool says so.
+
 **Schemas (6 new):** `BetaFeedbackScreenshotSubmissionIdSchema`, `BetaFeedbackCrashSubmissionIdSchema`, `BetaRecruitmentCriterionIdSchema`, `DeviceFamilySchema` (6-value enum incl. VISION), `DeviceFamilyOsVersionFilterSchema`, `FeedbackPlatformFilterSchema` (platform enum ≠ device-family enum).
 
 **Digests (3 new):** `digestBetaFeedbackScreenshotSubmissions`, `digestBetaFeedbackCrashSubmissions`, `digestBetaRecruitmentCriterionOptions`.

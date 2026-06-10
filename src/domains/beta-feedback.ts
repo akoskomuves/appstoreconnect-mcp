@@ -89,6 +89,11 @@ export function buildFeedbackListQuery(
   }
   if (filters.testerIds?.length) params.set('filter[tester]', filters.testerIds.join(','));
   params.set('sort', filters.newestFirst === false ? 'createdDate' : '-createdDate');
+  // LIVE-SMOKE FINDING (2026-06-10): without include, Apple omits the build
+  // and tester relationship objects ENTIRELY (only crashLog/links come back),
+  // even when the sparse fieldset asks for them — the digest's BUILD_ID /
+  // TESTER_ID columns render empty. include materializes the data linkage.
+  params.set('include', 'build,tester');
   params.set('limit', '200');
   return params;
 }
@@ -283,7 +288,7 @@ export function registerBetaFeedback(server: McpServer, client: ASCClient): void
     {
       title: 'Get the crash log for a crash feedback submission',
       description:
-        'GET /v1/betaFeedbackCrashSubmissions/{id}/crashLog — returns the betaCrashLogs resource whose logText attribute is the full symbolicated-or-raw crash log. Logs can be large; output is capped at maxChars (default 200k) with a truncation note. Use after asc_list_beta_feedback_crash_submissions to drill into a specific crash.',
+        'GET /v1/betaFeedbackCrashSubmissions/{id}/crashLog — returns the betaCrashLogs resource whose logText attribute is the full symbolicated-or-raw crash log. Logs can be large; output is capped at maxChars (default 200k) with a truncation note. Use after asc_list_beta_feedback_crash_submissions to drill into a specific crash. NOTE: Apple stores logs for a limited time — older submissions 404 here even though their metadata still lists (observed live on ~4-month-old submissions); the submission record itself remains readable.',
       inputSchema: {
         crashSubmissionId: BetaFeedbackCrashSubmissionIdSchema,
         maxChars: z
@@ -322,6 +327,22 @@ export function registerBetaFeedback(server: McpServer, client: ASCClient): void
           : logText;
         return { content: [{ type: 'text', text: body }] };
       } catch (err) {
+        // LIVE-SMOKE FINDING (2026-06-10): Apple 404s the crashLog related
+        // link on older submissions ("no resource of type 'betaCrashLogs'")
+        // even though the URL matches Apple's own relationships.crashLog
+        // links.related — the log has expired server-side (or was never
+        // attached). Surface that instead of a bare NOT_FOUND.
+        if (err instanceof ASCError && err.status === 404) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Apple has no crash log stored for submission ${crashSubmissionId} — logs expire server-side after a while (or the log was never attached). The submission metadata is still readable via asc_get_beta_feedback_crash_submission.\n\n${formatASCError(err)}`,
+              },
+            ],
+            isError: true,
+          };
+        }
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
       }
     },

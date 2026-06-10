@@ -1143,7 +1143,7 @@ export const BetaRecruitmentCriterionIdSchema = z
   .string()
   .min(1)
   .describe(
-    'BetaRecruitmentCriterion ID from /v1/betaGroups/{id}/betaRecruitmentCriteria. A beta group has AT MOST ONE criterion record (to-one relationship) holding deviceFamilyOsVersionFilters that gate who can join via the public link. Created via POST /v1/betaRecruitmentCriteria, mutated via PATCH, removed via DELETE.',
+    "BetaRecruitmentCriterion ID from /v1/betaGroups/{id}/betaRecruitmentCriteria. A beta group has AT MOST ONE criterion record (to-one relationship) holding deviceFamilyOsVersionFilters that gate who can join via the public link. Created via POST /v1/betaRecruitmentCriteria, mutated via PATCH, removed via DELETE. Live-observed (2026-06-10): Apple's no-criterion error resolves the criterion by the BETA GROUP'S id, so the criterion id likely EQUALS the beta group id (same shared-ID family as AppAvailabilityV2.id == app.id) — but always read the id back from a GET rather than assuming.",
   );
 
 export const DeviceFamilySchema = z

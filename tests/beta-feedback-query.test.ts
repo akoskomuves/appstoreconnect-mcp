@@ -12,6 +12,10 @@ import { buildFeedbackListQuery } from '../src/domains/beta-feedback.js';
 //      pre-release version), not a flat key on the submission.
 //   3. The two siblings use different fields[] keys and differ by exactly
 //      one field: screenshots (screenshot) vs crashLog (crash).
+//   4. LIVE-SMOKE FINDING (2026-06-10): without include=build,tester Apple
+//      omits the build/tester relationship objects ENTIRELY (sparse
+//      fieldsets alone don't materialize them) — the digest's BUILD_ID /
+//      TESTER_ID columns render empty. include must always be present.
 
 describe('buildFeedbackListQuery', () => {
   it('uses the wire key buildBundleId (NOT Swift buildBundleID) in sparse fieldsets', () => {
@@ -29,6 +33,11 @@ describe('buildFeedbackListQuery', () => {
     expect(crash.get('fields[betaFeedbackCrashSubmissions]')).toContain('crashLog');
     expect(crash.get('fields[betaFeedbackCrashSubmissions]')).not.toContain('screenshots');
     expect(crash.get('fields[betaFeedbackScreenshotSubmissions]')).toBeNull();
+  });
+
+  it('always includes build,tester (Apple omits the relationships without include)', () => {
+    expect(buildFeedbackListQuery('screenshot', {}).get('include')).toBe('build,tester');
+    expect(buildFeedbackListQuery('crash', {}).get('include')).toBe('build,tester');
   });
 
   it('emits the dotted filter[build.preReleaseVersion] key', () => {
