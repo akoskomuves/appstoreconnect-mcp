@@ -43,6 +43,20 @@ import {
 //   - Delivery date filters use VERBOSE key names:
 //     filter[createdDateGreaterThanOrEqualTo] / filter[createdDateLessThan]
 //     (not a bare filter[createdDate] range syntax).
+//
+// LIVE-SMOKE FINDINGS (2026-06-11, full create→ping→deliveries→redeliver→
+// delete drill against WikiCatch):
+//   - The deliveries list REQUIRES filter[createdDateGreaterThanOrEqualTo].
+//     Without it Apple 400s with the (misleading) "Filter is required and
+//     only one must be provided" — deliveryState alone does NOT satisfy it.
+//   - The gte value must be a full ISO 8601 date-time (bare dates rejected),
+//     AT MOST 10 DAYS in the past, and not in the future. createdDateLessThan
+//     is optional alongside it but must also not be in the future.
+//   - The tool below defaults the gte filter to (now − 9d23h) — the widest
+//     window Apple accepts — so "list everything" works out of the box.
+//   - Ping events come back with eventType=null + ping=true; the digest
+//     renders them as "PING (ping)".
+//   - Redelivery verified live: new delivery appears with redelivery=true.
 
 const WEBHOOK_FIELDS = 'enabled,eventTypes,name,url,app';
 const WEBHOOK_DELIVERY_FIELDS =
@@ -367,30 +381,37 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
     {
       title: 'List webhook deliveries',
       description:
-        "GET /v1/webhooks/{id}/deliveries — per-attempt delivery records: state (SUCCEEDED / FAILED / PENDING), event type, sent date, response HTTP status, error message, and whether the attempt was a redelivery. Filter by state and createdDate window to find failures ('list FAILED deliveries since yesterday'), then retry them with asc_post_webhook_redelivery.",
+        "GET /v1/webhooks/{id}/deliveries — per-attempt delivery records: state (SUCCEEDED / FAILED / PENDING), event type, sent date, response HTTP status, error message, and whether the attempt was a redelivery. Filter by state and createdDate window to find failures ('list FAILED deliveries since yesterday'), then retry them with asc_post_webhook_redelivery. Apple REQUIRES the createdAfterOrAt filter (observed live) — when omitted, this tool defaults it to the widest window Apple accepts (~10 days back). Apple retains delivery history for 10 days at most.",
       inputSchema: {
         webhookId: WebhookIdSchema,
-        deliveryStates: z.array(WebhookDeliveryStateSchema).optional(),
+        deliveryStates: z
+          .array(WebhookDeliveryStateSchema)
+          .optional()
+          .describe('Only works ALONGSIDE the date filter — Apple rejects it standalone.'),
         createdAfterOrAt: z
           .string()
           .optional()
           .describe(
-            'ISO 8601 instant (e.g. "2026-06-09T00:00:00Z"). Wire key filter[createdDateGreaterThanOrEqualTo].',
+            'Full ISO 8601 date-time (e.g. "2026-06-09T00:00:00Z" — bare dates rejected). Must be within the last 10 days and not in the future. Wire key filter[createdDateGreaterThanOrEqualTo]. Defaults to ~10 days ago (the widest window Apple accepts).',
           ),
         createdBefore: z
           .string()
           .optional()
-          .describe('ISO 8601 instant. Wire key filter[createdDateLessThan].'),
+          .describe(
+            'Full ISO 8601 date-time; must not be in the future. Wire key filter[createdDateLessThan].',
+          ),
         maxItems: z.number().int().positive().max(2000).default(200),
         raw: z.boolean().default(false),
       },
     },
     async (input) => {
+      // Apple REQUIRES the gte filter — default to the widest accepted
+      // window (10 days minus an hour of clock-skew margin) so a bare
+      // "list deliveries" call works.
+      const defaultAfter = new Date(Date.now() - (10 * 24 - 1) * 3600 * 1000).toISOString();
       const params = buildWebhookDeliveryListQuery({
         ...(input.deliveryStates?.length ? { deliveryStates: input.deliveryStates } : {}),
-        ...(input.createdAfterOrAt !== undefined
-          ? { createdAfterOrAt: input.createdAfterOrAt }
-          : {}),
+        createdAfterOrAt: input.createdAfterOrAt ?? defaultAfter,
         ...(input.createdBefore !== undefined ? { createdBefore: input.createdBefore } : {}),
       });
       const path = `/v1/webhooks/${encodeURIComponent(input.webhookId)}/deliveries?${params.toString()}`;

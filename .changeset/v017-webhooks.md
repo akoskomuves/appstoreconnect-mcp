@@ -29,6 +29,12 @@ v0.17 — Webhooks. Per-app event push from App Store Connect: register an HTTPS
 5. **Verbose date-filter keys**: `filter[createdDateGreaterThanOrEqualTo]` / `filter[createdDateLessThan]` — not a bare `filter[createdDate]` range.
 6. **`include=event` on the deliveries list** baked in at design time (v0.16 lesson: relationship objects don't materialize without include).
 
+**Live-smoke spec corrections caught on 2026-06-11** (full create → get → ping → deliveries → redeliver → patch → delete drill against WikiCatch via `scripts/smoke-webhooks.ts` — every tool path live-verified, drill cleans up after itself):
+
+1. **The deliveries list REQUIRES `filter[createdDateGreaterThanOrEqualTo]`** — Apple 400s without it ("Filter is required and only one must be provided", a misleading message: `filter[deliveryState]` alone does NOT satisfy it). The value must be a full ISO 8601 date-time (bare dates rejected), at most 10 days in the past, not in the future. The tool now defaults the filter to the widest window Apple accepts (~10 days back) so a bare "list deliveries" call works.
+2. **Ping events arrive with `eventType=null` + `ping=true`** — the digest renders them as `PING (ping)`.
+3. Verified clean live: secret never echoed on GET, redelivery creates a new attempt with `redelivery=true` (PENDING → FAILED against the dummy endpoint), patch rename + `enabled=false` pause, delete, and the included-event digest resolution.
+
 **Out of scope:** MarketplaceWebhook (EU DMA alternative distribution) stays in the v1.0+ bucket.
 
 **Schemas (5 new):** `WebhookIdSchema`, `WebhookDeliveryIdSchema`, `WebhookEventTypeSchema` (12-value enum), `WebhookSecretSchema`, `WebhookDeliveryStateSchema`.
