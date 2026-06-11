@@ -1417,3 +1417,56 @@ export function digestBetaRecruitmentCriterionOptions(pages: CollectedPages): st
   }
   return `${summaryFooter(pages, 'criterion option records')} (one row per device family; OS_VERSIONS are the values Apple accepts in deviceFamilyOsVersionFilters min/max)\n\n${formatTable(columns, rows)}`;
 }
+
+export function digestWebhooks(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'ENABLED' },
+    { header: 'EVENT_TYPES' },
+    { header: 'URL' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((wh) => {
+    const events = attr<string[]>(wh, 'eventTypes') ?? [];
+    const url = s(attr(wh, 'url') ?? '');
+    return [
+      s(attr(wh, 'name') ?? ''),
+      s(attr(wh, 'enabled') ?? ''),
+      events.join(', '),
+      url.length <= 40 ? url : `${url.slice(0, 37)}...`,
+      wh.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'webhooks')} (secret is write-only — never shown)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestWebhookDeliveries(pages: CollectedPages): string {
+  const included = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'CREATED' },
+    { header: 'STATE' },
+    { header: 'REDELIV' },
+    { header: 'HTTP' },
+    { header: 'EVENT_TYPE' },
+    { header: 'ERROR' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((d) => {
+    const eventRel = rel(d, 'event');
+    const event = lookupIncluded(included, 'webhookEvents', eventRel?.id);
+    const eventType = event ? s(attr(event, 'eventType') ?? '') : '';
+    const isPing = event ? attr<boolean>(event, 'ping') : undefined;
+    const response = attr<{ httpStatusCode?: number }>(d, 'response');
+    const error = s(attr(d, 'errorMessage') ?? '');
+    return [
+      (attr<string>(d, 'createdDate') ?? '').slice(0, 16),
+      s(attr(d, 'deliveryState') ?? ''),
+      s(attr(d, 'redelivery') ?? ''),
+      response?.httpStatusCode !== undefined ? String(response.httpStatusCode) : '',
+      isPing === true ? `${eventType || 'PING'} (ping)` : eventType,
+      error.length <= 40 ? error : `${error.slice(0, 37)}...`,
+      d.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'deliveries')} (retry FAILED rows via asc_post_webhook_redelivery with the ID as template)\n\n${formatTable(columns, rows)}`;
+}

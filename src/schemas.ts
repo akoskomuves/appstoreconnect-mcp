@@ -1171,3 +1171,51 @@ export const FeedbackPlatformFilterSchema = z
   .describe(
     'Platform filter for beta feedback lists. Note this is the PLATFORM enum (IOS / MAC_OS / TV_OS / VISION_OS), not the DeviceFamily enum — feedback filters use platform, recruitment criteria use device family.',
   );
+
+// ---------- Webhooks (v0.17) ----------
+
+export const WebhookIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Webhook ID from /v1/apps/{id}/webhooks. One webhook = one HTTPS endpoint + a set of event types for ONE app. Apple signs each delivery with the webhook secret (HMAC-SHA256 in the X-Apple-Signature header).',
+  );
+
+export const WebhookDeliveryIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'WebhookDelivery ID from /v1/webhooks/{id}/deliveries. One record per delivery attempt (state SUCCEEDED / FAILED / PENDING, with request URL + response status/body). Pass a FAILED delivery id as the template to asc_post_webhook_redelivery to retry it.',
+  );
+
+export const WebhookEventTypeSchema = z
+  .enum([
+    'APP_STORE_VERSION_APP_VERSION_STATE_UPDATED',
+    'BUILD_UPLOAD_STATE_UPDATED',
+    'BUILD_BETA_DETAIL_EXTERNAL_BUILD_STATE_UPDATED',
+    'BETA_FEEDBACK_CRASH_SUBMISSION_CREATED',
+    'BETA_FEEDBACK_SCREENSHOT_SUBMISSION_CREATED',
+    'BACKGROUND_ASSET_VERSION_STATE_UPDATED',
+    'BACKGROUND_ASSET_VERSION_APP_STORE_RELEASE_STATE_UPDATED',
+    'BACKGROUND_ASSET_VERSION_EXTERNAL_BETA_RELEASE_STATE_UPDATED',
+    'BACKGROUND_ASSET_VERSION_INTERNAL_BETA_RELEASE_CREATED',
+    'ALTERNATIVE_DISTRIBUTION_PACKAGE_AVAILABLE_UPDATED',
+    'ALTERNATIVE_DISTRIBUTION_PACKAGE_VERSION_CREATED',
+    'ALTERNATIVE_DISTRIBUTION_TERRITORY_AVAILABILITY_UPDATED',
+  ])
+  .describe(
+    'Webhook event type (12 values). The day-to-day ones: APP_STORE_VERSION_APP_VERSION_STATE_UPDATED (review/release state transitions), BUILD_UPLOAD_STATE_UPDATED + BUILD_BETA_DETAIL_EXTERNAL_BUILD_STATE_UPDATED (build pipeline), BETA_FEEDBACK_*_CREATED (pairs with the v0.16 beta-feedback read tools). BACKGROUND_ASSET_* and ALTERNATIVE_DISTRIBUTION_* are niche (Background Assets / EU DMA).',
+  );
+
+export const WebhookSecretSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Shared secret Apple uses to sign every delivery (HMAC-SHA256, X-Apple-Signature header) so the receiver can verify authenticity. WRITE-ONLY: never echoed back by any GET. Store it on the receiving side before creating the webhook.',
+  );
+
+export const WebhookDeliveryStateSchema = z
+  .enum(['SUCCEEDED', 'FAILED', 'PENDING'])
+  .describe(
+    'Delivery attempt state. FAILED deliveries can be retried via asc_post_webhook_redelivery.',
+  );

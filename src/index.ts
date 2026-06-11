@@ -43,6 +43,7 @@ import { registerScreenshots } from './domains/screenshots.js';
 import { registerSubscriptionLocalizations } from './domains/subscription-localizations.js';
 import { registerSubscriptions } from './domains/subscriptions.js';
 import { registerTerritories } from './domains/territories.js';
+import { registerWebhooks } from './domains/webhooks.js';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
@@ -131,6 +132,7 @@ async function runServer(): Promise<void> {
   registerBetaFeedback(server, client);
   registerBuildBetaNotifications(server, client);
   registerBetaRecruitment(server, client);
+  registerWebhooks(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();
