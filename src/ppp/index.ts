@@ -103,3 +103,45 @@ export function percentChange(from: number, to: number): number {
   if (from === 0) return 0;
   return ((to - from) / from) * 100;
 }
+
+/**
+ * Real-FX factor for currency-mismatch territories (v0.22).
+ *
+ * The plain `computeFactor` is only dimensionally valid when the index
+ * entry's currency equals the territory's ASC billing currency. When they
+ * differ (USD-billed Gulf storefronts vs BHD/KWD/OMR-priced Apple Music),
+ * user-supplied FX rates rescue the territory:
+ *
+ *   factor = (indexLocal × usd(indexCcy)) / (anchorLocal × usd(anchorCcy))
+ *   target_billing = basePriceAnchor × factor / usd(billingCcy) × usd(anchorCcy)
+ *
+ * `usdPerUnit` maps a currency code to the USD value of ONE unit of it
+ * (e.g. { BHD: 2.65, EUR: 1.16 }); USD itself defaults to 1. Rates are
+ * USER-SUPPLIED by design — this server only ever talks to Apple's API and
+ * adding a third-party FX feed would widen its egress surface.
+ *
+ * Returns undefined when any needed rate is missing — callers fall back to
+ * the currency-mismatch skip.
+ */
+export function fxAdjustedTarget(args: {
+  basePriceAnchor: number;
+  indexLocal: number;
+  indexCurrency: string;
+  anchorLocal: number;
+  anchorCurrency: string;
+  billingCurrency: string;
+  usdPerUnit: Record<string, number>;
+}): { factor: number; targetLocal: number } | undefined {
+  const rate = (ccy: string): number | undefined => (ccy === 'USD' ? 1 : args.usdPerUnit[ccy]);
+  const idx = rate(args.indexCurrency);
+  const anchor = rate(args.anchorCurrency);
+  const billing = rate(args.billingCurrency);
+  if (idx === undefined || anchor === undefined || billing === undefined) return undefined;
+  if (idx <= 0 || anchor <= 0 || billing <= 0 || args.anchorLocal === 0) return undefined;
+  // Dimensionless PPP factor with both sides in USD terms.
+  const factor = (args.indexLocal * idx) / (args.anchorLocal * anchor);
+  // basePriceAnchor is in the anchor's currency; convert anchor → USD →
+  // billing currency.
+  const targetLocal = (args.basePriceAnchor * factor * anchor) / billing;
+  return { factor, targetLocal };
+}

@@ -12,6 +12,7 @@ import {
   applyFloor,
   computeFactor,
   computeTarget,
+  fxAdjustedTarget,
   indexAsMap,
   loadIndex,
   parseDecimal,
@@ -69,6 +70,9 @@ interface ProposalRow {
   snappedPointId: string | undefined;
   changePct: number | undefined;
   reason: string;
+  // v0.22: true when the factor came from user-supplied FX rates rescuing a
+  // currency-mismatch territory (see fxAdjustedTarget).
+  fxAdjusted?: boolean;
 }
 
 interface ProposalContext {
@@ -324,6 +328,10 @@ interface ComputeArgs {
   skipUnchanged: boolean;
   territories?: string[];
   skipMissingIndex: boolean;
+  // USD value of one unit of each currency (USD implied 1). USER-SUPPLIED —
+  // no external FX feed is ever fetched. Rescues currency-mismatch
+  // territories via fxAdjustedTarget.
+  fxRates?: Record<string, number>;
 }
 
 async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<ProposalContext> {
@@ -383,6 +391,7 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
     current: number;
     currency: string;
     factor: number;
+    fxAdjusted?: boolean;
   };
   const pending: Pending[] = [];
   const rows: ProposalRow[] = [];
@@ -426,16 +435,41 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
     // dimensionally wrong. (Hit by USD-billed Gulf markets where Apple
     // Music is sold in BHD/KWD/OMR.)
     if (current.currency && indexEntry.currency && current.currency !== indexEntry.currency) {
-      rows.push({
-        territory: territoryId,
+      // v0.22 real-FX: user-supplied rates rescue the territory with a
+      // dimension-correct conversion. Without rates, skip as before.
+      const fx = args.fxRates
+        ? fxAdjustedTarget({
+            basePriceAnchor: args.basePriceAnchor,
+            indexLocal: indexEntry.individualPrice,
+            indexCurrency: indexEntry.currency,
+            anchorLocal: anchorEntry.individualPrice,
+            anchorCurrency: anchorEntry.currency,
+            billingCurrency: current.currency,
+            usdPerUnit: args.fxRates,
+          })
+        : undefined;
+      if (fx === undefined) {
+        rows.push({
+          territory: territoryId,
+          currency: current.currency,
+          currentLocal: current.amount,
+          factor: undefined,
+          targetLocal: undefined,
+          snappedAmount: undefined,
+          snappedPointId: undefined,
+          changePct: undefined,
+          reason: `currency-mismatch (asc=${current.currency}, am=${indexEntry.currency})${args.fxRates ? ' — fxRates missing a needed currency' : ' — pass fxRates to rescue'}`,
+        });
+        continue;
+      }
+      const flooredFx = applyFloor(fx.targetLocal, current.amount, args.floorFactor);
+      pending.push({
+        territoryId,
+        targetLocal: flooredFx,
+        current: current.amount,
         currency: current.currency,
-        currentLocal: current.amount,
-        factor: undefined,
-        targetLocal: undefined,
-        snappedAmount: undefined,
-        snappedPointId: undefined,
-        changePct: undefined,
-        reason: `currency-mismatch (asc=${current.currency}, am=${indexEntry.currency})`,
+        factor: fx.factor,
+        fxAdjusted: true,
       });
       continue;
     }
@@ -516,6 +550,7 @@ async function computeProposal(client: ASCClient, args: ComputeArgs): Promise<Pr
       snappedPointId: snappedPoint?.id,
       changePct,
       reason: unchanged ? 'unchanged' : 'change',
+      ...(p.fxAdjusted ? { fxAdjusted: true } : {}),
     });
   }
 
@@ -571,11 +606,12 @@ function renderProposalTable(
       fmtMoney(r.targetLocal),
       fmtMoney(r.snappedAmount),
       fmtPct(r.changePct),
-      r.factor !== undefined ? r.factor.toFixed(3) : '',
+      r.factor !== undefined ? `${r.factor.toFixed(3)}${r.fxAdjusted ? '*' : ''}` : '',
       ...(showPointId ? [pointIdCell] : []),
       r.reason === 'change' ? '' : r.reason,
     ];
   });
+  const fxCount = ctx.rows.filter((r) => r.fxAdjusted).length;
 
   const changes = ctx.rows.filter((r) => r.reason === 'change').length;
   const drops = ctx.rows.filter((r) => (r.changePct ?? 0) < 0).length;
@@ -584,7 +620,7 @@ function renderProposalTable(
     changes === 1 ? '' : 's'
   } (${drops} drops, ${lifts} lifts), anchor ${ctx.anchorTerritory}=${ctx.basePriceAnchor}, round=${
     ctx.roundStrategy
-  }, floor=${ctx.floorFactor}, snapshot=${ctx.snapshot}`;
+  }, floor=${ctx.floorFactor}, snapshot=${ctx.snapshot}${fxCount > 0 ? ` — ${fxCount} territor${fxCount === 1 ? 'y' : 'ies'} fx-adjusted (* on FACTOR; user-supplied rates)` : ''}`;
   return `${summary}\n\n${formatTable(columns, tableRows)}`;
 }
 
@@ -822,6 +858,7 @@ interface ApplyScheduleArgs {
   maxDropPct: number;
   confirm: boolean;
   acknowledgeDeletesScheduledIfBaseChanges: boolean;
+  fxRates?: Record<string, number>;
 }
 
 async function applyWholeSchedule(server: McpServer, client: ASCClient, args: ApplyScheduleArgs) {
@@ -847,6 +884,7 @@ async function applyWholeSchedule(server: McpServer, client: ASCClient, args: Ap
     skipUnchanged: true,
     ...(args.territories ? { territories: args.territories } : {}),
     skipMissingIndex: args.skipMissingIndex,
+    ...(args.fxRates ? { fxRates: args.fxRates } : {}),
   });
 
   const writable = ctx.rows.filter((r) => r.reason === 'change' && r.snappedPointId !== undefined);
@@ -1049,6 +1087,7 @@ interface ApplyIntroOfferArgs {
   maxConcurrency: number;
   maxDropPct: number;
   confirm: boolean;
+  fxRates?: Record<string, number>;
 }
 
 async function applyIntroOfferProposal(
@@ -1069,6 +1108,7 @@ async function applyIntroOfferProposal(
     skipUnchanged: true,
     ...(args.territories ? { territories: args.territories } : {}),
     skipMissingIndex: args.skipMissingIndex,
+    ...(args.fxRates ? { fxRates: args.fxRates } : {}),
   });
 
   const writable = ctx.rows.filter((r) => r.reason === 'change' && r.snappedPointId !== undefined);
@@ -1215,6 +1255,7 @@ interface ApplyPromoOfferArgs {
   skipMissingIndex: boolean;
   maxDropPct: number;
   confirm: boolean;
+  fxRates?: Record<string, number>;
 }
 
 async function applyPromoOfferProposal(
@@ -1291,6 +1332,7 @@ async function applyPromoOfferProposal(
     skipUnchanged: false, // a "no Δ" row is still a price the new offer needs
     ...(args.territories ? { territories: args.territories } : {}),
     skipMissingIndex: args.skipMissingIndex,
+    ...(args.fxRates ? { fxRates: args.fxRates } : {}),
   });
 
   // Writable here = rows we have a snapped price-point for. Unlike subs/intro
@@ -1441,6 +1483,7 @@ interface ApplyOfferCodeArgs {
   skipMissingIndex: boolean;
   maxDropPct: number;
   confirm: boolean;
+  fxRates?: Record<string, number>;
 }
 
 async function applyOfferCodeProposal(
@@ -1513,6 +1556,7 @@ async function applyOfferCodeProposal(
     skipUnchanged: false, // a "no Δ" row is still a price the new campaign needs
     ...(args.territories ? { territories: args.territories } : {}),
     skipMissingIndex: args.skipMissingIndex,
+    ...(args.fxRates ? { fxRates: args.fxRates } : {}),
   });
 
   // Like promo offers: every snappable row is a creation, since the
@@ -1751,6 +1795,12 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           .describe(
             'Skip territories for which Apple Music data is not in the bundled index. Set false to surface them as `no-index`.',
           ),
+        fxRates: z
+          .record(z.string(), z.number().positive())
+          .optional()
+          .describe(
+            'Optional USER-SUPPLIED FX rates: USD value of ONE unit of each currency (e.g. {"BHD": 2.65, "KWD": 3.25, "OMR": 2.60}; USD implied 1). Rescues currency-mismatch territories (USD-billed storefronts where Apple Music prices in local currency) with a dimension-correct conversion — those rows are marked fx-adjusted (* on FACTOR). This server NEVER fetches rates from a third party; supply current rates yourself and keep them fresh.',
+          ),
         raw: z.boolean().default(false),
       },
     },
@@ -1890,6 +1940,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         skipUnchanged: args.skipUnchanged,
         ...(args.territories ? { territories: args.territories } : {}),
         skipMissingIndex: args.skipMissingIndex,
+        ...(args.fxRates ? { fxRates: args.fxRates } : {}),
       });
       if (args.raw) {
         return {
@@ -1981,6 +2032,12 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         floorFactor: z.number().min(0).max(1).default(0.15),
         territories: z.array(z.string().length(3)).optional(),
         skipMissingIndex: z.boolean().default(true),
+        fxRates: z
+          .record(z.string(), z.number().positive())
+          .optional()
+          .describe(
+            'Same semantics as on ppp_compute_proposal (USD value of one unit per currency, user-supplied). Pass the SAME map used at compute time so fx-adjusted territories are applied rather than silently skipped.',
+          ),
         startDate: z
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
@@ -2104,6 +2161,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           floorFactor: args.floorFactor,
           ...(args.territories ? { territories: args.territories } : {}),
           skipMissingIndex: args.skipMissingIndex,
+          ...(args.fxRates ? { fxRates: args.fxRates } : {}),
           maxDropPct: args.maxDropPct,
           confirm: args.confirm,
         });
@@ -2172,6 +2230,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           floorFactor: args.floorFactor,
           ...(args.territories ? { territories: args.territories } : {}),
           skipMissingIndex: args.skipMissingIndex,
+          ...(args.fxRates ? { fxRates: args.fxRates } : {}),
           maxDropPct: args.maxDropPct,
           confirm: args.confirm,
         });
@@ -2239,6 +2298,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           floorFactor: args.floorFactor,
           ...(args.territories ? { territories: args.territories } : {}),
           skipMissingIndex: args.skipMissingIndex,
+          ...(args.fxRates ? { fxRates: args.fxRates } : {}),
           startDate: args.startDate ?? todayPlusDaysISO(7),
           maxConcurrency: args.maxConcurrency,
           maxDropPct: args.maxDropPct,
@@ -2273,6 +2333,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           floorFactor: args.floorFactor,
           ...(args.territories ? { territories: args.territories } : {}),
           skipMissingIndex: args.skipMissingIndex,
+          ...(args.fxRates ? { fxRates: args.fxRates } : {}),
           startDate: args.startDate ?? todayPlusDaysISO(7),
           maxDropPct: args.maxDropPct,
           confirm: args.confirm,
@@ -2303,6 +2364,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         skipUnchanged: true,
         ...(args.territories ? { territories: args.territories } : {}),
         skipMissingIndex: args.skipMissingIndex,
+        ...(args.fxRates ? { fxRates: args.fxRates } : {}),
       });
       const writable = ctx.rows.filter(
         (r) => r.reason === 'change' && r.snappedPointId !== undefined,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAppAvailabilityV2CreateBody,
   buildEndAppAvailabilityPreOrderBody,
+  buildTerritoryAvailabilityPatchBody,
 } from '../src/domains/app-availability.js';
 
 // Pin the wire shape for AppAvailabilityV2 + EndAppAvailabilityPreOrder.
@@ -83,5 +84,27 @@ describe('buildEndAppAvailabilityPreOrderBody', () => {
       { type: 'territoryAvailabilities', id: 'USA' },
       { type: 'territoryAvailabilities', id: 'BRA' },
     ]);
+  });
+});
+
+describe('buildTerritoryAvailabilityPatchBody (v0.22 pre-orders)', () => {
+  it('targets the opaque composite id with only provided attrs (verbatim camelCase keys)', () => {
+    const body = buildTerritoryAvailabilityPatchBody({
+      territoryAvailabilityId: 'eyJzIjoiMTIzNDUiLCJ0IjoiVVNBIn0',
+      preOrderEnabled: true,
+      releaseDate: '2026-09-01',
+    }) as Body;
+    expect(body.data.type).toBe('territoryAvailabilities');
+    expect(body.data.id).toBe('eyJzIjoiMTIzNDUiLCJ0IjoiVVNBIn0');
+    expect(body.data.attributes).toEqual({ preOrderEnabled: true, releaseDate: '2026-09-01' });
+    expect('relationships' in body.data).toBe(false);
+  });
+
+  it('supports the available-only form (territory pull/restore)', () => {
+    const body = buildTerritoryAvailabilityPatchBody({
+      territoryAvailabilityId: 'TA-1',
+      available: false,
+    }) as Body;
+    expect(body.data.attributes).toEqual({ available: false });
   });
 });

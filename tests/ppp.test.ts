@@ -3,6 +3,7 @@ import {
   applyFloor,
   computeFactor,
   computeTarget,
+  fxAdjustedTarget,
   loadIndex,
   parseDecimal,
   percentChange,
@@ -115,5 +116,71 @@ describe('loadIndex', () => {
     // Spot-check a known emerging-market entry exists.
     expect(index.prices.find((p) => p.territory === 'BRA')).toBeDefined();
     expect(index.prices.find((p) => p.territory === 'HUN')).toBeDefined();
+  });
+});
+
+describe('fxAdjustedTarget (v0.22 real-FX)', () => {
+  // Scenario: USD-billed Gulf storefront (billing USD), Apple Music priced
+  // in BHD. usdPerUnit: BHD=2.65. Anchor: USA, USD.
+  it('rescues a currency-mismatch territory with a dimension-correct factor', () => {
+    const out = fxAdjustedTarget({
+      basePriceAnchor: 9.99,
+      indexLocal: 2.2, // BHD Apple Music price
+      indexCurrency: 'BHD',
+      anchorLocal: 10.99, // USD Apple Music price (anchor)
+      anchorCurrency: 'USD',
+      billingCurrency: 'USD',
+      usdPerUnit: { BHD: 2.65 },
+    });
+    expect(out).toBeDefined();
+    // factor = (2.2 × 2.65) / (10.99 × 1) ≈ 0.5305
+    expect(out?.factor).toBeCloseTo((2.2 * 2.65) / 10.99, 6);
+    // target in USD = 9.99 × factor × 1 / 1
+    expect(out?.targetLocal).toBeCloseTo(9.99 * ((2.2 * 2.65) / 10.99), 6);
+  });
+
+  it('reduces to plain factor math when all currencies match', () => {
+    const out = fxAdjustedTarget({
+      basePriceAnchor: 9.99,
+      indexLocal: 5.0,
+      indexCurrency: 'USD',
+      anchorLocal: 10.0,
+      anchorCurrency: 'USD',
+      billingCurrency: 'USD',
+      usdPerUnit: {},
+    });
+    expect(out?.factor).toBeCloseTo(0.5, 9);
+    expect(out?.targetLocal).toBeCloseTo(4.995, 9);
+  });
+
+  it('converts the target into a non-USD billing currency', () => {
+    const out = fxAdjustedTarget({
+      basePriceAnchor: 9.99,
+      indexLocal: 10.0,
+      indexCurrency: 'USD',
+      anchorLocal: 10.0,
+      anchorCurrency: 'USD',
+      billingCurrency: 'EUR',
+      usdPerUnit: { EUR: 1.25 },
+    });
+    // factor = 1; target = 9.99 USD → / 1.25 USD-per-EUR = 7.992 EUR
+    expect(out?.targetLocal).toBeCloseTo(7.992, 6);
+  });
+
+  it('returns undefined when a needed rate is missing or invalid', () => {
+    const base = {
+      basePriceAnchor: 9.99,
+      indexLocal: 2.2,
+      indexCurrency: 'BHD',
+      anchorLocal: 10.99,
+      anchorCurrency: 'USD',
+      billingCurrency: 'USD',
+    };
+    expect(fxAdjustedTarget({ ...base, usdPerUnit: {} })).toBeUndefined();
+    expect(fxAdjustedTarget({ ...base, usdPerUnit: { BHD: 0 } })).toBeUndefined();
+    expect(fxAdjustedTarget({ ...base, usdPerUnit: { BHD: -1 } })).toBeUndefined();
+    expect(
+      fxAdjustedTarget({ ...base, anchorLocal: 0, usdPerUnit: { BHD: 2.65 } }),
+    ).toBeUndefined();
   });
 });

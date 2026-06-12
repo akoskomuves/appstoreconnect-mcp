@@ -108,6 +108,34 @@ function formatASCError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+export interface TerritoryAvailabilityPatchInput {
+  territoryAvailabilityId: string;
+  available?: boolean | undefined;
+  releaseDate?: string | undefined;
+  preOrderEnabled?: boolean | undefined;
+}
+
+export function buildTerritoryAvailabilityPatchBody(
+  input: TerritoryAvailabilityPatchInput,
+): JSONAPIBody {
+  // v0.22 pre-order surface: PATCH /v1/territoryAvailabilities/{id} mutates
+  // available / releaseDate / preOrderEnabled per territory. The ID is the
+  // Apple-opaque base64 composite from asc_list_territory_availabilities
+  // (v0.15 discovery) — never a bare ISO code. Wire keys are verbatim
+  // camelCase (no is-prefix strips on this shape).
+  const attributes: Record<string, unknown> = {};
+  if (input.available !== undefined) attributes.available = input.available;
+  if (input.releaseDate !== undefined) attributes.releaseDate = input.releaseDate;
+  if (input.preOrderEnabled !== undefined) attributes.preOrderEnabled = input.preOrderEnabled;
+  return {
+    data: {
+      type: 'territoryAvailabilities',
+      id: input.territoryAvailabilityId,
+      attributes,
+    },
+  };
+}
+
 export function registerAppAvailability(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_get_app_availability_v2',
@@ -230,6 +258,71 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
             {
               type: 'text',
               text: `Ended pre-order in ${territoryIds.length} territories.\n\n${JSON.stringify(data, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'asc_patch_territory_availability',
+    {
+      title: 'Patch a territory availability (pre-order / release date)',
+      description:
+        'PATCH /v1/territoryAvailabilities/{id} — per-territory pre-order + release control: available (sell here or not), releaseDate (YYYY-MM-DD; with preOrderEnabled=true this is the announced release date customers pre-order against), preOrderEnabled (start taking pre-orders in this territory; end them with asc_end_app_availability_pre_order). The ID is the APPLE-OPAQUE composite from asc_list_territory_availabilities — bare 3-letter codes are rejected. Pass at least one attribute. ⚠️ available=false pulls the app from sale in that territory — customer-facing; confirm intent first.',
+      inputSchema: {
+        territoryAvailabilityId: TerritoryAvailabilityIdSchema,
+        available: z
+          .boolean()
+          .optional()
+          .describe('false REMOVES the app from sale in this territory (customer-facing).'),
+        releaseDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
+          .optional()
+          .describe(
+            'Release date for this territory (pre-order target date when preOrderEnabled).',
+          ),
+        preOrderEnabled: z
+          .boolean()
+          .optional()
+          .describe('true: open pre-orders in this territory (requires a future releaseDate).'),
+      },
+    },
+    async (input) => {
+      const anyField = [input.available, input.releaseDate, input.preOrderEnabled].some(
+        (v) => v !== undefined,
+      );
+      if (!anyField) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Refused: pass at least one of available, releaseDate, preOrderEnabled.',
+            },
+          ],
+          isError: true,
+        };
+      }
+      const body = buildTerritoryAvailabilityPatchBody({
+        territoryAvailabilityId: input.territoryAvailabilityId,
+        ...(input.available !== undefined ? { available: input.available } : {}),
+        ...(input.releaseDate !== undefined ? { releaseDate: input.releaseDate } : {}),
+        ...(input.preOrderEnabled !== undefined ? { preOrderEnabled: input.preOrderEnabled } : {}),
+      });
+      try {
+        const data = await client.request<unknown>(
+          `/v1/territoryAvailabilities/${encodeURIComponent(input.territoryAvailabilityId)}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+        );
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Patched territory availability ${input.territoryAvailabilityId}.\n\n${JSON.stringify(data, null, 2)}`,
             },
           ],
         };
