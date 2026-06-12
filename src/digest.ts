@@ -1529,3 +1529,47 @@ export function digestAnalyticsReportSegments(pages: CollectedPages): string {
     .join('\n');
   return `${summaryFooter(pages, 'segments')} (URLs are pre-signed + time-limited — download promptly with asc_download_analytics_report_segment, passing the URL verbatim)\n\n${formatTable(columns, rows)}\n\nSegment URLs:\n${urls}`;
 }
+
+export function digestCustomerReviews(pages: CollectedPages): string {
+  const included = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'CREATED' },
+    { header: 'RATING' },
+    { header: 'TERR' },
+    { header: 'NICKNAME' },
+    { header: 'TITLE' },
+    { header: 'BODY' },
+    { header: 'RESPONSE' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((review) => {
+    const respRel = rel(review, 'response');
+    const resp = lookupIncluded(included, 'customerReviewResponses', respRel?.id);
+    const respState = resp ? s(attr(resp, 'state') ?? 'YES') : '';
+    const title = s(attr(review, 'title') ?? '');
+    const body = s(attr(review, 'body') ?? '');
+    return [
+      (attr<string>(review, 'createdDate') ?? '').slice(0, 10),
+      '★'.repeat(Number(attr(review, 'rating') ?? 0)),
+      s(attr(review, 'territory') ?? ''),
+      s(attr(review, 'reviewerNickname') ?? ''),
+      title.length <= 30 ? title : `${title.slice(0, 27)}...`,
+      body.length <= 45 ? body : `${body.slice(0, 42)}...`,
+      respState,
+      review.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'reviews')} (BODY/TITLE previewed — full text via asc_get_customer_review; RESPONSE = developer-reply state, blank = unanswered)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestCustomerReviewSummarizations(pages: CollectedPages): string {
+  if (pages.data.length === 0) {
+    return `${summaryFooter(pages, 'summarizations')} (none — Apple generates these only where the feature is live and the app has enough reviews)`;
+  }
+  const blocks = pages.data.map((sum) => {
+    const terr = rel(sum, 'territory')?.id ?? '';
+    const header = `--- ${s(attr(sum, 'platform') ?? '')} · ${terr} · ${s(attr(sum, 'locale') ?? '')} · ${(attr<string>(sum, 'createdDate') ?? '').slice(0, 10)} · ${sum.id}`;
+    return `${header}\n${s(attr(sum, 'text') ?? '(no text)')}`;
+  });
+  return `${summaryFooter(pages, 'summarizations')}\n\n${blocks.join('\n\n')}`;
+}

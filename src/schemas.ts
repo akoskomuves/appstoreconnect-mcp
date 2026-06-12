@@ -1308,3 +1308,32 @@ export const AnalyticsReportCategorySchema = z
 export const AnalyticsGranularitySchema = z
   .enum(['DAILY', 'WEEKLY', 'MONTHLY'])
   .describe('Instance granularity (filter[granularity] on the instances list).');
+
+// ---------- Customer reviews (v0.19) ----------
+
+export const CustomerReviewIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'CustomerReview ID from /v1/apps/{id}/customerReviews. One per published App Store review (rating + optional title/body + reviewerNickname + territory). Reviews are customer-created and read-only — the only developer write is the response.',
+  );
+
+export const CustomerReviewResponseIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "CustomerReviewResponse ID from /v1/customerReviews/{id}/response. The developer's single public reply to one review (state PUBLISHED or PENDING_PUBLISH). DELETE removes the public reply.",
+  );
+
+export const ReviewRatingFilterSchema = z
+  .array(z.enum(['1', '2', '3', '4', '5']))
+  .min(1)
+  .describe('Star ratings to include, as STRINGS per the wire contract (e.g. ["1","2"] for 1–2★).');
+
+export const ReviewSortSchema = z
+  .enum(['createdDate', '-createdDate', 'rating', '-rating'])
+  .describe('Sort order. -createdDate = newest first (default), -rating = highest first.');
+
+export const SummarizationPlatformSchema = z
+  .enum(['IOS', 'MAC_OS', 'TV_OS', 'VISION_OS'])
+  .describe('Platform whose review summarization to fetch. REQUIRED by Apple on this endpoint.');

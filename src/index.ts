@@ -27,6 +27,7 @@ import { registerBetaTesters } from './domains/beta-testers.js';
 import { registerBuildBetaNotifications } from './domains/build-beta-notifications.js';
 import { registerBuilds } from './domains/builds.js';
 import { registerCustomProductPages } from './domains/custom-product-pages.js';
+import { registerCustomerReviews } from './domains/customer-reviews.js';
 import { registerEncryptionDeclarations } from './domains/encryption-declarations.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIapLocalizations } from './domains/iap-localizations.js';
@@ -143,6 +144,7 @@ async function runServer(): Promise<void> {
   registerWebhooks(server, client);
   registerSalesReports(server, client);
   registerAnalyticsReports(server, client);
+  registerCustomerReviews(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();
