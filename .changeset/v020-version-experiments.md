@@ -22,6 +22,8 @@ v0.20 — App Store Version Experiments V2 (product-page A/B tests). The highest
 
 **Apple-contract gotchas pinned by tests:** the `isStarted`→`started` strip, all-required experiment create attrs, V2-only treatment relationship, /v1-list-vs-/v2-CRUD path split.
 
+**Live smoke (2026-06-12, WikiCatch):** CLEAN — full create → get → patch → treatment → localization → lists → delete drill verified every tool path with zero spec corrections (first fully-clean round since v0.14). `started=true` and review submission deliberately NOT exercised (customer-facing). The read list also rendered a real historical experiment correctly (a STOPPED screenshots test from April), confirming digest output against genuine data.
+
 **Schemas (5 new):** `VersionExperimentIdSchema`, `ExperimentTreatmentIdSchema`, `TreatmentLocalizationIdSchema`, `TrafficProportionSchema`, `ExperimentStateSchema` (9-value enum).
 
 **Digests (3 new):** `digestVersionExperiments`, `digestExperimentTreatments` (PROMOTED column = winner pushed live), `digestTreatmentLocalizations`.
