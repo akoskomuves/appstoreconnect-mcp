@@ -31,6 +31,7 @@ import {
   buildSalesReportQuery,
   decodeReportPayload,
   digestTsvReport,
+  requiredVersionFromError,
 } from '../src/domains/sales-reports.js';
 import { paginate } from '../src/jsonapi.js';
 
@@ -158,9 +159,23 @@ async function salesReads(client: Client, vendorNumber: string): Promise<void> {
     const tsv = decodeReportPayload(payload);
     console.log(digestTsvReport(tsv, 10));
   } catch (err) {
-    console.log(`Subscription report error: ${err instanceof Error ? err.message : String(err)}`);
-    const details = (err as { details?: unknown }).details;
-    if (details) console.log(JSON.stringify(details, null, 2));
+    const required = requiredVersionFromError(err);
+    if (required) {
+      console.log(`(version required — retrying with ${required}, mirroring the tool's self-heal)`);
+      const q3 = buildSalesReportQuery({
+        vendorNumber,
+        reportType: 'SUBSCRIPTION',
+        reportSubType: 'SUMMARY',
+        frequency: 'DAILY',
+        version: required,
+      });
+      const payload = await client.requestBinary(`/v1/salesReports?${q3.toString()}`);
+      console.log(digestTsvReport(decodeReportPayload(payload), 10));
+    } else {
+      console.log(`Subscription report error: ${err instanceof Error ? err.message : String(err)}`);
+      const details = (err as { details?: unknown }).details;
+      if (details) console.log(JSON.stringify(details, null, 2));
+    }
   }
 }
 

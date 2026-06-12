@@ -5,8 +5,11 @@ import {
   buildFinanceReportQuery,
   buildSalesReportQuery,
   decodeReportPayload,
+  defaultReportDate,
   digestTsvReport,
+  requiredVersionFromError,
 } from '../src/domains/sales-reports.js';
+import { ASCError } from '../src/errors.js';
 
 // Pin the wire shapes for v0.18 sales/finance reports + analytics.
 //
@@ -114,5 +117,41 @@ describe('buildAnalyticsReportRequestCreateBody', () => {
       app: { data: { type: 'apps', id: 'APP-1' } },
     });
     expect('id' in body.data).toBe(false);
+  });
+});
+
+describe('requiredVersionFromError', () => {
+  it("extracts the required version from Apple's filter[version] 400", () => {
+    const err = new ASCError(400, 'App Store Connect API 400 on GET /v1/salesReports', {
+      errors: [
+        {
+          status: '400',
+          code: 'PARAMETER_ERROR.INVALID',
+          detail:
+            'Please include the version parameter. The latest version for this report is 1_4.',
+          source: { parameter: 'filter[version]' },
+        },
+      ],
+    });
+    expect(requiredVersionFromError(err)).toBe('1_4');
+  });
+
+  it('returns undefined for unrelated 400s and non-ASC errors', () => {
+    const other = new ASCError(400, 'bad', {
+      errors: [{ detail: 'something else', source: { parameter: 'filter[reportDate]' } }],
+    });
+    expect(requiredVersionFromError(other)).toBeUndefined();
+    expect(requiredVersionFromError(new Error('nope'))).toBeUndefined();
+    expect(requiredVersionFromError(new ASCError(404, 'not found', {}))).toBeUndefined();
+  });
+});
+
+describe('defaultReportDate', () => {
+  it('defaults subscription-family DAILY pulls to a date and leaves SALES alone', () => {
+    expect(defaultReportDate('SUBSCRIPTION', 'DAILY')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(defaultReportDate('SUBSCRIPTION_EVENT', 'DAILY')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(defaultReportDate('SALES', 'DAILY')).toBeUndefined();
+    expect(defaultReportDate('INSTALLS', 'DAILY')).toBeUndefined();
+    expect(defaultReportDate('SUBSCRIPTION', 'MONTHLY')).toBeUndefined();
   });
 });

@@ -30,6 +30,13 @@ v0.18 — Sales/finance reports + Analytics Reports. The "look at what happened"
 4. **Nested limit param** `limit[reports]` exists on the request list (noted, unused — reports are listed per-request instead).
 5. **Pre-signed segment URLs**: fetched with NO Authorization header.
 
+**Live-smoke spec corrections caught on 2026-06-12** (real WikiCatch/notehunter sales data + analytics chain drill via `scripts/smoke-reports.ts`):
+
+1. **Subscription-family reportTypes REQUIRE `filter[version]`** — Apple's 400 names the latest ("The latest version for this report is 1_4"). The tool self-heals: parses the version from the error and retries once, noting it in the output.
+2. **Subscription-family reportTypes have NO "latest report" default** — omitting reportDate 404s ("There were no sales for the date specified") even when data exists, unlike SALES which defaults to the latest. The tool defaults their DAILY reportDate to yesterday.
+3. **`AnalyticsReport.id` is a composite** (`r3-<requestUUID>` — slot prefix + parent request id), not an opaque UUID. Pass verbatim, never parse (pinned in the schema description).
+4. Verified live: SALES daily TSV with real proceeds/intro-offer rows, SUBSCRIPTION 1_4 (38 rows) + SUBSCRIPTION_EVENT 1_4 (4 events), analytics request create + immediate COMMERCE catalog population (10 reports). Instances/segments not yet exercisable (<48h after request creation); the ONGOING request on the smoke app is intentionally kept so they accrue.
+
 **Schemas (12 new):** `VendorNumberSchema`, `SalesReportTypeSchema`, `SalesReportSubTypeSchema`, `ReportFrequencySchema`, `FinanceRegionCodeSchema`, `AnalyticsReportRequestIdSchema`, `AnalyticsReportIdSchema`, `AnalyticsReportInstanceIdSchema`, `AnalyticsReportSegmentIdSchema`, `AnalyticsAccessTypeSchema`, `AnalyticsReportCategorySchema`, `AnalyticsGranularitySchema`.
 
 **Digests (4 new + 2 inline previews):** `digestAnalyticsReportRequests`, `digestAnalyticsReports`, `digestAnalyticsReportInstances`, `digestAnalyticsReportSegments` (verbatim URLs), plus TSV/CSV preview renderers.

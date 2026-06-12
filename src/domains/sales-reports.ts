@@ -97,6 +97,42 @@ export function digestTsvReport(tsv: string, maxRows: number): string {
   return `${dataRows.length} data rows · ${header.split('\t').length} columns\n\n${header}\n${preview.join('\n')}${truncNote}`;
 }
 
+// LIVE-SMOKE FINDINGS (2026-06-12), subscription-family sales reportTypes
+// (SUBSCRIPTION, SUBSCRIBER, SUBSCRIPTION_EVENT, …):
+//   1. They REQUIRE filter[version]. Apple's 400 names the latest
+//      ("The latest version for this report is 1_4") — parsed below so the
+//      tool self-heals with one retry.
+//   2. They do NOT support the omit-date "latest report" default that SALES
+//      enjoys — omitting reportDate 404s ("There were no sales for the date
+//      specified") even when data exists. The tool defaults reportDate to
+//      yesterday (Pacific-safe now−36h) for these types on DAILY frequency.
+export const SUBSCRIPTION_FAMILY_REPORT_TYPES = new Set([
+  'SUBSCRIPTION',
+  'SUBSCRIPTION_EVENT',
+  'SUBSCRIBER',
+  'SUBSCRIPTION_OFFER_CODE_REDEMPTION',
+  'WIN_BACK_ELIGIBILITY',
+]);
+
+export function defaultReportDate(reportType: string, frequency: string): string | undefined {
+  if (!SUBSCRIPTION_FAMILY_REPORT_TYPES.has(reportType)) return undefined;
+  if (frequency !== 'DAILY') return undefined;
+  return new Date(Date.now() - 36 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+export function requiredVersionFromError(err: unknown): string | undefined {
+  if (!(err instanceof ASCError) || err.status !== 400) return undefined;
+  const details = err.details as
+    | { errors?: Array<{ detail?: string; source?: { parameter?: string } }> }
+    | undefined;
+  for (const e of details?.errors ?? []) {
+    if (e.source?.parameter !== 'filter[version]') continue;
+    const m = e.detail?.match(/latest version for this report is ([0-9_]+)/i);
+    if (m?.[1]) return m[1];
+  }
+  return undefined;
+}
+
 function formatASCError(err: unknown): string {
   if (err instanceof ASCError) {
     const detail =
@@ -119,7 +155,7 @@ export function registerSalesReports(server: McpServer, client: ASCClient): void
     {
       title: 'Download a sales report',
       description:
-        'GET /v1/salesReports — gzipped TSV download, NOT a JSON:API list. Pick reportType (SALES = units by day/week/month; SUBSCRIPTION = active sub counts; SUBSCRIPTION_EVENT = renew/cancel events; SUBSCRIBER = per-subscriber detail; INSTALLS, PRE_ORDER, …), reportSubType, frequency, and reportDate matching the frequency granularity (DAILY/WEEKLY → YYYY-MM-DD, MONTHLY → YYYY-MM, YEARLY → YYYY; omit for the latest available). Returns a header + row preview; use saveTo for the full file. Apple 404s with "there were no sales" when no data exists for that date — absence, not a malformed request.',
+        'GET /v1/salesReports — gzipped TSV download, NOT a JSON:API list. Pick reportType (SALES = units by day/week/month; SUBSCRIPTION = active sub counts; SUBSCRIPTION_EVENT = renew/cancel events; SUBSCRIBER = per-subscriber detail; INSTALLS, PRE_ORDER, …), reportSubType, frequency, and reportDate matching the frequency granularity (DAILY/WEEKLY → YYYY-MM-DD, MONTHLY → YYYY-MM, YEARLY → YYYY). Omit reportDate for the latest available — SALES-family only; subscription-family types have NO latest-default on Apple\'s side (observed live), so the tool defaults their DAILY date to yesterday. Subscription-family types also require filter[version] — the tool auto-retries with the version Apple names. Returns a header + row preview; use saveTo for the full file. Apple 404s with "there were no sales" when no data exists for that date — absence, not a malformed request.',
       inputSchema: {
         vendorNumber: VendorNumberSchema.optional(),
         reportType: SalesReportTypeSchema,
@@ -150,16 +186,37 @@ export function registerSalesReports(server: McpServer, client: ASCClient): void
       if (!vendorNumber) {
         return { content: [{ type: 'text', text: NO_VENDOR_MSG }], isError: true };
       }
-      const q = buildSalesReportQuery({
-        vendorNumber,
-        reportType: input.reportType,
-        reportSubType: input.reportSubType,
-        frequency: input.frequency,
-        ...(input.reportDate !== undefined ? { reportDate: input.reportDate } : {}),
-        ...(input.version !== undefined ? { version: input.version } : {}),
-      });
+      // Subscription-family types 404 without an explicit date (no "latest"
+      // default like SALES) — default to yesterday for DAILY pulls.
+      const effectiveReportDate =
+        input.reportDate ?? defaultReportDate(input.reportType, input.frequency);
+      const fetchReport = async (version: string | undefined): Promise<Buffer> => {
+        const q = buildSalesReportQuery({
+          vendorNumber,
+          reportType: input.reportType,
+          reportSubType: input.reportSubType,
+          frequency: input.frequency,
+          ...(effectiveReportDate !== undefined ? { reportDate: effectiveReportDate } : {}),
+          ...(version !== undefined ? { version } : {}),
+        });
+        return client.requestBinary(`/v1/salesReports?${q.toString()}`);
+      };
       try {
-        const payload = await client.requestBinary(`/v1/salesReports?${q.toString()}`);
+        let payload: Buffer;
+        let versionNote =
+          effectiveReportDate !== undefined && input.reportDate === undefined
+            ? `(reportDate defaulted to ${effectiveReportDate} — ${input.reportType} has no "latest" default on Apple's side)\n`
+            : '';
+        try {
+          payload = await fetchReport(input.version);
+        } catch (err) {
+          // Subscription-family reportTypes REQUIRE filter[version]; Apple's
+          // 400 names the latest. Self-heal: parse it and retry once.
+          const required = requiredVersionFromError(err);
+          if (required === undefined || input.version !== undefined) throw err;
+          payload = await fetchReport(required);
+          versionNote += `(Apple requires filter[version] for ${input.reportType} — auto-retried with version ${required})\n\n`;
+        }
         const tsv = decodeReportPayload(payload);
         if (input.saveTo) {
           writeFileSync(input.saveTo, tsv);
@@ -168,12 +225,12 @@ export function registerSalesReports(server: McpServer, client: ASCClient): void
             content: [
               {
                 type: 'text',
-                text: `Saved ${rows} lines (${tsv.length} bytes decoded) to ${input.saveTo}.\n\n${digestTsvReport(tsv, 5)}`,
+                text: `${versionNote}Saved ${rows} lines (${tsv.length} bytes decoded) to ${input.saveTo}.\n\n${digestTsvReport(tsv, 5)}`,
               },
             ],
           };
         }
-        const text = input.raw ? tsv : digestTsvReport(tsv, input.maxRows);
+        const text = versionNote + (input.raw ? tsv : digestTsvReport(tsv, input.maxRows));
         return { content: [{ type: 'text', text }] };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
