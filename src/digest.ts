@@ -1571,3 +1571,50 @@ export function digestCustomerReviewSummarizations(pages: CollectedPages): strin
   });
   return `${summaryFooter(pages, 'summarizations')}\n\n${blocks.join('\n\n')}`;
 }
+
+export function digestVersionExperiments(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'STATE' },
+    { header: 'PLATFORM' },
+    { header: 'TRAFFIC%' },
+    { header: 'REVIEW_REQ' },
+    { header: 'START' },
+    { header: 'END' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((exp) => [
+    s(attr(exp, 'name') ?? ''),
+    s(attr(exp, 'state') ?? ''),
+    s(attr(exp, 'platform') ?? ''),
+    s(attr(exp, 'trafficProportion') ?? ''),
+    s(attr(exp, 'reviewRequired') ?? ''),
+    (attr<string>(exp, 'startDate') ?? '').slice(0, 10),
+    (attr<string>(exp, 'endDate') ?? '').slice(0, 10),
+    exp.id,
+  ]);
+  return `${summaryFooter(pages, 'experiments')} (lifecycle: PREPARE_FOR_SUBMISSION → submit via review submission → APPROVED → patch started=true)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestExperimentTreatments(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'ICON_NAME' },
+    { header: 'PROMOTED' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((t) => [
+    s(attr(t, 'name') ?? ''),
+    s(attr(t, 'appIconName') ?? ''),
+    (attr<string>(t, 'promotedDate') ?? '').slice(0, 10),
+    t.id,
+  ]);
+  return `${summaryFooter(pages, 'treatments')} (PROMOTED set = this variant won and was pushed to the live page)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestTreatmentLocalizations(pages: CollectedPages): string {
+  const columns: Column[] = [{ header: 'LOCALE' }, { header: 'ID' }];
+  const rows = pages.data.map((loc) => [s(attr(loc, 'locale') ?? ''), loc.id]);
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'treatment localizations')} (attach variant assets via the v0.13 set tools with parentType appStoreVersionExperimentTreatmentLocalizations)\n\n${formatTable(columns, rows)}`;
+}

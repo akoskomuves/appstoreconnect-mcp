@@ -1337,3 +1337,51 @@ export const ReviewSortSchema = z
 export const SummarizationPlatformSchema = z
   .enum(['IOS', 'MAC_OS', 'TV_OS', 'VISION_OS'])
   .describe('Platform whose review summarization to fetch. REQUIRED by Apple on this endpoint.');
+
+// ---------- App Store Version Experiments V2 (v0.20) ----------
+
+export const VersionExperimentIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppStoreVersionExperiment (V2) ID. QUIRK: the app-scoped LIST lives at /v1/apps/{id}/appStoreVersionExperimentsV2, but the resource CRUD lives under /v2/appStoreVersionExperiments — same IDs across both. The deprecated v1 experiments (attached to a single version) are not exposed by this server.',
+  );
+
+export const ExperimentTreatmentIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppStoreVersionExperimentTreatment ID from /v2/appStoreVersionExperiments/{id}/appStoreVersionExperimentTreatments. One treatment = one product-page variant being tested (vs the control). Carries name, optional appIconName, and promotedDate once a winner is promoted.',
+  );
+
+export const TreatmentLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "ExperimentTreatmentLocalization ID from /v1/appStoreVersionExperimentTreatments/{id}/appStoreVersionExperimentTreatmentLocalizations. Per-treatment, per-locale container for variant screenshots/previews — create one per locale you're testing, then hang screenshot/preview sets off it with the v0.13 asset tools (parentType appStoreVersionExperimentTreatmentLocalizations).",
+  );
+
+export const TrafficProportionSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(99)
+  .describe(
+    'Percentage of product-page traffic diverted to the experiment (split evenly across treatments). Apple accepts 1–99; the rest sees the control page.',
+  );
+
+export const ExperimentStateSchema = z
+  .enum([
+    'PREPARE_FOR_SUBMISSION',
+    'READY_FOR_REVIEW',
+    'WAITING_FOR_REVIEW',
+    'IN_REVIEW',
+    'ACCEPTED',
+    'APPROVED',
+    'REJECTED',
+    'COMPLETED',
+    'STOPPED',
+  ])
+  .describe(
+    'Experiment lifecycle state. PREPARE_FOR_SUBMISSION: build treatments + localizations + assets. Submit via the V2 review submission flow (asc_post_review_submission_item with the experiment). APPROVED: ready — PATCH started=true to begin. COMPLETED / STOPPED: terminal.',
+  );

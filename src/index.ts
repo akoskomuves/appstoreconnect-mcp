@@ -46,6 +46,7 @@ import { registerScreenshots } from './domains/screenshots.js';
 import { registerSubscriptionLocalizations } from './domains/subscription-localizations.js';
 import { registerSubscriptions } from './domains/subscriptions.js';
 import { registerTerritories } from './domains/territories.js';
+import { registerVersionExperiments } from './domains/version-experiments.js';
 import { registerWebhooks } from './domains/webhooks.js';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
@@ -145,6 +146,7 @@ async function runServer(): Promise<void> {
   registerSalesReports(server, client);
   registerAnalyticsReports(server, client);
   registerCustomerReviews(server, client);
+  registerVersionExperiments(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();
