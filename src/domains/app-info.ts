@@ -18,10 +18,16 @@ import {
 } from '../schemas.js';
 
 // AppInfo is the per-app metadata layer above the version — it carries
-// primary/secondary category relationships, kidsAgeBand, and the
-// appStoreAgeRating. Most other age-rating attributes (australiaAgeRating,
-// brazilAgeRatingV2, franceAgeRating, koreaAgeRating) are marked DEPRECATED
-// in Apple's contract; we expose them on read but skip them on writes.
+// primary/secondary category relationships and the appStoreAgeRating.
+// Most other age-rating attributes (australiaAgeRating, brazilAgeRatingV2,
+// franceAgeRating, koreaAgeRating) are marked DEPRECATED in Apple's
+// contract; we expose them on read but skip them on writes.
+//
+// LIVE-USAGE BUG FIX (reported 2026-06-12): `kidsAgeBand` was REMOVED from
+// Apple's AppInfo contract after v0.12 shipped — keeping it in the sparse
+// fieldset made every asc_list_app_infos call 400. Apple deletes fields
+// from live contracts; a 400 PARAMETER_ERROR on a fields[…] value is the
+// signature.
 //
 // Apple manages create/delete on AppInfo automatically. Typically one
 // AppInfo per app for the App Store track; macOS notarization may add a
@@ -45,7 +51,7 @@ import {
 // Defer: full pre-check matrix on AppInfo PATCH. Hardcode just the obvious
 // frozen states for now and pass through everything else.
 
-const APP_INFO_FIELDS = 'appStoreState,state,appStoreAgeRating,kidsAgeBand';
+const APP_INFO_FIELDS = 'appStoreState,state,appStoreAgeRating';
 const APP_INFO_LOCALIZATION_FIELDS =
   'locale,name,subtitle,privacyPolicyUrl,privacyChoicesUrl,privacyPolicyText';
 
@@ -234,7 +240,7 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
     {
       title: 'List App Infos for an app',
       description:
-        'List AppInfo records for an app. Apps typically have one AppInfo per distribution track — most apps have just one (the App Store track); macOS notarization can introduce a second. Each row shows the state, appStoreState (mirrored from the linked AppStoreVersion), appStoreAgeRating, and kidsAgeBand. Use to find the AppInfo ID before patching categories or fetching localizations.',
+        'List AppInfo records for an app. Apps typically have one AppInfo per distribution track — most apps have just one (the App Store track); macOS notarization can introduce a second. Each row shows the state, appStoreState (mirrored from the linked AppStoreVersion), and appStoreAgeRating. Use to find the AppInfo ID before patching categories or fetching localizations.',
       inputSchema: {
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),

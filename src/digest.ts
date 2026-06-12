@@ -537,14 +537,12 @@ export function digestAppInfos(pages: CollectedPages): string {
     { header: 'STATE' },
     { header: 'STORE_STATE' },
     { header: 'AGE_RATING' },
-    { header: 'KIDS_BAND' },
     { header: 'APPINFO_ID' },
   ];
   const rows = pages.data.map((info) => [
     s(attr(info, 'state') ?? ''),
     s(attr(info, 'appStoreState') ?? ''),
     s(attr(info, 'appStoreAgeRating') ?? '—'),
-    s(attr(info, 'kidsAgeBand') ?? '—'),
     info.id,
   ]);
   return `${summaryFooter(pages, 'app infos')}\n\n${formatTable(columns, rows)}`;

@@ -615,7 +615,7 @@ export const AppInfoIdSchema = z
   .string()
   .min(1)
   .describe(
-    'AppInfo ID from /v1/apps/{id}/appInfos. Per-app metadata layer above the version: carries primary/secondary categories (+ subcategories one/two), kidsAgeBand, appStoreAgeRating. Apple manages create/delete automatically (typically one per app, sometimes more across NOTARIZATION/APP_STORE tracks); only PATCH is exposed for setting category relationships.',
+    "AppInfo ID from /v1/apps/{id}/appInfos. Per-app metadata layer above the version: carries primary/secondary categories (+ subcategories one/two) and appStoreAgeRating. (kidsAgeBand was REMOVED from Apple's contract.) Apple manages create/delete automatically (typically one per app, sometimes more across NOTARIZATION/APP_STORE tracks); only PATCH is exposed for setting category relationships.",
   );
 
 export const AppInfoLocalizationIdSchema = z
