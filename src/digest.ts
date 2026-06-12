@@ -1669,3 +1669,46 @@ export function digestAccessibilityDeclarations(pages: CollectedPages): string {
   ]);
   return `${summaryFooter(pages, 'accessibility declarations')} (VO=VoiceOver VC=VoiceControl LT=LargerText DI=DarkInterface RM=ReducedMotion CAP=Captions AD=AudioDescriptions SC=SufficientContrast DWC=DifferentiateWithoutColor; — = not declared)\n\n${formatTable(columns, rows)}`;
 }
+
+export function digestAlternativeDistributionDomains(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'DOMAIN' },
+    { header: 'REFERENCE_NAME' },
+    { header: 'CREATED' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((d) => [
+    s(attr(d, 'domain') ?? ''),
+    s(attr(d, 'referenceName') ?? ''),
+    (attr<string>(d, 'createdDate') ?? '').slice(0, 10),
+    d.id,
+  ]);
+  return `${summaryFooter(pages, 'domains')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAlternativeDistributionPackageVersions(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'VERSION' },
+    { header: 'STATE' },
+    { header: 'URL_EXPIRES' },
+    { header: 'CHECKSUM' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((v) => [
+    s(attr(v, 'version') ?? ''),
+    s(attr(v, 'state') ?? ''),
+    (attr<string>(v, 'urlExpirationDate') ?? '').slice(0, 16),
+    s(attr(v, 'fileChecksum') ?? ''),
+    v.id,
+  ]);
+  const urls = pages.data
+    .map((v, idx) => `#${idx + 1} ${s(attr(v, 'url') ?? '(no url — state not COMPLETED)')}`)
+    .join('\n');
+  return `${summaryFooter(pages, 'package versions')} (URLs pre-signed + time-limited — download promptly, never with the ASC bearer)\n\n${formatTable(columns, rows)}\n\nDownload URLs:\n${urls}`;
+}
+
+export function digestMarketplaceWebhooks(pages: CollectedPages): string {
+  const columns: Column[] = [{ header: 'ENDPOINT_URL' }, { header: 'ID' }];
+  const rows = pages.data.map((w) => [s(attr(w, 'endpointUrl') ?? ''), w.id]);
+  return `${summaryFooter(pages, 'marketplace webhooks')} (secret write-only — never shown)\n\n${formatTable(columns, rows)}`;
+}

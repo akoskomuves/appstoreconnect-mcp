@@ -7,6 +7,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { createASCClient } from './client.js';
 import { loadConfig } from './config.js';
 import { registerAccessibilityDeclarations } from './domains/accessibility-declarations.js';
+import { registerAlternativeDistribution } from './domains/alternative-distribution.js';
 import { registerAnalyticsReports } from './domains/analytics-reports.js';
 import { registerAppAvailability } from './domains/app-availability.js';
 import { registerAppEventScreenshots } from './domains/app-event-screenshots.js';
@@ -151,6 +152,7 @@ async function runServer(): Promise<void> {
   registerVersionExperiments(server, client);
   registerDiagnostics(server, client);
   registerAccessibilityDeclarations(server, client);
+  registerAlternativeDistribution(server, client);
   registerPpp(server, client);
 
   const transport = new StdioServerTransport();

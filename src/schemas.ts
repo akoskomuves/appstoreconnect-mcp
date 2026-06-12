@@ -1415,3 +1415,47 @@ export const AccessibilityDeclarationStateSchema = z
   .describe(
     'DRAFT: editable, not visible. PUBLISHED: live on the product page. REPLACED: superseded.',
   );
+
+// ---------- EU DMA / alternative distribution (v1.0) ----------
+
+export const AlternativeDistributionDomainIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AlternativeDistributionDomain ID from /v1/alternativeDistributionDomains. A registered website domain for distributing iOS apps from the web in the EU (DMA). Create + delete only — no patch.',
+  );
+
+export const AlternativeDistributionKeyIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AlternativeDistributionKey ID from /v1/alternativeDistributionKeys. The PUBLIC key (PEM) registered for signing alternative-distribution artifacts; the private half never leaves your infrastructure. To-one per app via /v1/apps/{id}/alternativeDistributionKey.',
+  );
+
+export const AlternativeDistributionPackageIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AlternativeDistributionPackage ID. One per App Store Version (to-one via /v1/appStoreVersions/{id}/alternativeDistributionPackage); its versions carry PRE-SIGNED, TIME-LIMITED download URLs for the signed package + variants + deltas.',
+  );
+
+export const AlternativeDistributionPackageVersionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AlternativeDistributionPackageVersion ID from /v1/alternativeDistributionPackages/{id}/versions. State COMPLETED (downloadable) or REPLACED (superseded). url + urlExpirationDate are pre-signed and time-limited — download promptly, re-list for fresh URLs.',
+  );
+
+export const MarketplaceSearchDetailIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "MarketplaceSearchDetail ID from /v1/apps/{id}/marketplaceSearchDetail (to-one). Only relevant for MARKETPLACE apps (alternative app stores): the catalogUrl Apple's marketplace-kit search uses. Wire key catalogUrl (Swift catalogURL).",
+  );
+
+export const MarketplaceWebhookIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'MarketplaceWebhook ID from /v1/marketplaceWebhooks. Team-level webhook for marketplace apps (alternative app stores) — Apple notifies the marketplace about app updates. endpointUrl + write-only secret (HMAC), same secret semantics as v0.17 app webhooks.',
+  );
