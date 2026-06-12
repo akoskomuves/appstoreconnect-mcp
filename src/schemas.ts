@@ -1276,7 +1276,7 @@ export const AnalyticsReportIdSchema = z
   .string()
   .min(1)
   .describe(
-    'AnalyticsReport ID from /v1/analyticsReportRequests/{id}/reports. One per report name within a category (APP_USAGE / APP_STORE_ENGAGEMENT / COMMERCE / FRAMEWORK_USAGE / PERFORMANCE).',
+    'AnalyticsReport ID from /v1/analyticsReportRequests/{id}/reports. One per report name within a category (APP_USAGE / APP_STORE_ENGAGEMENT / COMMERCE / FRAMEWORK_USAGE / PERFORMANCE). Live-observed (2026-06-12): the ID is a COMPOSITE like "r3-<requestUUID>" (report-slot prefix + parent request id), not an opaque UUID — pass it through verbatim; never parse or construct one.',
   );
 
 export const AnalyticsReportInstanceIdSchema = z
