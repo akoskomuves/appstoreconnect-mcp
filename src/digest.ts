@@ -1618,3 +1618,54 @@ export function digestTreatmentLocalizations(pages: CollectedPages): string {
   rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
   return `${summaryFooter(pages, 'treatment localizations')} (attach variant assets via the v0.13 set tools with parentType appStoreVersionExperimentTreatmentLocalizations)\n\n${formatTable(columns, rows)}`;
 }
+
+export function digestDiagnosticSignatures(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'TYPE' },
+    { header: 'WEIGHT' },
+    { header: 'SIGNATURE' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((sig) => {
+    const signature = s(attr(sig, 'signature') ?? '');
+    const weight = attr<number>(sig, 'weight');
+    return [
+      s(attr(sig, 'diagnosticType') ?? ''),
+      weight !== undefined ? weight.toFixed(4) : '',
+      signature.length <= 70 ? signature : `${signature.slice(0, 67)}...`,
+      sig.id,
+    ];
+  });
+  rows.sort((a, b) => Number(b[1] ?? 0) - Number(a[1] ?? 0));
+  return `${summaryFooter(pages, 'diagnostic signatures')} (heaviest first; call stacks via asc_get_diagnostic_logs)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAccessibilityDeclarations(pages: CollectedPages): string {
+  const flagKeys = [
+    ['supportsVoiceover', 'VO'],
+    ['supportsVoiceControl', 'VC'],
+    ['supportsLargerText', 'LT'],
+    ['supportsDarkInterface', 'DI'],
+    ['supportsReducedMotion', 'RM'],
+    ['supportsCaptions', 'CAP'],
+    ['supportsAudioDescriptions', 'AD'],
+    ['supportsSufficientContrast', 'SC'],
+    ['supportsDifferentiateWithoutColorAlone', 'DWC'],
+  ] as const;
+  const columns: Column[] = [
+    { header: 'FAMILY' },
+    { header: 'STATE' },
+    ...flagKeys.map(([, short]) => ({ header: short })),
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((d) => [
+    s(attr(d, 'deviceFamily') ?? ''),
+    s(attr(d, 'state') ?? ''),
+    ...flagKeys.map(([key]) => {
+      const v = attr<boolean>(d, key);
+      return v === true ? 'Y' : v === false ? 'N' : '—';
+    }),
+    d.id,
+  ]);
+  return `${summaryFooter(pages, 'accessibility declarations')} (VO=VoiceOver VC=VoiceControl LT=LargerText DI=DarkInterface RM=ReducedMotion CAP=Captions AD=AudioDescriptions SC=SufficientContrast DWC=DifferentiateWithoutColor; — = not declared)\n\n${formatTable(columns, rows)}`;
+}

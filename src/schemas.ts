@@ -1385,3 +1385,33 @@ export const ExperimentStateSchema = z
   .describe(
     'Experiment lifecycle state. PREPARE_FOR_SUBMISSION: build treatments + localizations + assets. Submit via the V2 review submission flow (asc_post_review_submission_item with the experiment). APPROVED: ready — PATCH started=true to begin. COMPLETED / STOPPED: terminal.',
   );
+
+// ---------- Diagnostics + perf/power + accessibility (v0.21) ----------
+
+export const DiagnosticSignatureIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'DiagnosticSignature ID from /v1/builds/{id}/diagnosticSignatures. One per aggregated problem signature (a hang/disk-write/launch hotspot) on a build, weighted by impact. The call-stack logs live behind /v1/diagnosticSignatures/{id}/logs.',
+  );
+
+export const DiagnosticTypeSchema = z
+  .enum(['DISK_WRITES', 'HANGS', 'LAUNCHES'])
+  .describe('Diagnostic signature family: excessive disk writes, hangs, or slow launches.');
+
+export const PerfMetricTypeSchema = z
+  .enum(['DISK', 'HANG', 'BATTERY', 'LAUNCH', 'MEMORY', 'ANIMATION', 'TERMINATION', 'STORAGE'])
+  .describe('Xcode-metrics category filter for perf/power metrics.');
+
+export const AccessibilityDeclarationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AccessibilityDeclaration ID from /v1/apps/{id}/accessibilityDeclarations. Per-(app, deviceFamily) declaration of supported accessibility features ("Accessibility Nutrition Label" on the product page). States: DRAFT → PUBLISHED (live on the store) → REPLACED (superseded by a newer publish). One DRAFT per device family at a time.',
+  );
+
+export const AccessibilityDeclarationStateSchema = z
+  .enum(['DRAFT', 'PUBLISHED', 'REPLACED'])
+  .describe(
+    'DRAFT: editable, not visible. PUBLISHED: live on the product page. REPLACED: superseded.',
+  );
