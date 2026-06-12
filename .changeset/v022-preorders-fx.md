@@ -15,3 +15,5 @@ v0.22 — Per-territory pre-orders + real-FX PPP. Two of the three remaining v1.
 - **Security stance:** rates are USER-SUPPLIED only. This server's egress remains Apple-API-only — no third-party FX feed is ever fetched.
 
 **Tests:** FX math (mismatch rescue, all-same-currency reduction, non-USD billing conversion, missing/invalid-rate refusals) + territory-availability patch body.
+
+**Live smoke (2026-06-12, WikiCatch):** territory-availability read verified (175 territories, opaque composite IDs feeding the new PATCH tool); real-FX rescue verified against the real bundled index (BHR: 1.49 BHD × 2.65 USD/BHD vs the USD anchor → factor 0.359, dimension-correct target). The PATCH write itself was NOT drilled — it is store-affecting on a shipped app; its body shape is pinned by unit tests.
