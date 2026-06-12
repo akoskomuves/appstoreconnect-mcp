@@ -21,6 +21,11 @@ v0.19 — Customer reviews + review summarizations. The last planned roadmap row
 4. **`include=response`** baked into the list (v0.16 lesson — relationship objects don't materialize without include).
 5. No sentiment filter exists on Apple's side — rating is the documented proxy.
 
+**Live-smoke spec corrections caught on 2026-06-12** (real WikiCatch reviews via `scripts/smoke-reviews.ts`, strictly read-only — the respond tool is public-facing and was NOT drilled):
+
+1. **A review with no developer response returns 200 + `data: null`** on `/v1/customerReviews/{id}/response` — not a 404. The tool detects it and reports "no response yet" instead of dumping `{"data": null}`.
+2. Verified live: app-wide list (2 real reviews with star bars + previews), the `exists[publishedResponse]=false` unanswered queue, rating filters, single-review get with include, version-scoped list, and a clean empty-list summarizations read (Apple hasn't generated one for this app). Respond/delete paths covered by body-builder tests only — intentionally not exercised against the live store.
+
 **Schemas (5 new):** `CustomerReviewIdSchema`, `CustomerReviewResponseIdSchema`, `ReviewRatingFilterSchema`, `ReviewSortSchema`, `SummarizationPlatformSchema`.
 
 **Digests (2 new):** `digestCustomerReviews` (star bars + response state), `digestCustomerReviewSummarizations` (full summary text blocks).

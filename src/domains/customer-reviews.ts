@@ -198,7 +198,7 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
     {
       title: 'Get the developer response to a review',
       description:
-        "GET /v1/customerReviews/{id}/response — the review's single developer response (responseBody, state PUBLISHED / PENDING_PUBLISH, lastModifiedDate), or an error when the review has no response yet.",
+        "GET /v1/customerReviews/{id}/response — the review's single developer response (responseBody, state PUBLISHED / PENDING_PUBLISH, lastModifiedDate). A review with no response returns 200 with data:null (observed live, NOT an error) — the tool reports that plainly.",
       inputSchema: {
         reviewId: CustomerReviewIdSchema,
       },
@@ -206,7 +206,19 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
     async ({ reviewId }) => {
       const path = `/v1/customerReviews/${encodeURIComponent(reviewId)}/response`;
       try {
-        const data = await client.request<unknown>(path, { method: 'GET' });
+        const data = await client.request<{ data?: unknown }>(path, { method: 'GET' });
+        // LIVE-SMOKE FINDING (2026-06-12): no-response reviews return 200
+        // with data:null — not a 404.
+        if (data && 'data' in data && data.data === null) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Review ${reviewId} has no developer response yet. Draft one and (after human approval) post it with asc_post_customer_review_response.`,
+              },
+            ],
+          };
+        }
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
