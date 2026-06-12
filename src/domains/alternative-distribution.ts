@@ -312,10 +312,22 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
     },
     async ({ appId }) => {
       try {
-        const data = await client.request<unknown>(
+        const data = await client.request<{ data?: unknown }>(
           `/v1/apps/${encodeURIComponent(appId)}/alternativeDistributionKey`,
           { method: 'GET' },
         );
+        // LIVE-SMOKE FINDING (2026-06-12): absent to-one returns 200 +
+        // data:null (the v0.19 review-response pattern).
+        if (data && 'data' in data && data.data === null) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `App ${appId} has no alternative distribution key registered. Register one with asc_post_alternative_distribution_key.`,
+              },
+            ],
+          };
+        }
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
@@ -524,7 +536,7 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
     {
       title: "Get an app's marketplace search detail",
       description:
-        'GET /v1/apps/{id}/marketplaceSearchDetail — the catalogUrl for a MARKETPLACE app (alternative app store).',
+        'GET /v1/apps/{id}/marketplaceSearchDetail — the catalogUrl for a MARKETPLACE app (alternative app store). Observed live: calling this on a NON-marketplace app returns an Apple-side 500 UNEXPECTED_ERROR rather than a clean 404 — that 500 means "not a marketplace app", not an outage.',
       inputSchema: {
         appId: AppIdSchema,
       },
