@@ -1219,3 +1219,92 @@ export const WebhookDeliveryStateSchema = z
   .describe(
     'Delivery attempt state. FAILED deliveries can be retried via asc_post_webhook_redelivery.',
   );
+
+// ---------- Sales/finance reports + Analytics (v0.18) ----------
+
+export const VendorNumberSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Account-level vendor number (numeric string, e.g. "85123456") from App Store Connect → Payments and Financial Reports. NOT per-app. Falls back to the ASC_VENDOR_NUMBER env var when omitted.',
+  );
+
+export const SalesReportTypeSchema = z
+  .enum([
+    'SALES',
+    'SUBSCRIPTION',
+    'SUBSCRIPTION_EVENT',
+    'SUBSCRIBER',
+    'SUBSCRIPTION_OFFER_CODE_REDEMPTION',
+    'INSTALLS',
+    'FIRST_ANNUAL',
+    'PRE_ORDER',
+    'NEWSSTAND',
+    'WIN_BACK_ELIGIBILITY',
+  ])
+  .describe(
+    'Sales report family. SALES: units + proceeds per row (the classic daily report). SUBSCRIPTION: snapshot of active subscriptions. SUBSCRIPTION_EVENT: state-change events (renew, cancel, billing retry). SUBSCRIBER: per-subscriber transaction detail. SUBSCRIPTION_OFFER_CODE_REDEMPTION: offer-code redemptions (pairs with the v0.8 offer-code tools). INSTALLS: install/first-launch events. Others are niche.',
+  );
+
+export const SalesReportSubTypeSchema = z
+  .enum(['SUMMARY', 'DETAILED', 'SUMMARY_INSTALL_TYPE', 'SUMMARY_TERRITORY', 'SUMMARY_CHANNEL'])
+  .describe(
+    'Report granularity variant. SUMMARY works for most reportTypes; DETAILED for SUBSCRIPTION_EVENT/SUBSCRIBER; the SUMMARY_* variants only apply to INSTALLS. Invalid (type, subType, frequency) combos are rejected by Apple — surface the error verbatim.',
+  );
+
+export const ReportFrequencySchema = z
+  .enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'])
+  .describe(
+    'Report period. Determines reportDate granularity: DAILY/WEEKLY take YYYY-MM-DD (WEEKLY = the Sunday ending the week), MONTHLY takes YYYY-MM, YEARLY takes YYYY. Daily reports are available ~5am Pacific next day and retained ~1 year.',
+  );
+
+export const FinanceRegionCodeSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Finance report region/currency code: a region like "US", "EU", "JP", "WW", or "ZZ" for the single consolidated FINANCIAL report across all regions. FINANCE_DETAIL uses "Z1". Region list lives in App Store Connect → Payments.',
+  );
+
+export const AnalyticsReportRequestIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AnalyticsReportRequest ID from /v1/apps/{id}/analyticsReportRequests. The top of the four-level analytics chain: request → reports → instances → segments. One request per (app, accessType); creating a duplicate is rejected.',
+  );
+
+export const AnalyticsReportIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AnalyticsReport ID from /v1/analyticsReportRequests/{id}/reports. One per report name within a category (APP_USAGE / APP_STORE_ENGAGEMENT / COMMERCE / FRAMEWORK_USAGE / PERFORMANCE).',
+  );
+
+export const AnalyticsReportInstanceIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AnalyticsReportInstance ID from /v1/analyticsReports/{id}/instances. One instance per (granularity, processingDate) — the dated materialization of a report.',
+  );
+
+export const AnalyticsReportSegmentIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AnalyticsReportSegment ID from /v1/analyticsReportInstances/{id}/segments. Each segment is one downloadable gzip CSV chunk with a PRE-SIGNED, TIME-LIMITED url + checksum + sizeInBytes. Download promptly after listing.',
+  );
+
+export const AnalyticsAccessTypeSchema = z
+  .enum(['ONGOING', 'ONE_TIME_SNAPSHOT'])
+  .describe(
+    'ONGOING: Apple keeps generating new daily/weekly/monthly instances (auto-pauses after ~inactivity — see stoppedDueToInactivity; recreate to resume). ONE_TIME_SNAPSHOT: a single backfill of historical data.',
+  );
+
+export const AnalyticsReportCategorySchema = z
+  .enum(['APP_USAGE', 'APP_STORE_ENGAGEMENT', 'COMMERCE', 'FRAMEWORK_USAGE', 'PERFORMANCE'])
+  .describe(
+    'Analytics report category. APP_USAGE: sessions, installs, deletions, crashes. APP_STORE_ENGAGEMENT: impressions, product-page views. COMMERCE: downloads, purchases, proceeds. FRAMEWORK_USAGE / PERFORMANCE: technical.',
+  );
+
+export const AnalyticsGranularitySchema = z
+  .enum(['DAILY', 'WEEKLY', 'MONTHLY'])
+  .describe('Instance granularity (filter[granularity] on the instances list).');

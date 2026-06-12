@@ -1470,3 +1470,62 @@ export function digestWebhookDeliveries(pages: CollectedPages): string {
   });
   return `${summaryFooter(pages, 'deliveries')} (retry FAILED rows via asc_post_webhook_redelivery with the ID as template)\n\n${formatTable(columns, rows)}`;
 }
+
+export function digestAnalyticsReportRequests(pages: CollectedPages): string {
+  const columns: Column[] = [{ header: 'ACCESS_TYPE' }, { header: 'STOPPED' }, { header: 'ID' }];
+  const rows = pages.data.map((r) => [
+    s(attr(r, 'accessType') ?? ''),
+    s(attr(r, 'stoppedDueToInactivity') ?? ''),
+    r.id,
+  ]);
+  return `${summaryFooter(pages, 'report requests')} (STOPPED=true on an ONGOING request: Apple auto-paused it — delete + recreate to resume)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAnalyticsReports(pages: CollectedPages): string {
+  const columns: Column[] = [{ header: 'CATEGORY' }, { header: 'NAME' }, { header: 'ID' }];
+  const rows = pages.data.map((r) => [
+    s(attr(r, 'category') ?? ''),
+    s(attr(r, 'name') ?? ''),
+    r.id,
+  ]);
+  rows.sort(
+    (a, b) => (a[0] ?? '').localeCompare(b[0] ?? '') || (a[1] ?? '').localeCompare(b[1] ?? ''),
+  );
+  return `${summaryFooter(pages, 'reports')} (drill into one with asc_list_analytics_report_instances)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAnalyticsReportInstances(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'GRANULARITY' },
+    { header: 'PROCESSING_DATE' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((i) => [
+    s(attr(i, 'granularity') ?? ''),
+    s(attr(i, 'processingDate') ?? ''),
+    i.id,
+  ]);
+  rows.sort((a, b) => (b[1] ?? '').localeCompare(a[1] ?? ''));
+  return `${summaryFooter(pages, 'instances')} (newest first; drill with asc_list_analytics_report_segments)\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAnalyticsReportSegments(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'SEG' },
+    { header: 'SIZE_BYTES' },
+    { header: 'CHECKSUM' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((seg, idx) => [
+    `#${idx + 1}`,
+    s(attr(seg, 'sizeInBytes') ?? ''),
+    s(attr(seg, 'checksum') ?? ''),
+    seg.id,
+  ]);
+  // The download tool needs each URL VERBATIM — never truncate them into a
+  // table cell. Full URLs follow the table, numbered to match the SEG column.
+  const urls = pages.data
+    .map((seg, idx) => `#${idx + 1} ${s(attr(seg, 'url') ?? '(no url)')}`)
+    .join('\n');
+  return `${summaryFooter(pages, 'segments')} (URLs are pre-signed + time-limited — download promptly with asc_download_analytics_report_segment, passing the URL verbatim)\n\n${formatTable(columns, rows)}\n\nSegment URLs:\n${urls}`;
+}

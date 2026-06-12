@@ -13,6 +13,11 @@ export interface ASCClient {
   // /values endpoint, which serves text/csv). Same auth + 401 + 429 retry
   // semantics as request; default Accept is text/csv, override via init.headers.
   requestText(path: string, init?: RequestInit): Promise<string>;
+  // Variant for endpoints that return a binary body (the sales/finance
+  // report endpoints serve gzipped TSV with content-type application/a-gzip).
+  // Same auth + 401 + 429 retry semantics; default Accept is
+  // application/a-gzip, override via init.headers.
+  requestBinary(path: string, init?: RequestInit): Promise<Buffer>;
 }
 
 /**
@@ -110,5 +115,13 @@ export function createASCClient(config: Config): ASCClient {
     return response.text();
   }
 
-  return { request, requestText };
+  async function requestBinary(path: string, init: RequestInit = {}): Promise<Buffer> {
+    const headers = new Headers(init.headers);
+    if (!headers.has('accept')) headers.set('accept', 'application/a-gzip');
+    const response = await sendWithRetries(path, { ...init, headers });
+    if (response.status === 204) return Buffer.alloc(0);
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  return { request, requestText, requestBinary };
 }
