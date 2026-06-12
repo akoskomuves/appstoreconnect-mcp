@@ -88,6 +88,12 @@ Optional — only needed for the asc_sign_* offer-signing tools:
   ASC_IAP_KEY_ID            10-character key ID for the IAP signing key.
   ASC_IAP_PRIVATE_KEY_PATH  Path to the IAP signing .p8.
 
+Optional — default for the sales/finance report tools:
+  ASC_VENDOR_NUMBER         Account-level vendor number (App Store Connect →
+                            Payments and Financial Reports). Without it,
+                            asc_get_sales_report / asc_get_finance_report
+                            need vendorNumber passed per call.
+
 Documentation: https://github.com/akoskomuves/appstoreconnect-mcp
 `;
 

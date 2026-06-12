@@ -82,6 +82,16 @@ Only needed for the `asc_sign_*` tools (subscription offer redemption signing). 
 
 The server starts fine without these — only the `asc_sign_*` tools refuse with a setup message if they're missing. Set one or two but not all three and the server rejects with a clear error. Run `appstoreconnect-mcp doctor` to verify the key loads as a valid ES256 PKCS#8.
 
+### Optional: vendor number (sales + finance reports)
+
+Only used by `asc_get_sales_report` / `asc_get_finance_report`. Your vendor number is account-level, shown at [App Store Connect → Payments and Financial Reports](https://appstoreconnect.apple.com/itc/payments_and_financial_reports) next to your team name (a numeric string like `85123456`).
+
+| Variable | What |
+| --- | --- |
+| `ASC_VENDOR_NUMBER` | Default vendor number for sales/finance report downloads |
+
+Without it the two report tools still work — they just need `vendorNumber` passed per call (and their error message tells you where to find it). Note: downloading sales/finance reports requires an API key with the **Admin**, **Finance**, or **Sales** role.
+
 ## Tools
 
 ### Apps
