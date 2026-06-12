@@ -27,6 +27,8 @@ v0.21 — Runtime health + accessibility: diagnostic signatures, perf/power metr
 3. **Two non-JSON:API content types** requiring Accept overrides (`vnd.apple.diagnostic-logs+json`, `vnd.apple.xcode-metrics+json`).
 4. Static fieldset literal kept audit-compatible with `scripts/audit-fieldsets.py` (validated against Apple's official OpenAPI spec — 71 fieldset usages clean).
 
+**Live smoke (2026-06-12, WikiCatch):** CLEAN — zero corrections (second clean round in a row). Both non-JSON:API content types verified live (real xcode-metrics documents returned through the Accept overrides; empty `productData` is the small-app expected shape), diagnostic-signatures empty-list read clean, and the accessibility drill (DRAFT create with two flags → third-flag patch → delete, publish never sent) confirmed all ten strip-family wire keys against the live API with the flag-matrix digest rendering correctly.
+
 **Schemas (5 new):** `DiagnosticSignatureIdSchema`, `DiagnosticTypeSchema`, `PerfMetricTypeSchema`, `AccessibilityDeclarationIdSchema`, `AccessibilityDeclarationStateSchema`.
 
 **Digests (2 new):** `digestDiagnosticSignatures` (heaviest-first), `digestAccessibilityDeclarations` (flag matrix).
