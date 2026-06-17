@@ -2,6 +2,7 @@
   "name": "@akoskomuves/appstoreconnect-mcp",
   "version": "1.0.0",
   "description": "Model Context Protocol server for the Apple App Store Connect API.",
+  "mcpName": "io.github.akoskomuves/appstoreconnect-mcp",
   "type": "module",
   "bin": {
     "appstoreconnect-mcp": "dist/index.js"

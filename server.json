@@ -1,0 +1,46 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.akoskomuves/appstoreconnect-mcp",
+  "description": "Drive the Apple App Store Connect API from any MCP client — pricing (incl. purchasing-power-parity rebalancing), subscriptions, IAPs, offers, TestFlight, product-page localizations, reviews, sales/analytics reports, A/B experiments, and EU DMA distribution.",
+  "repository": {
+    "url": "https://github.com/akoskomuves/appstoreconnect-mcp",
+    "source": "github"
+  },
+  "version": "1.0.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@akoskomuves/appstoreconnect-mcp",
+      "version": "1.0.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "ASC_ISSUER_ID",
+          "description": "App Store Connect API issuer UUID (Users and Access > Integrations > Keys).",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "ASC_KEY_ID",
+          "description": "10-character App Store Connect API key ID.",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "ASC_PRIVATE_KEY_PATH",
+          "description": "Path to the downloaded .p8 private key file (~ is expanded).",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "ASC_VENDOR_NUMBER",
+          "description": "Optional. Account-level vendor number for the sales/finance report tools.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
