@@ -307,7 +307,10 @@ export const PreReleaseVersionIdSchema = z
 
 export const LocaleSchema = z
   .string()
-  .regex(/^[a-z]{2,3}(-[A-Z]{2})?$/, 'Must be a BCP-47 locale like "en-US" or "zh-Hant"')
+  .regex(
+    /^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$/,
+    'Must be a BCP-47 locale like "en-US", "zh-Hans", or "zh-Hant"',
+  )
   .describe(
     'BCP-47 locale identifier as Apple expects it (e.g. "en-US", "de-DE", "ja", "zh-Hans", "zh-Hant"). Used by beta-build-localizations + beta-app-localizations. Apple\'s supported list is a fixed subset of BCP-47; surfaces verbatim if unsupported.',
   );
@@ -973,7 +976,7 @@ export const AppEventDeepLinkSchema = z
 
 export const AppEventPrimaryLocaleSchema = z
   .string()
-  .regex(/^[a-z]{2,3}(-[A-Z]{2})?$/, 'Must be a BCP-47 locale')
+  .regex(/^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$/, 'Must be a BCP-47 locale')
   .describe(
     "BCP-47 locale that is the master copy for the event. Used as the fallback when a customer's locale has no AppEventLocalization. Set once at create time.",
   );

@@ -3,6 +3,7 @@ import {
   buildAppStoreVersionLocalizationCreateBody,
   buildAppStoreVersionLocalizationPatchBody,
 } from '../src/domains/appstore-version-localizations.js';
+import { LocaleSchema } from '../src/schemas.js';
 
 // Pin the wire shape for the two writable AppStoreVersionLocalization endpoints:
 //   POST  /v1/appStoreVersionLocalizations
@@ -26,6 +27,24 @@ type Body = {
     relationships?: Record<string, unknown>;
   };
 };
+
+describe('LocaleSchema', () => {
+  it.each([
+    'en-US',
+    'de-DE',
+    'ja',
+    'zh-Hans',
+    'zh-Hant',
+    'pt-BR',
+    'pt-PT',
+  ])('accepts valid Apple locale %s', (locale) => {
+    expect(() => LocaleSchema.parse(locale)).not.toThrow();
+  });
+
+  it.each(['en_US', 'EN-US', 'zhHant', 'x', 'en-USAA'])('rejects malformed locale %s', (locale) => {
+    expect(() => LocaleSchema.parse(locale)).toThrow();
+  });
+});
 
 describe('buildAppStoreVersionLocalizationCreateBody', () => {
   it('uses appStoreVersionLocalizations type with locale + appStoreVersion rel required', () => {
