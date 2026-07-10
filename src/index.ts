@@ -43,6 +43,7 @@ import { registerPreviews } from './domains/previews.js';
 import { registerPricing } from './domains/pricing.js';
 import { registerPromoOffers } from './domains/promo-offers.js';
 import { registerPromotedPurchases } from './domains/promoted-purchases.js';
+import { registerReviewAssets } from './domains/review-assets.js';
 import { registerReviewSubmissions } from './domains/review-submissions.js';
 import { registerSalesReports } from './domains/sales-reports.js';
 import { registerScreenshots } from './domains/screenshots.js';
@@ -115,6 +116,7 @@ async function runServer(): Promise<void> {
   registerPricing(server, client);
   registerAppPricing(server, client);
   registerIaps(server, client);
+  registerReviewAssets(server, client);
   registerIntroOffers(server, client);
   registerPromoOffers(server, client);
   registerWinBackOffers(server, client);

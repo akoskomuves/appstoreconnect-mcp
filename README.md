@@ -149,6 +149,12 @@ Win-back offers target **lapsed** subscribers — customers who previously subsc
 - `asc_patch_subscription_win_back_offer` — update the mutable attributes only: eligibility, `startDate`/`endDate`, `priority`, and `promotionIntent`. To change identity, mode, duration, periods, or prices, delete and re-create.
 - `asc_delete_subscription_win_back_offer` — DELETE → 204.
 
+### IAP & subscription review assets
+The **review screenshot** Apple requires before an in-app purchase or subscription can be submitted, plus the optional promotional **images**. Four resources, each on the same three-step upload flow as app screenshots (reserve → PUT chunks → commit), with a composite `asc_upload_*` tool that does all three from a local file. Wire gotcha handled for you: the IAP image relates via `inAppPurchase` while the IAP review screenshot uses `inAppPurchaseV2`.
+
+- **Images** (to-many, per IAP / subscription): `asc_list_{iap,subscription}_images` · `asc_get_*` · `asc_upload_*` (composite) · `asc_post_*` / `asc_patch_*` (raw reserve/commit) · `asc_delete_*`.
+- **Review screenshots** (to-one, per IAP / subscription): `asc_get_{iap,subscription}_review_screenshot` (returns the single one, or null) · `asc_upload_*` · `asc_post_*` / `asc_patch_*` · `asc_delete_*`. Because it's to-one, the upload/reserve tools refuse if one already exists — delete it first.
+
 ### Subscription offer signing (in-app redemption)
 The cryptographic signer that makes promo/intro offers redeemable in your iOS app via StoreKit. Uses a **separate** signing key from the ASC API key — issued at App Store Connect → Users and Access → Integrations → In-App Purchase. See the [optional config section](#optional-in-app-purchase-signing-key) for env vars. Built on Apple's official [`@apple/app-store-server-library`](https://github.com/apple/app-store-server-library-node).
 
@@ -233,7 +239,9 @@ v0.1–v1.0 cover monetization + beta distribution + the full App Store product-
 | **v1.0** ✓ | EU DMA / alternative distribution (entitlement-gated — tools explain the 403 when the account isn't enrolled): web-distribution domains (register/list/delete ⚠️), public signing keys (the private half never goes to Apple), per-version signed packages with pre-signed download URLs + variants + deltas, marketplace search details (`catalogURL`→`catalogUrl` strip), marketplace webhooks (`endpointURL`→`endpointUrl` strip, write-only secret). 19 new tools. | "Package version 3.0 for web distribution and hand the signed URLs to the CDN." |
 | **v1.1.0** ✓ | Subscription win-back offers — the third offer type, targeting **lapsed** subscribers (Apple surfaces them automatically to eligible churned customers): list / get / list-prices / post / patch / delete. Richer than promo offers: eligibility targeting (paid-duration + a time-since-last-subscribed `{min,max}` range + wait-between), schedule (start/end), priority, and an auto-asset `promotionIntent`; PATCH is attributes-only (identity + prices immutable, delete + re-create to change them). 6 new tools. | "Win back subscribers who churned 1–6 months ago with a three-month PPP-priced offer, auto-surfaced by Apple." |
 
-**The v0.1→v1.0 roadmap is complete** — every originally-planned surface has shipped. Post-1.0 work tracks Apple's API changes (new resources, contract drift — see `scripts/audit-fieldsets.py`); **v1.1.0** adds win-back offers, Apple's newer third subscription-offer type.
+| **v1.2.0** ✓ | IAP + subscription **review assets** — the App Store review screenshot Apple requires before an IAP/subscription can be submitted, plus promotional images. Four resources (IAP/subscription × image/review-screenshot) on the v0.13 three-step upload flow, driven from one config table: composite `asc_upload_*` + raw reserve/commit/delete + reads. Images to-many, review screenshots to-one (upload refuses a duplicate). Wire gotcha handled: IAP image relates via `inAppPurchase`, IAP review screenshot via `inAppPurchaseV2`. 22 new tools. | "Attach the review screenshot to my new subscription so I can submit it." |
+
+**The v0.1→v1.0 roadmap is complete** — every originally-planned surface has shipped. Post-1.0 work tracks Apple's API changes (new resources, contract drift — see `scripts/audit-fieldsets.py`): **v1.1.0** adds win-back offers, **v1.2.0** adds IAP/subscription review assets (closing the "can't submit without a review screenshot" gap).
 
 **Out of scope** (Fastlane / Xcode already do these well): provisioning profiles, certificates, devices, capabilities, Game Center config.
 
