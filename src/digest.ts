@@ -418,6 +418,28 @@ export function digestWinBackOfferPrices(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'win-back offer prices')}\n\n${formatTable(columns, rows)}`;
 }
 
+// Generic digest for the review-asset resources (IAP/subscription images +
+// App Store review screenshots). They share one read shape: fileName, fileSize,
+// state, sourceFileChecksum (present once committed). COMMITTED marks whether
+// the reservation's PATCH (uploaded=true + checksum) has landed.
+export function digestReviewAssets(pages: CollectedPages, label: string): string {
+  const columns: Column[] = [
+    { header: 'FILE' },
+    { header: 'SIZE', align: 'right' },
+    { header: 'STATE' },
+    { header: 'COMMITTED' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((a) => [
+    s(attr(a, 'fileName')),
+    s(attr(a, 'fileSize') ?? ''),
+    s(attr(a, 'state') ?? ''),
+    attr(a, 'sourceFileChecksum') ? 'yes' : 'no',
+    a.id,
+  ]);
+  return `${summaryFooter(pages, label)}\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestOfferCodes(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'NAME' },

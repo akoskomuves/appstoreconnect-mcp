@@ -877,6 +877,30 @@ export const LocalFilePathSchema = z
     "Absolute or tilde-expanded local path to the asset file. The composite asc_upload_* tools read this file directly — its size becomes fileSize, its MD5 becomes sourceFileChecksum, and Apple's chunk operations slice into it at offset+length. Apple's recommended formats: screenshots — PNG or JPEG; previews — MOV (H.264 or HEVC), ≤ 500 MB, 15–30s.",
   );
 
+export const InAppPurchaseImageIdSchema = z
+  .string()
+  .min(1)
+  .describe('In-app purchase promotional image ID from /v1/inAppPurchaseImages.');
+
+export const InAppPurchaseAppStoreReviewScreenshotIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'In-app purchase App Store review screenshot ID from /v1/inAppPurchaseAppStoreReviewScreenshots (to-one per IAP).',
+  );
+
+export const SubscriptionImageIdSchema = z
+  .string()
+  .min(1)
+  .describe('Subscription promotional image ID from /v1/subscriptionImages.');
+
+export const SubscriptionAppStoreReviewScreenshotIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Subscription App Store review screenshot ID from /v1/subscriptionAppStoreReviewScreenshots (to-one per subscription).',
+  );
+
 export const PreviewFrameTimeCodeSchema = z
   .string()
   .min(1)
