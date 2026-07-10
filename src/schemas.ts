@@ -103,6 +103,45 @@ export const SubscriptionPromotionalOfferIdSchema = z
   .min(1)
   .describe('Subscription promotional offer ID from /v1/subscriptionPromotionalOffers.');
 
+export const WinBackOfferIdSchema = z
+  .string()
+  .min(1)
+  .describe('Win-back offer ID (Apple resource ID) from /v1/winBackOffers.');
+
+export const WinBackOfferIdentifierSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Developer-chosen win-back offer identifier (Apple attribute `offerId`). Must be unique within the subscription. Used by StoreKit as the offer identifier when redeeming. Immutable after creation — to change it, delete and re-create.',
+  );
+
+export const OfferPrioritySchema = z
+  .enum(['HIGH', 'NORMAL'])
+  .describe(
+    'Win-back offer priority when several offers target the same lapsed customer. HIGH is considered before NORMAL. Mutable via PATCH.',
+  );
+
+export const PromotionIntentSchema = z
+  .enum(['NOT_PROMOTED', 'USE_AUTO_GENERATED_ASSETS'])
+  .describe(
+    'Whether Apple auto-surfaces the win-back offer. NOT_PROMOTED: no auto-generated assets (surfaced only through your own StoreKit messaging). USE_AUTO_GENERATED_ASSETS: Apple generates assets and surfaces it automatically to eligible lapsed subscribers. Mutable via PATCH.',
+  );
+
+export const SubscriptionPlanTypeSchema = z
+  .enum(['MONTHLY', 'UPFRONT'])
+  .describe(
+    'Target billing plan the win-back offer applies to: MONTHLY or UPFRONT. Optional; omit to target the subscription default. Immutable after creation.',
+  );
+
+export const IntegerRangeSchema = z
+  .object({
+    minimum: z.number().int().nonnegative(),
+    maximum: z.number().int().nonnegative().optional(),
+  })
+  .describe(
+    'Inclusive integer range { minimum, maximum? } in months. Omit maximum for "minimum and up". Used for win-back eligibility (time since a customer last subscribed).',
+  );
+
 export const SubscriptionOfferCodeIdSchema = z
   .string()
   .min(1)

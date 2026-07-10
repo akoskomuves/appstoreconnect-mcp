@@ -359,6 +359,65 @@ export function digestPromotionalOfferPrices(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'promo offer prices')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestWinBackOffers(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'OFFER_ID' },
+    { header: 'NAME' },
+    { header: 'MODE' },
+    { header: 'DURATION' },
+    { header: 'PERIODS', align: 'right' },
+    { header: 'PRICES', align: 'right' },
+    { header: 'PRIORITY' },
+    { header: 'START' },
+    { header: 'END' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((offer) => {
+    const pricesRel = offer.relationships?.['prices']?.data;
+    const priceCount = Array.isArray(pricesRel) ? pricesRel.length : '';
+    return [
+      s(attr(offer, 'offerId')),
+      s(attr(offer, 'referenceName')),
+      s(attr(offer, 'offerMode')),
+      s(attr(offer, 'duration')),
+      s(attr(offer, 'periodCount') ?? ''),
+      s(priceCount),
+      s(attr(offer, 'priority')),
+      s(attr(offer, 'startDate') ?? ''),
+      s(attr(offer, 'endDate') ?? ''),
+      offer.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'win-back offers')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestWinBackOfferPrices(pages: CollectedPages): string {
+  const index = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'TERR' },
+    { header: 'CCY' },
+    { header: 'AMOUNT', align: 'right' },
+    { header: 'POINT_ID' },
+    { header: 'PRICE_ID' },
+  ];
+  const rows = pages.data.map((price) => {
+    const territoryRel = rel(price, 'territory');
+    const pricePointRel = rel(price, 'subscriptionPricePoint');
+    const territory = lookupIncluded(index, 'territories', territoryRel?.id);
+    const pricePoint = lookupIncluded(index, 'subscriptionPricePoints', pricePointRel?.id);
+    return [
+      s(territoryRel?.id),
+      s(territory ? attr(territory, 'currency') : ''),
+      s(pricePoint ? attr(pricePoint, 'customerPrice') : ''),
+      s(pricePointRel?.id ?? ''),
+      price.id,
+    ];
+  });
+  rows.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''));
+  return `${summaryFooter(pages, 'win-back offer prices')}\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestOfferCodes(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'NAME' },

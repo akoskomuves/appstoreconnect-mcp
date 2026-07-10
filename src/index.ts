@@ -51,6 +51,7 @@ import { registerSubscriptions } from './domains/subscriptions.js';
 import { registerTerritories } from './domains/territories.js';
 import { registerVersionExperiments } from './domains/version-experiments.js';
 import { registerWebhooks } from './domains/webhooks.js';
+import { registerWinBackOffers } from './domains/win-back-offers.js';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
@@ -116,6 +117,7 @@ async function runServer(): Promise<void> {
   registerIaps(server, client);
   registerIntroOffers(server, client);
   registerPromoOffers(server, client);
+  registerWinBackOffers(server, client);
   registerOfferCodes(server, client);
   registerOfferSigning(server, config.iap);
   registerTerritories(server, client);
