@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -107,7 +107,7 @@ function formatASCError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-const listFilterInputSchema = {
+const listFilterInputSchema = z.object({
   appId: AppIdSchema,
   deviceModels: z
     .array(z.string().min(1))
@@ -136,7 +136,7 @@ const listFilterInputSchema = {
     .describe('true (default): sort=-createdDate. false: oldest first.'),
   maxItems: z.number().int().positive().max(2000).default(200),
   raw: z.boolean().default(false),
-};
+});
 
 function pickFilters(input: {
   deviceModels?: string[] | undefined;
@@ -190,9 +190,9 @@ export function registerBetaFeedback(server: McpServer, client: ASCClient): void
       title: 'Get a beta feedback screenshot submission',
       description:
         'Fetch one screenshot feedback submission with full device context (connection type, battery, disk, uptime, screen size) and the screenshots array — each entry carries url + width + height + expirationDate. The URLs are time-limited Apple-signed download links; if one has expired, re-run this tool for fresh URLs. include=build,tester for triage context.',
-      inputSchema: {
+      inputSchema: z.object({
         screenshotSubmissionId: BetaFeedbackScreenshotSubmissionIdSchema,
-      },
+      }),
     },
     async ({ screenshotSubmissionId }) => {
       const path = `/v1/betaFeedbackScreenshotSubmissions/${encodeURIComponent(
@@ -213,9 +213,9 @@ export function registerBetaFeedback(server: McpServer, client: ASCClient): void
       title: 'Delete a beta feedback screenshot submission',
       description:
         'DELETE /v1/betaFeedbackScreenshotSubmissions/{id}. Permanently removes the feedback record and its screenshot images from App Store Connect — same as dismissing it in the TestFlight feedback UI. Irreversible; the tester is not notified.',
-      inputSchema: {
+      inputSchema: z.object({
         screenshotSubmissionId: BetaFeedbackScreenshotSubmissionIdSchema,
-      },
+      }),
     },
     async ({ screenshotSubmissionId }) => {
       try {
@@ -236,7 +236,6 @@ export function registerBetaFeedback(server: McpServer, client: ASCClient): void
       }
     },
   );
-
   server.registerTool(
     'asc_list_beta_feedback_crash_submissions',
     {
@@ -266,9 +265,9 @@ export function registerBetaFeedback(server: McpServer, client: ASCClient): void
       title: 'Get a beta feedback crash submission',
       description:
         'Fetch one crash feedback submission with full device context. include=build,tester for triage context. This returns the submission METADATA only — for the crash log text itself use asc_get_beta_feedback_crash_log.',
-      inputSchema: {
+      inputSchema: z.object({
         crashSubmissionId: BetaFeedbackCrashSubmissionIdSchema,
-      },
+      }),
     },
     async ({ crashSubmissionId }) => {
       const path = `/v1/betaFeedbackCrashSubmissions/${encodeURIComponent(
@@ -289,7 +288,7 @@ export function registerBetaFeedback(server: McpServer, client: ASCClient): void
       title: 'Get the crash log for a crash feedback submission',
       description:
         'GET /v1/betaFeedbackCrashSubmissions/{id}/crashLog — returns the betaCrashLogs resource whose logText attribute is the full symbolicated-or-raw crash log. Logs can be large; output is capped at maxChars (default 200k) with a truncation note. Use after asc_list_beta_feedback_crash_submissions to drill into a specific crash. NOTE: Apple stores logs for a limited time — older submissions 404 here even though their metadata still lists (observed live on ~4-month-old submissions); the submission record itself remains readable.',
-      inputSchema: {
+      inputSchema: z.object({
         crashSubmissionId: BetaFeedbackCrashSubmissionIdSchema,
         maxChars: z
           .number()
@@ -300,7 +299,7 @@ export function registerBetaFeedback(server: McpServer, client: ASCClient): void
           .describe(
             'Cap on returned log characters. The full log stays on Apple; re-fetch with a higher cap if needed.',
           ),
-      },
+      }),
     },
     async ({ crashSubmissionId, maxChars }) => {
       const path = `/v1/betaFeedbackCrashSubmissions/${encodeURIComponent(
@@ -354,9 +353,9 @@ export function registerBetaFeedback(server: McpServer, client: ASCClient): void
       title: 'Delete a beta feedback crash submission',
       description:
         'DELETE /v1/betaFeedbackCrashSubmissions/{id}. Permanently removes the crash feedback record (including its crash log) from App Store Connect. Irreversible; the tester is not notified.',
-      inputSchema: {
+      inputSchema: z.object({
         crashSubmissionId: BetaFeedbackCrashSubmissionIdSchema,
-      },
+      }),
     },
     async ({ crashSubmissionId }) => {
       try {

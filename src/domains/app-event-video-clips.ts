@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppEventVideoClips } from '../digest.js';
@@ -122,11 +122,11 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
       title: 'List event video clips under a localization',
       description:
         'List AppEventVideoClip records under an AppEventLocalization. Each row carries fileName + fileSize + previewFrameTimeCode + asset slot (EVENT_CARD / EVENT_DETAILS_PAGE) + the two delivery states (assetDeliveryState for the source file, videoDeliveryState for Apple-side transcode).',
-      inputSchema: {
+      inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appEventLocalizationId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -149,9 +149,9 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
       title: 'Get an AppEventVideoClip',
       description:
         'Fetch a single AppEventVideoClip by ID. Returns the upload metadata + previewFrameTimeCode + (post-ingest) videoUrl + previewImage. Wire-key gotcha: Apple emits `videoUrl` (camelCase) where Swift names it `videoURL`.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventVideoClipId: AppEventVideoClipIdSchema,
-      },
+      }),
     },
     async ({ appEventVideoClipId }) => {
       const path = `/v1/appEventVideoClips/${encodeURIComponent(appEventVideoClipId)}`;
@@ -170,13 +170,13 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
       title: 'Reserve an AppEventVideoClip upload (raw step 1)',
       description:
         'RAW step 1 of the three-step upload flow (same shape as v0.13 AppPreview). Reserves an AppEventVideoClip under an event localization with fileName + fileSize + appEventAssetType (+ optional previewFrameTimeCode for the poster frame). Returns the resource with uploadOperations[] populated. Most callers should use the composite asc_upload_app_event_video_clip instead.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         fileName: FileNameSchema,
         fileSize: FileSizeSchema,
         appEventAssetType: AppEventAssetTypeSchema,
         previewFrameTimeCode: PreviewFrameTimeCodeSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildAppEventVideoClipCreateBody({
@@ -213,11 +213,11 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
       title: 'Patch / commit an AppEventVideoClip (raw step 3)',
       description:
         'RAW step 3 of the three-step upload flow + the only way to tweak previewFrameTimeCode on an existing clip. PATCH with uploaded=true to commit a reservation, or with previewFrameTimeCode alone to change the poster frame without re-uploading. Wire-key gotcha: Swift `isUploaded` → wire `uploaded`. Refuses empty PATCH.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventVideoClipId: AppEventVideoClipIdSchema,
         previewFrameTimeCode: PreviewFrameTimeCodeSchema.optional(),
         uploaded: z.boolean().optional(),
-      },
+      }),
     },
     async (input) => {
       if (input.previewFrameTimeCode === undefined && input.uploaded === undefined) {
@@ -263,9 +263,9 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
       title: 'Delete an AppEventVideoClip',
       description:
         'DELETE an AppEventVideoClip. Removes the video asset; if both screenshot + video slot are emptied, Apple may reject the event for review with an asset-missing error.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventVideoClipId: AppEventVideoClipIdSchema,
-      },
+      }),
     },
     async ({ appEventVideoClipId }) => {
       try {
@@ -288,7 +288,7 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
       title: 'Upload an event video clip from a local file (composite)',
       description:
         'Composite tool. Reads localFilePath from disk (.mov H.264/HEVC recommended), reserves an AppEventVideoClip under the given event localization for the given asset slot (EVENT_CARD / EVENT_DETAILS_PAGE), PUTs every uploadOperation chunk to Apple storage in sequence, then commits with uploaded=true. Optionally sets previewFrameTimeCode (poster frame) at reserve. Returns the committed resource + per-chunk summary. Tilde paths (~/...) are expanded.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         localFilePath: LocalFilePathSchema,
         appEventAssetType: AppEventAssetTypeSchema,
@@ -296,7 +296,7 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
           'Override the file name sent to Apple. Defaults to basename(localFilePath).',
         ),
         previewFrameTimeCode: PreviewFrameTimeCodeSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const resolvedPath = expandHomePath(input.localFilePath);

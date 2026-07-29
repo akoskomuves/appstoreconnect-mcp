@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -183,9 +183,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'List alternative distribution domains',
       description:
         'GET /v1/alternativeDistributionDomains — team-level registered website domains for EU web distribution. Entitlement-gated (403 = account not enrolled).',
-      inputSchema: {
+      inputSchema: z.object({
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ raw }) => {
       const params = new URLSearchParams();
@@ -213,10 +213,10 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'Register an alternative distribution domain',
       description:
         'POST /v1/alternativeDistributionDomains — register a website domain (e.g. "example.com") for EU web distribution. Both attributes required: domain + referenceName. Apple verifies domain ownership out-of-band (apple-developer-domain-association file). No PATCH exists — delete + re-create to change.',
-      inputSchema: {
+      inputSchema: z.object({
         domain: z.string().min(1).describe('The website domain, e.g. "example.com".'),
         referenceName: z.string().min(1).describe('Internal display name.'),
-      },
+      }),
     },
     async ({ domain, referenceName }) => {
       const body = buildAltDomainCreateBody({ domain, referenceName });
@@ -245,9 +245,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'Delete an alternative distribution domain',
       description:
         '⚠️ DELETE /v1/alternativeDistributionDomains/{id} — apps distributed from this domain stop being installable from it. Confirm intent first.',
-      inputSchema: {
+      inputSchema: z.object({
         domainId: AlternativeDistributionDomainIdSchema,
-      },
+      }),
     },
     async ({ domainId }) => {
       try {
@@ -270,9 +270,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'List alternative distribution keys',
       description:
         'GET /v1/alternativeDistributionKeys — the PUBLIC signing keys registered with Apple (the private halves never leave your infrastructure). Use asc_get_app_alternative_distribution_key for the to-one app linkage.',
-      inputSchema: {
+      inputSchema: z.object({
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ raw }) => {
       const params = new URLSearchParams();
@@ -306,9 +306,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: "Get an app's alternative distribution key",
       description:
         "GET /v1/apps/{id}/alternativeDistributionKey — the app's registered public key (to-one).",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
-      },
+      }),
     },
     async ({ appId }) => {
       try {
@@ -341,10 +341,10 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'Register an alternative distribution key',
       description:
         'POST /v1/alternativeDistributionKeys — register the PUBLIC key (PEM string) used to verify your signed alternative-distribution artifacts. Optionally scope to one app via appId. The private key stays with you — never paste it anywhere; this tool takes the PUBLIC half only.',
-      inputSchema: {
+      inputSchema: z.object({
         publicKey: z.string().min(1).describe('PEM-encoded PUBLIC key. (Never the private key.)'),
         appId: AppIdSchema.optional(),
-      },
+      }),
     },
     async ({ publicKey, appId }) => {
       const body = buildAltKeyCreateBody({
@@ -371,9 +371,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'Delete an alternative distribution key',
       description:
         '⚠️ DELETE /v1/alternativeDistributionKeys/{id} — artifacts signed against this key stop validating. Confirm intent first.',
-      inputSchema: {
+      inputSchema: z.object({
         keyId: AlternativeDistributionKeyIdSchema,
-      },
+      }),
     },
     async ({ keyId }) => {
       try {
@@ -396,9 +396,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'Create an alternative distribution package',
       description:
         'POST /v1/alternativeDistributionPackages — start packaging an App Store Version for alternative distribution. Relationships-only body (appStoreVersion). Apple builds the signed package asynchronously; poll asc_list_alternative_distribution_package_versions until a version reaches COMPLETED.',
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionId: AppStoreVersionIdSchema,
-      },
+      }),
     },
     async ({ appStoreVersionId }) => {
       const body = buildAltPackageCreateBody({ appStoreVersionId });
@@ -427,9 +427,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: "Get a version's alternative distribution package",
       description:
         'GET /v1/appStoreVersions/{id}/alternativeDistributionPackage — the to-one package record for a version (or an error when none was created).',
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionId: AppStoreVersionIdSchema,
-      },
+      }),
     },
     async ({ appStoreVersionId }) => {
       try {
@@ -450,10 +450,10 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'List versions of an alternative distribution package',
       description:
         'GET /v1/alternativeDistributionPackages/{id}/versions — the dated builds of a package. State COMPLETED = downloadable via the pre-signed url (time-limited per urlExpirationDate — download promptly, re-list for fresh URLs, and NEVER send the ASC bearer to the download host). Variants/deltas per version via the dedicated list tools.',
-      inputSchema: {
+      inputSchema: z.object({
         packageId: AlternativeDistributionPackageIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ packageId, raw }) => {
       const params = new URLSearchParams();
@@ -481,9 +481,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'List variants of a package version',
       description:
         'GET /v1/alternativeDistributionPackageVersions/{id}/variants — per-device-thinning variants with pre-signed download URLs + key blobs. Raw JSON (URLs verbatim).',
-      inputSchema: {
+      inputSchema: z.object({
         packageVersionId: AlternativeDistributionPackageVersionIdSchema,
-      },
+      }),
     },
     async ({ packageVersionId }) => {
       const params = new URLSearchParams();
@@ -508,9 +508,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'List deltas of a package version',
       description:
         'GET /v1/alternativeDistributionPackageVersions/{id}/deltas — update deltas (smaller downloads from prior versions) with pre-signed URLs. Raw JSON (URLs verbatim).',
-      inputSchema: {
+      inputSchema: z.object({
         packageVersionId: AlternativeDistributionPackageVersionIdSchema,
-      },
+      }),
     },
     async ({ packageVersionId }) => {
       const params = new URLSearchParams();
@@ -537,9 +537,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: "Get an app's marketplace search detail",
       description:
         'GET /v1/apps/{id}/marketplaceSearchDetail — the catalogUrl for a MARKETPLACE app (alternative app store). Observed live: calling this on a NON-marketplace app returns an Apple-side 500 UNEXPECTED_ERROR rather than a clean 404 — that 500 means "not a marketplace app", not an outage.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
-      },
+      }),
     },
     async ({ appId }) => {
       try {
@@ -560,10 +560,10 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'Create a marketplace search detail',
       description:
         "POST /v1/marketplaceSearchDetails — set a MARKETPLACE app's catalogUrl (the catalog Apple's MarketplaceKit queries). Wire key catalogUrl (Swift catalogURL — pinned by tests). One per app; PATCH to change.",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         catalogUrl: z.string().url().describe('HTTPS catalog URL.'),
-      },
+      }),
     },
     async ({ appId, catalogUrl }) => {
       const body = buildMarketplaceSearchDetailCreateBody({ appId, catalogUrl });
@@ -591,10 +591,10 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
     {
       title: 'Patch a marketplace search detail',
       description: 'PATCH /v1/marketplaceSearchDetails/{id} — update the catalogUrl.',
-      inputSchema: {
+      inputSchema: z.object({
         searchDetailId: MarketplaceSearchDetailIdSchema,
         catalogUrl: z.string().url(),
-      },
+      }),
     },
     async ({ searchDetailId, catalogUrl }) => {
       const body = buildMarketplaceSearchDetailPatchBody({ searchDetailId, catalogUrl });
@@ -622,9 +622,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
     {
       title: 'Delete a marketplace search detail',
       description: 'DELETE /v1/marketplaceSearchDetails/{id}.',
-      inputSchema: {
+      inputSchema: z.object({
         searchDetailId: MarketplaceSearchDetailIdSchema,
-      },
+      }),
     },
     async ({ searchDetailId }) => {
       try {
@@ -647,9 +647,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'List marketplace webhooks',
       description:
         'GET /v1/marketplaceWebhooks — team-level webhooks Apple uses to notify a MARKETPLACE app about available app updates. Secret is write-only and never shown.',
-      inputSchema: {
+      inputSchema: z.object({
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ raw }) => {
       const params = new URLSearchParams();
@@ -671,10 +671,10 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'Create a marketplace webhook',
       description:
         'POST /v1/marketplaceWebhooks — both attributes required: endpointUrl (wire key — Swift endpointURL, pinned by tests) + secret (HMAC signing key, WRITE-ONLY — store it on the receiving side first; rotatable via PATCH).',
-      inputSchema: {
+      inputSchema: z.object({
         endpointUrl: z.string().url().describe('HTTPS endpoint Apple POSTs marketplace events to.'),
         secret: WebhookSecretSchema,
-      },
+      }),
     },
     async ({ endpointUrl, secret }) => {
       const body = buildMarketplaceWebhookCreateBody({ endpointUrl, secret });
@@ -703,11 +703,11 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
       title: 'Patch a marketplace webhook',
       description:
         'PATCH /v1/marketplaceWebhooks/{id} — update endpointUrl and/or rotate the secret (update the receiver first). Pass at least one.',
-      inputSchema: {
+      inputSchema: z.object({
         webhookId: MarketplaceWebhookIdSchema,
         endpointUrl: z.string().url().optional(),
         secret: WebhookSecretSchema.optional(),
-      },
+      }),
     },
     async ({ webhookId, endpointUrl, secret }) => {
       if (endpointUrl === undefined && secret === undefined) {
@@ -745,9 +745,9 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
     {
       title: 'Delete a marketplace webhook',
       description: 'DELETE /v1/marketplaceWebhooks/{id} — stop marketplace update notifications.',
-      inputSchema: {
+      inputSchema: z.object({
         webhookId: MarketplaceWebhookIdSchema,
-      },
+      }),
     },
     async ({ webhookId }) => {
       try {

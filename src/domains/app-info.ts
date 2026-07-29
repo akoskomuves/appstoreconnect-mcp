@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppInfoLocalizations, digestAppInfos } from '../digest.js';
@@ -241,11 +241,11 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
       title: 'List App Infos for an app',
       description:
         'List AppInfo records for an app. Apps typically have one AppInfo per distribution track — most apps have just one (the App Store track); macOS notarization can introduce a second. Each row shows the state, appStoreState (mirrored from the linked AppStoreVersion), and appStoreAgeRating. Use to find the AppInfo ID before patching categories or fetching localizations.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -268,9 +268,9 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
       title: 'Get an AppInfo',
       description:
         'Fetch a single AppInfo with its category relationships + localizations expanded. The relationships block carries the IDs for primary/secondary categories + subcategories — use asc_list_app_categories to resolve those IDs to human-readable names.',
-      inputSchema: {
+      inputSchema: z.object({
         appInfoId: AppInfoIdSchema,
-      },
+      }),
     },
     async ({ appInfoId }) => {
       const path =
@@ -294,7 +294,7 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
         'Set primary/secondary category + subcategory relationships on an AppInfo. AppInfoUpdateRequest is RELATIONSHIPS-ONLY (no mutable attributes). Each slot accepts a category ID (set/swap) or null (clear). All six slots are independently optional. ' +
         "Pre-check refuses for clearly frozen states (WAITING_FOR_REVIEW, IN_REVIEW) where Apple holds the resource during review. Other states pass through — Apple's PATCH rules vary subtly with state. " +
         'Use asc_list_app_categories first to resolve human-readable category names to category IDs.',
-      inputSchema: {
+      inputSchema: z.object({
         appInfoId: AppInfoIdSchema,
         primaryCategoryId: AppCategoryIdSchema.nullable()
           .optional()
@@ -304,7 +304,7 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
         secondaryCategoryId: AppCategoryIdSchema.nullable().optional(),
         secondarySubcategoryOneId: AppCategoryIdSchema.nullable().optional(),
         secondarySubcategoryTwoId: AppCategoryIdSchema.nullable().optional(),
-      },
+      }),
     },
     async (input) => {
       const anySlot =
@@ -381,11 +381,11 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
       title: 'List AppInfo localizations',
       description:
         'List AppInfoLocalization records under an AppInfo. Each row carries locale + name + subtitle + privacy URLs/text. Use to inspect existing per-locale copy before adding new locales or patching existing ones.',
-      inputSchema: {
+      inputSchema: z.object({
         appInfoId: AppInfoIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appInfoId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -408,9 +408,9 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
       title: 'Get an AppInfo localization',
       description:
         'Fetch a single AppInfoLocalization by ID. Returns the full name + subtitle + privacy URLs/text for the locale.',
-      inputSchema: {
+      inputSchema: z.object({
         appInfoLocalizationId: AppInfoLocalizationIdSchema,
-      },
+      }),
     },
     async ({ appInfoLocalizationId }) => {
       const path = `/v1/appInfoLocalizations/${encodeURIComponent(appInfoLocalizationId)}`;
@@ -430,7 +430,7 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
       description:
         'Create an AppInfoLocalization for ONE AppInfo + ONE locale. Required: appInfoId + locale + name (30 chars). Optional: subtitle (30 chars), privacyPolicyUrl, privacyChoicesUrl (CCPA/CPRA flows), privacyPolicyText (inline text for territories that require it). ' +
         'Wire-key gotcha: Swift `privacyPolicyURL` / `privacyChoicesURL` map to wire-camelCase `privacyPolicyUrl` / `privacyChoicesUrl`. The (appInfo, locale) pair must be unique — Apple rejects a duplicate. Locale is immutable post-create.',
-      inputSchema: {
+      inputSchema: z.object({
         appInfoId: AppInfoIdSchema,
         locale: LocaleSchema,
         name: AppInfoLocalizationNameSchema,
@@ -438,7 +438,7 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
         privacyPolicyUrl: PrivacyPolicyUrlSchema.optional(),
         privacyChoicesUrl: PrivacyChoicesUrlSchema.optional(),
         privacyPolicyText: PrivacyPolicyTextSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildAppInfoLocalizationCreateBody({
@@ -482,14 +482,14 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
       description:
         'Update name / subtitle / privacy fields on an existing AppInfoLocalization. All five attrs are encodeIfPresent (only what you pass is sent). Locale is immutable. ' +
         "Wire-key gotcha: privacyPolicyUrl / privacyChoicesUrl are camelCase (NOT Swift's all-caps URL suffix). Tool refuses empty PATCH.",
-      inputSchema: {
+      inputSchema: z.object({
         appInfoLocalizationId: AppInfoLocalizationIdSchema,
         name: AppInfoLocalizationNameSchema.optional(),
         subtitle: SubtitleSchema.optional(),
         privacyPolicyUrl: PrivacyPolicyUrlSchema.optional(),
         privacyChoicesUrl: PrivacyChoicesUrlSchema.optional(),
         privacyPolicyText: PrivacyPolicyTextSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const anyAttr = [
@@ -549,9 +549,9 @@ export function registerAppInfo(server: McpServer, client: ASCClient): void {
       title: 'Delete an AppInfo localization',
       description:
         "DELETE an AppInfoLocalization. The locale-specific app-level copy is removed (subtitle, privacy URLs, etc.). Customers in that locale fall back to the default locale's AppInfoLocalization. Apple may reject if the parent AppInfo is in a frozen state.",
-      inputSchema: {
+      inputSchema: z.object({
         appInfoLocalizationId: AppInfoLocalizationIdSchema,
-      },
+      }),
     },
     async ({ appInfoLocalizationId }) => {
       try {

@@ -185,6 +185,12 @@ Every list/get tool returns a compact text table by default — designed for an 
 
 Sparse fieldsets (`fields[type]=...`) are applied per tool to avoid pulling unused attributes. The whole 175-territory price schedule comes back in one paginated call (200/page) at roughly 1/10th the size of the unfiltered payload.
 
+## Protocol support
+
+Speaks the **MCP 2026-07-28** revision and the 2025-era protocol from the same build — your client picks. There is nothing to configure either way.
+
+On 2026-07-28 the server is stateless (no `initialize` handshake; capabilities come from `server/discover`), and the write-confirmation prompt uses multi-round-trip requests: `ppp_apply_proposal` returns an `input_required` result, your client shows the acknowledgement, and the same tool call is re-issued with your answer. That round trip is invisible in normal use — the proposal is recomputed on re-entry, so prices are re-checked against App Store Connect immediately before anything is written. Clients that don't support elicitation are told to re-run with `confirm: true`, exactly as before.
+
 ## Production behavior
 
 A few details worth knowing before running `ppp_apply_proposal` against a live App Store Connect account:

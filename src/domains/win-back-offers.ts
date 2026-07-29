@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestWinBackOfferPrices, digestWinBackOffers } from '../digest.js';
@@ -218,11 +218,11 @@ export function registerWinBackOffers(server: McpServer, client: ASCClient): voi
       title: 'List subscription win-back offers',
       description:
         "List win-back offers configured for a subscription. Win-back offers target LAPSED subscribers (intro offers target new subscribers; promo offers target existing/lapsed subscribers via a redeemed code). Apple surfaces win-back offers automatically to eligible churned customers based on the offer's customerEligibility* rules.",
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ subscriptionId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -248,9 +248,9 @@ export function registerWinBackOffers(server: McpServer, client: ASCClient): voi
       title: 'Get a subscription win-back offer',
       description:
         'Fetch a single win-back offer by its Apple resource ID, including its subscription and per-territory prices.',
-      inputSchema: {
+      inputSchema: z.object({
         winBackOfferId: WinBackOfferIdSchema,
-      },
+      }),
     },
     async ({ winBackOfferId }) => {
       const path = `/v1/winBackOffers/${encodeURIComponent(
@@ -271,11 +271,11 @@ export function registerWinBackOffers(server: McpServer, client: ASCClient): voi
       title: 'List subscription win-back offer prices',
       description:
         'List the per-territory price rows attached to a win-back offer. Each row is a (territory, subscriptionPricePoint) pair — the price-point amount is resolved via the included subscriptionPricePoints resources. Prices are immutable after creation.',
-      inputSchema: {
+      inputSchema: z.object({
         winBackOfferId: WinBackOfferIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ winBackOfferId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -300,7 +300,7 @@ export function registerWinBackOffers(server: McpServer, client: ASCClient): voi
         'Create a win-back offer targeting lapsed subscribers, with eligibility rules + schedule + all per-territory prices in one atomic POST. ' +
         'Immutability: referenceName, offerId, duration, offerMode, periodCount, targetSubscriptionPlanType and the PRICES are immutable post-create — to change any of them, delete and re-create (use asc_patch_subscription_win_back_offer to change eligibility, dates, priority, or promotionIntent). ' +
         'offerId must be unique within the subscription (StoreKit offer identifier); this tool pre-flights for a collision and refuses on a duplicate. periodCount is required for every mode.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         referenceName: OfferNameSchema,
         offerId: WinBackOfferIdentifierSchema,
@@ -349,7 +349,7 @@ export function registerWinBackOffers(server: McpServer, client: ASCClient): voi
           .describe(
             'Per-territory prices (immutable after creation). Each entry is (territoryId, pricePointId). At least one required. Use asc_list_subscription_price_points to pick price points per territory.',
           ),
-      },
+      }),
     },
     async (input) => {
       // Local validations that Apple would otherwise reject with an opaque 4xx.
@@ -435,7 +435,7 @@ export function registerWinBackOffers(server: McpServer, client: ASCClient): voi
       description:
         'Update the mutable attributes of an existing win-back offer: eligibility (customerEligibility* fields), schedule (startDate/endDate), priority, and promotionIntent. ' +
         'referenceName, offerId, duration, offerMode, periodCount, targetSubscriptionPlanType and the prices are IMMUTABLE — to change any of those, delete and re-create the offer. Pass only the fields you want to change; at least one is required.',
-      inputSchema: {
+      inputSchema: z.object({
         winBackOfferId: WinBackOfferIdSchema,
         customerEligibilityPaidSubscriptionDurationInMonths: z
           .number()
@@ -448,7 +448,7 @@ export function registerWinBackOffers(server: McpServer, client: ASCClient): voi
         endDate: WinBackDateSchema.optional(),
         priority: OfferPrioritySchema.optional(),
         promotionIntent: PromotionIntentSchema.optional(),
-      },
+      }),
     },
     async ({ winBackOfferId, ...changes }) => {
       const hasChange = Object.values(changes).some((v) => v !== undefined);
@@ -510,9 +510,9 @@ export function registerWinBackOffers(server: McpServer, client: ASCClient): voi
       title: 'Delete a subscription win-back offer',
       description:
         'Delete a win-back offer by its Apple resource ID. Returns 204 on success. This is the only way to change an immutable attribute (offerId, duration, offerMode, periodCount) or the prices — delete and re-create.',
-      inputSchema: {
+      inputSchema: z.object({
         winBackOfferId: WinBackOfferIdSchema,
-      },
+      }),
     },
     async ({ winBackOfferId }) => {
       try {

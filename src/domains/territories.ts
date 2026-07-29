@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestTerritories } from '../digest.js';
@@ -10,10 +10,10 @@ export function registerTerritories(server: McpServer, client: ASCClient): void 
     {
       title: 'List territories',
       description: 'List App Store territories with their currency codes.',
-      inputSchema: {
+      inputSchema: z.object({
         maxItems: z.number().int().positive().max(500).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ maxItems, raw }) => {
       const params = new URLSearchParams();

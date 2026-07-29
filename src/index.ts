@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-
+import { McpServer } from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import type { ASCClient } from './client.js';
 import { createASCClient } from './client.js';
+import type { Config } from './config.js';
 import { loadConfig } from './config.js';
 import { registerAccessibilityDeclarations } from './domains/accessibility-declarations.js';
 import { registerAlternativeDistribution } from './domains/alternative-distribution.js';
@@ -104,12 +105,22 @@ Optional — default for the sales/finance report tools:
 Documentation: https://github.com/akoskomuves/appstoreconnect-mcp
 `;
 
-async function runServer(): Promise<void> {
-  const meta = readPackageMeta();
-  const config = loadConfig();
-  const client = createASCClient(config);
+// The tool list is fixed at build time: every register* call below runs
+// unconditionally at startup and nothing registers or unregisters a tool
+// later, so tools/list is byte-identical for the whole process lifetime and
+// carries no account-derived data (the offer-signing tools are always
+// registered; they check ASC_IAP_* config when *called*, not when listed).
+// That makes a long TTL honest and `public` scope accurate.
+const TOOLS_LIST_CACHE_HINT = { ttlMs: 3_600_000, cacheScope: 'public' } as const;
 
-  const server = new McpServer({ name: meta.name, version: meta.version });
+// Factory — `serveStdio` calls this once per connection and pins the instance
+// for that connection's lifetime, which is how the SDK serves the 2026-07-28
+// and 2025-era openings from the same registration code.
+function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpServer {
+  const server = new McpServer(
+    { name: meta.name, version: meta.version },
+    { cacheHints: { 'tools/list': TOOLS_LIST_CACHE_HINT } },
+  );
 
   registerApps(server, client);
   registerSubscriptions(server, client);
@@ -159,15 +170,31 @@ async function runServer(): Promise<void> {
   registerAlternativeDistribution(server, client);
   registerPpp(server, client);
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  return server;
+}
+
+function runServer(): void {
+  const meta = readPackageMeta();
+  // Resolve credentials before serving so a misconfigured key fails fast with
+  // a readable message on stderr, rather than once per tool call.
+  const config = loadConfig();
+  const client = createASCClient(config);
+
+  // `legacy: 'serve'` (the default) keeps 2025-era clients working: the
+  // opening exchange picks the era and the same handlers serve both. Switch to
+  // 'reject' only once every client we care about speaks 2026-07-28.
+  serveStdio(() => buildServer(meta, client, config), {
+    onerror: (err) => {
+      process.stderr.write(`[appstoreconnect-mcp] transport: ${err.message}\n`);
+    },
+  });
 }
 
 async function main(): Promise<void> {
   const subcommand = process.argv[2];
   switch (subcommand) {
     case undefined: {
-      await runServer();
+      runServer();
       return;
     }
     case 'init': {

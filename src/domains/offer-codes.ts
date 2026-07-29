@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -326,11 +326,11 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       title: 'List subscription offer code campaigns',
       description:
         'List offer-code campaigns configured for a subscription. Each campaign carries name, customer-eligibility cohorts (NEW/EXISTING/EXPIRED), offer mode, duration, and an active flag. Per-territory prices are linked via the prices relationship; one-time-use code batches and custom codes hang off the campaign via separate endpoints.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ subscriptionId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -356,10 +356,10 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       title: 'Get a subscription offer code campaign',
       description:
         'Fetch a single offer-code campaign by ID, including its per-territory prices, one-time-use code batches, and custom codes (if any).',
-      inputSchema: {
+      inputSchema: z.object({
         offerCodeId: SubscriptionOfferCodeIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ offerCodeId, raw }) => {
       const path = `/v1/subscriptionOfferCodes/${encodeURIComponent(
@@ -385,7 +385,7 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
         'Create an offer-code campaign atomically: name + customer eligibilities + mode + duration + all per-territory prices in one POST. Apple caps active campaigns at 10 per subscription; this tool pre-flights the count and refuses if at the limit. ' +
         'Immutability: name, customerEligibilities, offerEligibility, offerMode, duration, numberOfPeriods, and per-territory prices are ALL immutable after creation. PATCH only toggles `active`. Apple does NOT expose DELETE on this resource — the only retirement path is PATCH active=false, which renders the campaign inert but leaves the row in App Store Connect (still counts against the per-subscription cap). Pick `name` and prices carefully on first creation. ' +
         'After creation, generate redeemable code strings with asc_post_subscription_offer_code_one_time_use_codes (bulk batches). Custom multi-use codes will land in v0.8.1.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         name: OfferCodeNameSchema,
         customerEligibilities: CustomerEligibilitiesSchema,
@@ -409,7 +409,7 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
           .describe(
             'Per-territory prices. Each entry is (territoryId, pricePointId). At least one required. For FREE_TRIAL, pricePointId is omitted per territory (Apple rejects requests that pass a price point for free trials). For other modes, use asc_list_subscription_price_points to pick price points per territory (nearAmount narrows to a target band).',
           ),
-      },
+      }),
     },
     async (input) => {
       // Mode/price-point consistency check. For FREE_TRIAL, pricePointId must
@@ -512,14 +512,14 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       title: 'Toggle a subscription offer code campaign active flag',
       description:
         'Activate or deactivate an offer-code campaign. Apple PATCH on this resource only permits flipping `active` — name, eligibilities, mode, duration, numberOfPeriods, and prices are all immutable. Deactivating a campaign stops new redemptions across every batch and custom code under it; existing subscribers who already redeemed keep their offer.',
-      inputSchema: {
+      inputSchema: z.object({
         offerCodeId: SubscriptionOfferCodeIdSchema,
         active: z
           .boolean()
           .describe(
             'true to activate, false to deactivate. ONE-WAY: deactivation cannot be undone — Apple rejects reactivation with STATE_ERROR "Given Subscription OfferCode is inactivate, cannot be updated". The row persists as a tombstone and continues counting against the 10-per-subscription cap. Apple exposes no DELETE.',
           ),
-      },
+      }),
     },
     async ({ offerCodeId, active }) => {
       const body = buildOfferCodePatchBody({ offerCodeId, active });
@@ -562,11 +562,11 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       title: 'List one-time-use code batches for an offer code campaign',
       description:
         'List one-time-use code batches under an offer-code campaign. Each batch carries numberOfCodes, expirationDate, active, and createdDate — the actual redeemable strings are retrieved with asc_export_subscription_offer_code_one_time_use_values against a specific batch.',
-      inputSchema: {
+      inputSchema: z.object({
         offerCodeId: SubscriptionOfferCodeIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ offerCodeId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -592,12 +592,12 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       description:
         'Create a batch of unique single-redemption codes against an existing offer-code campaign. Apple generates the code strings server-side — retrieve them with asc_export_subscription_offer_code_one_time_use_values. ' +
         "numberOfCodes and expirationDate are immutable after creation; PATCH only toggles `active` (deactivating revokes unredeemed codes in the batch). Apple's per-batch cap is 25,000 codes (working assumption; if Apple disagrees, the error surfaces verbatim).",
-      inputSchema: {
+      inputSchema: z.object({
         offerCodeId: SubscriptionOfferCodeIdSchema,
         numberOfCodes: TotalNumberOfCodesSchema,
         expirationDate: ExpirationDateSchema,
         environment: OfferCodeEnvironmentSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildOneTimeUseBody(input);
@@ -631,10 +631,10 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       title: 'Toggle a one-time-use code batch active flag',
       description:
         'Activate or deactivate a one-time-use code batch. Apple PATCH on this resource only permits flipping `active` — numberOfCodes and expirationDate are immutable. Deactivating a batch stops further redemption of any unredeemed code in the batch; redemptions already completed are untouched. Use this to kill a leaked batch without nuking the parent campaign.',
-      inputSchema: {
+      inputSchema: z.object({
         oneTimeUseId: SubscriptionOfferCodeOneTimeUseCodesIdSchema,
         active: z.boolean(),
-      },
+      }),
     },
     async ({ oneTimeUseId, active }) => {
       const body = buildOneTimeUsePatchBody({ oneTimeUseId, active });
@@ -670,10 +670,10 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       description:
         'Fetch the redeemable code strings inside a one-time-use batch. Apple serves the response as text/csv directly — this tool passes it through verbatim. These are the strings to hand to customers; treat them as secrets. ' +
         'Use `raw: true` to skip the leading summary line and return only the CSV body, suitable for piping to a file.',
-      inputSchema: {
+      inputSchema: z.object({
         oneTimeUseId: SubscriptionOfferCodeOneTimeUseCodesIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ oneTimeUseId, raw }) => {
       const path = `/v1/subscriptionOfferCodeOneTimeUseCodes/${encodeURIComponent(
@@ -702,11 +702,11 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       title: 'List custom (multi-use) codes for an offer code campaign',
       description:
         'List custom multi-use codes under an offer-code campaign. Each custom code is a single developer-chosen string redeemable by many customers (up to numberOfCodes redemptions total). Unlike one-time-use batches, the redeemable string IS the resource attribute — no separate /values export step. Useful for public marketing codes (e.g. "LAUNCH2026" usable by the first 500 customers).',
-      inputSchema: {
+      inputSchema: z.object({
         offerCodeId: SubscriptionOfferCodeIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ offerCodeId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -732,14 +732,14 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       description:
         'Create a custom multi-use code against an existing offer-code campaign. The developer picks the redeemable string (customCode), the redemption cap (numberOfCodes — MINIMUM 500, ceiling 25,000), and optionally an expiration date. ' +
         "The same string is then redeemable by up to numberOfCodes customers, first-come-first-served. customCode must be unique across the subscription's custom codes. Immutable post-create — PATCH only flips `active`. Apple does NOT expose DELETE on this resource (same constraint as the parent campaign).",
-      inputSchema: {
+      inputSchema: z.object({
         offerCodeId: SubscriptionOfferCodeIdSchema,
         customCode: CustomCodeStringSchema,
         numberOfCodes: CustomCodeNumberOfCodesSchema,
         expirationDate: ExpirationDateSchema.optional().describe(
           'Optional expiration DATE (YYYY-MM-DD). Omit to make the code redeemable indefinitely until the campaign or this resource is deactivated.',
         ),
-      },
+      }),
     },
     async (input) => {
       const body = buildCustomCodeBody(input);
@@ -776,10 +776,10 @@ export function registerOfferCodes(server: McpServer, client: ASCClient): void {
       description:
         'Activate or deactivate a custom multi-use code. PATCH only flips `active` — customCode, numberOfCodes, and expirationDate are immutable. Deactivating revokes further redemptions of the string; completed redemptions are untouched. Use this to kill a leaked public code without nuking the parent campaign. ' +
         'DEACTIVATION IS ONE-WAY: Apple rejects reactivation with STATE_ERROR "Given custom code is inactive". Side effect: Apple silently stamps today\'s date into expirationDate when you deactivate, so the row reads as an expired code from then on. Deactivated custom codes still count toward productionCodeCount on the parent campaign.',
-      inputSchema: {
+      inputSchema: z.object({
         customCodeId: SubscriptionOfferCodeCustomCodesIdSchema,
         active: z.boolean(),
-      },
+      }),
     },
     async ({ customCodeId, active }) => {
       const body = buildCustomCodePatchBody({ customCodeId, active });

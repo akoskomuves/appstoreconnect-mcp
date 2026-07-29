@@ -1,4 +1,10 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import {
+  type InputRequiredResult,
+  inputRequired,
+  inputResponse,
+  type McpServer,
+  type ServerContext,
+} from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -82,6 +88,89 @@ interface ProposalContext {
   basePriceAnchor: number;
   roundStrategy: RoundStrategy;
   floorFactor: number;
+}
+
+// ---------------------------------------------------------------------------
+// Write confirmation (MCP 2026-07-28 multi-round-trip requests)
+//
+// Every apply_* tool below is a destructive write, so it asks a human to tick
+// an acknowledgement before it touches App Store Connect. Under the
+// 2026-07-28 revision a server can no longer PUSH an `elicitation/create` at
+// the client mid-handler; instead the handler RETURNS an `input_required`
+// result and the client re-issues the same tools/call carrying the answer in
+// `inputResponses`. Handlers therefore run twice: once to ask, once to act.
+//
+// Both eras are served by this one path — on a 2025-era connection the SDK's
+// legacy shim turns the returned `input_required` back into a real
+// server→client elicitation and re-enters the handler with the answer.
+//
+// Re-entry recomputes the proposal from the same tool arguments rather than
+// carrying it across the round trip, so no `requestState` is minted: there is
+// no server-side state to protect, and a re-read is the safer default anyway
+// (it re-checks live ASC prices right before writing).
+
+const ACKNOWLEDGE_FIELD = 'acknowledge';
+
+export type ConfirmationOutcome =
+  | { status: 'confirmed' }
+  | { status: 'ask'; result: InputRequiredResult }
+  | { status: 'declined'; action: string }
+  | { status: 'unsupported' };
+
+/**
+ * Decides whether a destructive apply may proceed on this pass.
+ *
+ * `ask` on the first pass, then `confirmed` / `declined` once the client
+ * comes back. `unsupported` covers both the client that advertises no
+ * elicitation capability and the client that retried without answering —
+ * neither can ever satisfy the prompt, so callers fall back to telling the
+ * user to re-run with `confirm: true`.
+ */
+export function resolveConfirmation(opts: {
+  server: McpServer;
+  mcpCtx: ServerContext;
+  key: string;
+  message: string;
+  ackTitle: string;
+}): ConfirmationOutcome {
+  const answer = inputResponse(opts.mcpCtx.mcpReq.inputResponses, opts.key);
+  if (answer.kind === 'elicit') {
+    if (answer.action === 'accept' && answer.content?.[ACKNOWLEDGE_FIELD] === true) {
+      return { status: 'confirmed' };
+    }
+    return { status: 'declined', action: answer.action };
+  }
+
+  // `inputResponses` is only populated on a retry. Present but missing our
+  // key means the client came back empty-handed; asking again would just
+  // burn round trips until the SDK's maxRounds cap.
+  if (opts.mcpCtx.mcpReq.inputResponses !== undefined) return { status: 'unsupported' };
+
+  if (opts.server.server.getClientCapabilities()?.elicitation === undefined) {
+    return { status: 'unsupported' };
+  }
+
+  return {
+    status: 'ask',
+    result: inputRequired({
+      inputRequests: {
+        [opts.key]: inputRequired.elicit({
+          message: opts.message,
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              [ACKNOWLEDGE_FIELD]: {
+                type: 'boolean',
+                title: opts.ackTitle,
+                description: 'Tick to enable Apply.',
+              },
+            },
+            required: [ACKNOWLEDGE_FIELD],
+          },
+        }),
+      },
+    }),
+  };
 }
 
 function fmtMoney(n: number | undefined): string {
@@ -861,7 +950,12 @@ interface ApplyScheduleArgs {
   fxRates?: Record<string, number>;
 }
 
-async function applyWholeSchedule(server: McpServer, client: ASCClient, args: ApplyScheduleArgs) {
+async function applyWholeSchedule(
+  server: McpServer,
+  mcpCtx: ServerContext,
+  client: ASCClient,
+  args: ApplyScheduleArgs,
+) {
   const cfg = args.resourceType === 'app' ? APP_SCHEDULE_CONFIG : IAP_SCHEDULE_CONFIG;
   const label = `${args.resourceType} ${args.resourceId}`;
 
@@ -991,43 +1085,32 @@ async function applyWholeSchedule(server: McpServer, client: ASCClient, args: Ap
   const drops = writable.filter((r) => (r.changePct ?? 0) < 0).length;
   const lifts = writable.filter((r) => (r.changePct ?? 0) > 0).length;
 
-  // Confirmation flow mirrors the subscription path. Try elicitation; fall
+  // Confirmation flow mirrors the subscription path. Ask via MRTR; fall
   // back to confirm:true; otherwise tell the caller to re-run.
   let confirmed = args.confirm;
   let confirmationSource: 'arg' | 'elicitation' = args.confirm ? 'arg' : 'arg';
   if (!confirmed) {
-    try {
-      const elicit = await server.server.elicitInput({
-        message: `Replace the entire ${args.resourceType} price schedule for ${args.resourceId} with ${scheduleEntries.length} entries (${changes} change${
-          changes === 1 ? '' : 's'
-        }: ${drops} drop${drops === 1 ? '' : 's'}, ${lifts} lift${lifts === 1 ? '' : 's'})?\n\nBase territory:  ${args.baseTerritory}${currentBaseId && currentBaseId !== args.baseTerritory ? ` (was ${currentBaseId} — pending changes will be deleted)` : ''}\nStart date:      ${args.startDate}\nLargest drop:    ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nWARNING: this REPLACES the entire schedule. Any manual override or pending price change not in the proposal will be wiped. ${args.resourceType === 'app' ? 'Apps' : 'IAPs'} have no grandfather mechanism — new prices activate atomically at each entry's startDate.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
-        requestedSchema: {
-          type: 'object',
-          properties: {
-            acknowledge: {
-              type: 'boolean',
-              title:
-                'I have reviewed the proposal above and understand it REPLACES the entire schedule',
-              description: 'Tick to enable Apply.',
-            },
+    const outcome = resolveConfirmation({
+      server,
+      mcpCtx,
+      key: 'ppp_apply_schedule_ack',
+      message: `Replace the entire ${args.resourceType} price schedule for ${args.resourceId} with ${scheduleEntries.length} entries (${changes} change${
+        changes === 1 ? '' : 's'
+      }: ${drops} drop${drops === 1 ? '' : 's'}, ${lifts} lift${lifts === 1 ? '' : 's'})?\n\nBase territory:  ${args.baseTerritory}${currentBaseId && currentBaseId !== args.baseTerritory ? ` (was ${currentBaseId} — pending changes will be deleted)` : ''}\nStart date:      ${args.startDate}\nLargest drop:    ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nWARNING: this REPLACES the entire schedule. Any manual override or pending price change not in the proposal will be wiped. ${args.resourceType === 'app' ? 'Apps' : 'IAPs'} have no grandfather mechanism — new prices activate atomically at each entry's startDate.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
+      ackTitle: 'I have reviewed the proposal above and understand it REPLACES the entire schedule',
+    });
+    if (outcome.status === 'ask') return outcome.result;
+    if (outcome.status === 'declined') {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${outcome.action}). No writes performed.`,
           },
-          required: ['acknowledge'],
-        },
-      });
-      if (elicit.action === 'accept' && elicit.content?.['acknowledge'] === true) {
-        confirmed = true;
-        confirmationSource = 'elicitation';
-      } else {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
-            },
-          ],
-        };
-      }
-    } catch {
+        ],
+      };
+    }
+    if (outcome.status === 'unsupported') {
       return {
         content: [
           {
@@ -1037,6 +1120,8 @@ async function applyWholeSchedule(server: McpServer, client: ASCClient, args: Ap
         ],
       };
     }
+    confirmed = true;
+    confirmationSource = 'elicitation';
   }
 
   // Single POST to the schedule endpoint. Apps and IAPs both fail or succeed
@@ -1092,6 +1177,7 @@ interface ApplyIntroOfferArgs {
 
 async function applyIntroOfferProposal(
   server: McpServer,
+  mcpCtx: ServerContext,
   client: ASCClient,
   args: ApplyIntroOfferArgs,
 ) {
@@ -1146,37 +1232,27 @@ async function applyIntroOfferProposal(
   let confirmed = args.confirm;
   let confirmationSource: 'arg' | 'elicitation' = args.confirm ? 'arg' : 'arg';
   if (!confirmed) {
-    try {
-      const elicit = await server.server.elicitInput({
-        message: `Create ${changes} introductory offer${
-          changes === 1 ? '' : 's'
-        } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:    ${args.subscriptionId}\nMode:            ${args.offerMode}\nDuration:        ${args.duration}${args.numberOfPeriods ? ` × ${args.numberOfPeriods} periods` : ''}\nStart date:      ${args.startDate}${args.endDate ? `\nEnd date:        ${args.endDate}` : ''}\nLargest Δ:       ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: each row creates a new offer. Apple returns 409 if an active offer already exists for the (sub, territory) cell — those will show as failed in the result table; pre-existing offers are not modified.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
-        requestedSchema: {
-          type: 'object',
-          properties: {
-            acknowledge: {
-              type: 'boolean',
-              title: 'I have reviewed the proposal above',
-              description: 'Tick to enable Apply.',
-            },
+    const outcome = resolveConfirmation({
+      server,
+      mcpCtx,
+      key: 'ppp_apply_intro_offers_ack',
+      message: `Create ${changes} introductory offer${
+        changes === 1 ? '' : 's'
+      } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:    ${args.subscriptionId}\nMode:            ${args.offerMode}\nDuration:        ${args.duration}${args.numberOfPeriods ? ` × ${args.numberOfPeriods} periods` : ''}\nStart date:      ${args.startDate}${args.endDate ? `\nEnd date:        ${args.endDate}` : ''}\nLargest Δ:       ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: each row creates a new offer. Apple returns 409 if an active offer already exists for the (sub, territory) cell — those will show as failed in the result table; pre-existing offers are not modified.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
+      ackTitle: 'I have reviewed the proposal above',
+    });
+    if (outcome.status === 'ask') return outcome.result;
+    if (outcome.status === 'declined') {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${outcome.action}). No writes performed.`,
           },
-          required: ['acknowledge'],
-        },
-      });
-      if (elicit.action === 'accept' && elicit.content?.['acknowledge'] === true) {
-        confirmed = true;
-        confirmationSource = 'elicitation';
-      } else {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
-            },
-          ],
-        };
-      }
-    } catch {
+        ],
+      };
+    }
+    if (outcome.status === 'unsupported') {
       return {
         content: [
           {
@@ -1186,6 +1262,8 @@ async function applyIntroOfferProposal(
         ],
       };
     }
+    confirmed = true;
+    confirmationSource = 'elicitation';
   }
 
   const applyResults = await concurrentMap(
@@ -1260,6 +1338,7 @@ interface ApplyPromoOfferArgs {
 
 async function applyPromoOfferProposal(
   server: McpServer,
+  mcpCtx: ServerContext,
   client: ASCClient,
   args: ApplyPromoOfferArgs,
 ) {
@@ -1372,37 +1451,27 @@ async function applyPromoOfferProposal(
   let confirmed = args.confirm;
   let confirmationSource: 'arg' | 'elicitation' = args.confirm ? 'arg' : 'arg';
   if (!confirmed) {
-    try {
-      const elicit = await server.server.elicitInput({
-        message: `Create promotional offer "${args.promoOfferCode}" (${args.promoOfferName}) with ${writable.length} per-territory price${
-          writable.length === 1 ? '' : 's'
-        } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:    ${args.subscriptionId}\nMode:            ${args.offerMode}\nDuration:        ${args.duration}${args.numberOfPeriods ? ` × ${args.numberOfPeriods} periods` : ''}\nLargest Δ:       ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: this is one atomic POST. The offer + all listed prices either all land or none do. After creation, only the prices can be PATCHed — name/code/mode/duration are immutable.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
-        requestedSchema: {
-          type: 'object',
-          properties: {
-            acknowledge: {
-              type: 'boolean',
-              title: 'I have reviewed the proposal above',
-              description: 'Tick to enable Apply.',
-            },
+    const outcome = resolveConfirmation({
+      server,
+      mcpCtx,
+      key: 'ppp_apply_promo_offer_ack',
+      message: `Create promotional offer "${args.promoOfferCode}" (${args.promoOfferName}) with ${writable.length} per-territory price${
+        writable.length === 1 ? '' : 's'
+      } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:    ${args.subscriptionId}\nMode:            ${args.offerMode}\nDuration:        ${args.duration}${args.numberOfPeriods ? ` × ${args.numberOfPeriods} periods` : ''}\nLargest Δ:       ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: this is one atomic POST. The offer + all listed prices either all land or none do. After creation, only the prices can be PATCHed — name/code/mode/duration are immutable.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
+      ackTitle: 'I have reviewed the proposal above',
+    });
+    if (outcome.status === 'ask') return outcome.result;
+    if (outcome.status === 'declined') {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${outcome.action}). No writes performed.`,
           },
-          required: ['acknowledge'],
-        },
-      });
-      if (elicit.action === 'accept' && elicit.content?.['acknowledge'] === true) {
-        confirmed = true;
-        confirmationSource = 'elicitation';
-      } else {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
-            },
-          ],
-        };
-      }
-    } catch {
+        ],
+      };
+    }
+    if (outcome.status === 'unsupported') {
       return {
         content: [
           {
@@ -1412,6 +1481,8 @@ async function applyPromoOfferProposal(
         ],
       };
     }
+    confirmed = true;
+    confirmationSource = 'elicitation';
   }
 
   // Build and send the single atomic POST.
@@ -1488,6 +1559,7 @@ interface ApplyOfferCodeArgs {
 
 async function applyOfferCodeProposal(
   server: McpServer,
+  mcpCtx: ServerContext,
   client: ASCClient,
   args: ApplyOfferCodeArgs,
 ) {
@@ -1595,37 +1667,27 @@ async function applyOfferCodeProposal(
   let confirmed = args.confirm;
   let confirmationSource: 'arg' | 'elicitation' = args.confirm ? 'arg' : 'arg';
   if (!confirmed) {
-    try {
-      const elicit = await server.server.elicitInput({
-        message: `Create offer-code campaign "${args.offerCodeName}" with ${writable.length} per-territory price${
-          writable.length === 1 ? '' : 's'
-        } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:     ${args.subscriptionId}\nCustomer cohorts: ${args.customerEligibilities.join(', ')}\nOffer eligibility: ${args.offerEligibility} (${args.offerEligibility === 'STACK_WITH_INTRO_OFFERS' ? 'stacks on top of any intro offer' : 'replaces any intro offer'})\nMode:             ${args.offerMode}\nDuration:         ${args.duration} × ${args.numberOfPeriods} period${args.numberOfPeriods === 1 ? '' : 's'}\nLargest Δ:        ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: one atomic POST. The campaign + all listed prices either all land or none do. After creation, every attribute except active is immutable — and Apple does NOT expose DELETE on this resource. Pick name/eligibilities/prices carefully; the row will live in App Store Connect permanently. Generate redeemable codes afterwards with asc_post_subscription_offer_code_one_time_use_codes.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
-        requestedSchema: {
-          type: 'object',
-          properties: {
-            acknowledge: {
-              type: 'boolean',
-              title: 'I have reviewed the proposal above',
-              description: 'Tick to enable Apply.',
-            },
+    const outcome = resolveConfirmation({
+      server,
+      mcpCtx,
+      key: 'ppp_apply_offer_code_ack',
+      message: `Create offer-code campaign "${args.offerCodeName}" with ${writable.length} per-territory price${
+        writable.length === 1 ? '' : 's'
+      } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:     ${args.subscriptionId}\nCustomer cohorts: ${args.customerEligibilities.join(', ')}\nOffer eligibility: ${args.offerEligibility} (${args.offerEligibility === 'STACK_WITH_INTRO_OFFERS' ? 'stacks on top of any intro offer' : 'replaces any intro offer'})\nMode:             ${args.offerMode}\nDuration:         ${args.duration} × ${args.numberOfPeriods} period${args.numberOfPeriods === 1 ? '' : 's'}\nLargest Δ:        ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: one atomic POST. The campaign + all listed prices either all land or none do. After creation, every attribute except active is immutable — and Apple does NOT expose DELETE on this resource. Pick name/eligibilities/prices carefully; the row will live in App Store Connect permanently. Generate redeemable codes afterwards with asc_post_subscription_offer_code_one_time_use_codes.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
+      ackTitle: 'I have reviewed the proposal above',
+    });
+    if (outcome.status === 'ask') return outcome.result;
+    if (outcome.status === 'declined') {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${outcome.action}). No writes performed.`,
           },
-          required: ['acknowledge'],
-        },
-      });
-      if (elicit.action === 'accept' && elicit.content?.['acknowledge'] === true) {
-        confirmed = true;
-        confirmationSource = 'elicitation';
-      } else {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `${renderProposalTable(ctx, label)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
-            },
-          ],
-        };
-      }
-    } catch {
+        ],
+      };
+    }
+    if (outcome.status === 'unsupported') {
       return {
         content: [
           {
@@ -1635,6 +1697,8 @@ async function applyOfferCodeProposal(
         ],
       };
     }
+    confirmed = true;
+    confirmationSource = 'elicitation';
   }
 
   const body = buildOfferCodeBody({
@@ -1692,9 +1756,9 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       title: 'Load Apple Music PPP index',
       description:
         'Returns the bundled Apple Music Individual plan price snapshot used by the ppp_* tools. Refresh by editing data/apple-music-prices.json upstream.',
-      inputSchema: {
+      inputSchema: z.object({
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ raw }) => {
       const index = loadIndex();
@@ -1722,7 +1786,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         'Compute a proposed per-territory price schedule using the bundled Apple Music index as the PPP signal. Read-only — does not write to App Store Connect. ' +
         'Works for subscriptions (resourceType: "subscription", default), paid apps (resourceType: "app"), IAPs (resourceType: "iap"), subscription introductory offers (resourceType: "introductoryOffer" — pass subscriptionId, offerMode, duration; PAY_AS_YOU_GO also needs numberOfPeriods), subscription promotional offers (resourceType: "promotionalOffer" — also needs promoOfferName and promoOfferCode), and subscription offer-code campaigns (resourceType: "offerCode" — also needs offerCodeName and customerEligibilities). FREE_TRIAL is rejected for offer types since there is no price to compute. ' +
         'Pair with ppp_apply_proposal to schedule changes.',
-      inputSchema: {
+      inputSchema: z.object({
         resourceType: z
           .enum([
             'subscription',
@@ -1802,7 +1866,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
             'Optional USER-SUPPLIED FX rates: USD value of ONE unit of each currency (e.g. {"BHD": 2.65, "KWD": 3.25, "OMR": 2.60}; USD implied 1). Rescues currency-mismatch territories (USD-billed storefronts where Apple Music prices in local currency) with a dimension-correct conversion — those rows are marked fx-adjusted (* on FACTOR). This server NEVER fetches rates from a third party; supply current rates yourself and keep them fresh.',
           ),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async (args) => {
       const subBased =
@@ -1982,7 +2046,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
         'Promotional offers are create-only — refuses if offerCode collides with an existing offer on the sub. ' +
         'Offer-code campaigns are create-only — per-territory prices are immutable post-create; refuses if campaign name collides on the subscription or if at the 10-campaign cap. ' +
         'By default, asks the user to confirm via MCP elicitation before any write. Pass confirm:true to bypass elicitation (useful in automation, or when the client lacks elicitation support).',
-      inputSchema: {
+      inputSchema: z.object({
         resourceType: z
           .enum([
             'subscription',
@@ -2085,9 +2149,12 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           .describe(
             "Apps/IAPs only — required true if baseTerritory differs from the resource's current base territory.",
           ),
-      },
+      }),
     },
-    async (args) => {
+    // `mcpCtx` carries the multi-round-trip input responses: this handler is
+    // re-entered with the user's acknowledgement after it returns
+    // `inputRequired(...)` from one of the confirmation paths below.
+    async (args, mcpCtx) => {
       // Offer-code campaigns are atomic: one POST creates the campaign +
       // all per-territory prices in /v1/subscriptionOfferCodes. Per-territory
       // prices are immutable post-create (unlike promo offers, which permit a
@@ -2144,7 +2211,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
             isError: true,
           };
         }
-        return applyOfferCodeProposal(server, client, {
+        return applyOfferCodeProposal(server, mcpCtx, client, {
           subscriptionId: args.subscriptionId,
           offerCodeName: args.offerCodeName,
           customerEligibilities: args.customerEligibilities,
@@ -2217,7 +2284,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
             isError: true,
           };
         }
-        return applyPromoOfferProposal(server, client, {
+        return applyPromoOfferProposal(server, mcpCtx, client, {
           subscriptionId: args.subscriptionId,
           offerMode: args.offerMode,
           duration: args.duration,
@@ -2286,7 +2353,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
             isError: true,
           };
         }
-        return applyIntroOfferProposal(server, client, {
+        return applyIntroOfferProposal(server, mcpCtx, client, {
           subscriptionId: args.subscriptionId,
           offerMode: args.offerMode,
           duration: args.duration,
@@ -2323,7 +2390,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
             isError: true,
           };
         }
-        return applyWholeSchedule(server, client, {
+        return applyWholeSchedule(server, mcpCtx, client, {
           resourceType: args.resourceType,
           resourceId,
           basePriceAnchor: args.basePriceAnchor,
@@ -2401,56 +2468,48 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       const drops = writable.filter((r) => (r.changePct ?? 0) < 0).length;
       const lifts = writable.filter((r) => (r.changePct ?? 0) > 0).length;
 
-      // Confirmation: try MCP elicitation first; if it fails or returns
-      // !accept, honour the user's choice. confirm:true bypasses entirely.
+      // Confirmation: ask via MRTR; if the client declines, honour the
+      // user's choice. confirm:true bypasses entirely.
       let confirmed = args.confirm;
       let confirmationSource: 'arg' | 'elicitation' | 'auto-fallback' = args.confirm
         ? 'arg'
         : 'auto-fallback';
 
       if (!confirmed) {
-        try {
-          const elicit = await server.server.elicitInput({
-            message: `Apply ${changes} subscription price change${
-              changes === 1 ? '' : 's'
-            } (${drops} drop${drops === 1 ? '' : 's'}, ${lifts} lift${lifts === 1 ? '' : 's'})?\n\nSubscription: ${subscriptionId}\nStart date:    ${startDate}\nPreserve:      ${args.preserveCurrentPrice}\nLargest drop:  ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\n${renderProposalTable(ctx, subscriptionId, { pointIdMode: 'none' })}`,
-            requestedSchema: {
-              type: 'object',
-              properties: {
-                acknowledge: {
-                  type: 'boolean',
-                  title: 'I have reviewed the proposal above',
-                  description: 'Tick to enable Apply.',
-                },
-              },
-              required: ['acknowledge'],
-            },
-          });
-          if (elicit.action === 'accept' && elicit.content?.['acknowledge'] === true) {
-            confirmed = true;
-            confirmationSource = 'elicitation';
-          } else {
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: `${renderProposalTable(ctx, subscriptionId)}\n\nCancelled by user (${elicit.action}). No writes performed.`,
-                },
-              ],
-            };
-          }
-        } catch {
-          // Client doesn't support elicitation — surface the proposal and
-          // tell the caller to re-run with confirm:true.
+        const outcome = resolveConfirmation({
+          server,
+          mcpCtx,
+          key: 'ppp_apply_subscription_prices_ack',
+          message: `Apply ${changes} subscription price change${
+            changes === 1 ? '' : 's'
+          } (${drops} drop${drops === 1 ? '' : 's'}, ${lifts} lift${lifts === 1 ? '' : 's'})?\n\nSubscription: ${subscriptionId}\nStart date:    ${startDate}\nPreserve:      ${args.preserveCurrentPrice}\nLargest drop:  ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\n${renderProposalTable(ctx, subscriptionId, { pointIdMode: 'none' })}`,
+          ackTitle: 'I have reviewed the proposal above',
+        });
+        if (outcome.status === 'ask') return outcome.result;
+        if (outcome.status === 'declined') {
           return {
             content: [
               {
-                type: 'text',
+                type: 'text' as const,
+                text: `${renderProposalTable(ctx, subscriptionId)}\n\nCancelled by user (${outcome.action}). No writes performed.`,
+              },
+            ],
+          };
+        }
+        if (outcome.status === 'unsupported') {
+          // Client can't elicit — surface the proposal and tell the caller
+          // to re-run with confirm:true.
+          return {
+            content: [
+              {
+                type: 'text' as const,
                 text: `${renderProposalTable(ctx, subscriptionId)}\n\nClient does not support MCP elicitation. To apply, re-run with confirm: true (and the same args) — only after a human has reviewed the table above.`,
               },
             ],
           };
         }
+        confirmed = true;
+        confirmationSource = 'elicitation';
       }
 
       // Apply.

@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestWebhookDeliveries, digestWebhooks } from '../digest.js';
@@ -199,11 +199,11 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
       title: 'List webhooks of an app',
       description:
         'GET /v1/apps/{id}/webhooks — every webhook configured on the app: name, enabled state, endpoint URL, subscribed event types, and ID. The secret is write-only and never appears. Webhooks are per-app; list each app separately.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(500).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -226,9 +226,9 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
       title: 'Get a webhook',
       description:
         'GET /v1/webhooks/{id} — one webhook with its app relationship. The secret is write-only and never returned. For delivery history use asc_list_webhook_deliveries.',
-      inputSchema: {
+      inputSchema: z.object({
         webhookId: WebhookIdSchema,
-      },
+      }),
     },
     async ({ webhookId }) => {
       const path = `/v1/webhooks/${encodeURIComponent(webhookId)}?include=app`;
@@ -247,7 +247,7 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
       title: 'Create a webhook',
       description:
         'POST /v1/webhooks — register an HTTPS endpoint to receive App Store Connect event notifications for ONE app. ALL FIVE attributes are required: name, url (HTTPS), secret (HMAC-SHA256 signing key — store it on the receiving side first; it is write-only and never readable back), eventTypes (at least one of the 12), enabled. After creating, verify the endpoint with asc_post_webhook_ping. Useful pairing: BETA_FEEDBACK_*_CREATED events + the v0.16 asc_list_beta_feedback_* read tools.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         name: z.string().min(1).describe('Display name for the webhook in App Store Connect.'),
         url: z
@@ -263,7 +263,7 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
           .boolean()
           .default(true)
           .describe('false: create the webhook paused (no deliveries until enabled via PATCH).'),
-      },
+      }),
     },
     async (input) => {
       const body = buildWebhookCreateBody({
@@ -299,7 +299,7 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
       title: 'Patch a webhook',
       description:
         'PATCH /v1/webhooks/{id} — mutate name, url, secret (rotation), eventTypes (whole-array replace), or enabled (pause/resume deliveries). All attributes optional; pass at least one. Rotating the secret: update the receiving side FIRST, then PATCH — deliveries signed with the new secret start immediately.',
-      inputSchema: {
+      inputSchema: z.object({
         webhookId: WebhookIdSchema,
         name: z.string().min(1).optional(),
         url: z.string().url().optional(),
@@ -310,7 +310,7 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
           .optional()
           .describe('REPLACES the whole subscribed set — include every type you want to keep.'),
         enabled: z.boolean().optional().describe('false pauses deliveries; true resumes.'),
-      },
+      }),
     },
     async (input) => {
       const anyField = [input.name, input.url, input.secret, input.eventTypes, input.enabled].some(
@@ -360,9 +360,9 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
       title: 'Delete a webhook',
       description:
         'DELETE /v1/webhooks/{id} — permanently remove the webhook and stop all deliveries. Delivery history is gone with it. To pause instead of delete, PATCH enabled=false.',
-      inputSchema: {
+      inputSchema: z.object({
         webhookId: WebhookIdSchema,
-      },
+      }),
     },
     async ({ webhookId }) => {
       try {
@@ -382,7 +382,7 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
       title: 'List webhook deliveries',
       description:
         "GET /v1/webhooks/{id}/deliveries — per-attempt delivery records: state (SUCCEEDED / FAILED / PENDING), event type, sent date, response HTTP status, error message, and whether the attempt was a redelivery. Filter by state and createdDate window to find failures ('list FAILED deliveries since yesterday'), then retry them with asc_post_webhook_redelivery. Apple REQUIRES the createdAfterOrAt filter (observed live) — when omitted, this tool defaults it to the widest window Apple accepts (~10 days back). Apple retains delivery history for 10 days at most.",
-      inputSchema: {
+      inputSchema: z.object({
         webhookId: WebhookIdSchema,
         deliveryStates: z
           .array(WebhookDeliveryStateSchema)
@@ -402,7 +402,7 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
           ),
         maxItems: z.number().int().positive().max(2000).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async (input) => {
       // Apple REQUIRES the gte filter — default to the widest accepted
@@ -431,11 +431,11 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
       title: 'Retry a webhook delivery',
       description:
         'POST /v1/webhookDeliveries — re-send a previous delivery (typically a FAILED one from asc_list_webhook_deliveries). The body carries only a `template` relationship pointing at the existing delivery; Apple creates a NEW delivery attempt with redelivery=true. The original record is untouched.',
-      inputSchema: {
+      inputSchema: z.object({
         templateDeliveryId: WebhookDeliveryIdSchema.describe(
           'The existing delivery to re-send (its ID from asc_list_webhook_deliveries).',
         ),
-      },
+      }),
     },
     async ({ templateDeliveryId }) => {
       const body = buildWebhookRedeliveryBody(templateDeliveryId);
@@ -464,9 +464,9 @@ export function registerWebhooks(server: McpServer, client: ASCClient): void {
       title: 'Send a test ping to a webhook',
       description:
         'POST /v1/webhookPings — have Apple send a test event to the webhook endpoint NOW (arrives with ping=true in the payload). The response resource is id-only; check the result via asc_list_webhook_deliveries (the ping shows up as a delivery). Use right after create/patch to verify the endpoint + signature handling.',
-      inputSchema: {
+      inputSchema: z.object({
         webhookId: WebhookIdSchema,
-      },
+      }),
     },
     async ({ webhookId }) => {
       const body = buildWebhookPingBody(webhookId);

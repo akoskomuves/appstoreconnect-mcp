@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -150,13 +150,13 @@ export function registerBetaReview(server: McpServer, client: ASCClient): void {
       title: 'List beta app review submissions',
       description:
         "List beta-app-review submissions across the team, with the optional buildId filter to narrow to a single build's submissions (typically 0 or 1 per build — re-submissions are rare). Each row shows betaReviewState (WAITING_FOR_REVIEW / IN_REVIEW / APPROVED / REJECTED) and submittedDate.",
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema.optional().describe(
           "Optional filter to one build. Apple's filter[build]={id} parameter on /v1/betaAppReviewSubmissions.",
         ),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ buildId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -180,9 +180,9 @@ export function registerBetaReview(server: McpServer, client: ASCClient): void {
       title: 'Get a beta app review submission',
       description:
         'Fetch a single BetaAppReviewSubmission with the build relationship expanded. Use to check current betaReviewState — APPROVED unlocks external distribution, REJECTED requires re-submission after fixes.',
-      inputSchema: {
+      inputSchema: z.object({
         betaAppReviewSubmissionId: BetaAppReviewSubmissionIdSchema,
-      },
+      }),
     },
     async ({ betaAppReviewSubmissionId }) => {
       const path = `/v1/betaAppReviewSubmissions/${encodeURIComponent(betaAppReviewSubmissionId)}?include=build`;
@@ -202,9 +202,9 @@ export function registerBetaReview(server: McpServer, client: ASCClient): void {
       description:
         'Submit a build for Apple beta review. Required: buildId. The body has NO attributes — only the build relationship. Once submitted, betaReviewState walks WAITING_FOR_REVIEW → IN_REVIEW → APPROVED (or REJECTED), typically over 24-48h. ' +
         "Preconditions Apple enforces server-side: build must be VALID processingState, the per-app BetaAppReviewDetail must have contact info + demo account (if demoAccountRequired=true), and the BetaAppLocalization for at least one locale must exist. The MCP server does NOT pre-flight these — Apple's error message is the source of truth.",
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
-      },
+      }),
     },
     async ({ buildId }) => {
       const body = buildBetaAppReviewSubmissionCreateBody({ buildId });
@@ -235,13 +235,13 @@ export function registerBetaReview(server: McpServer, client: ASCClient): void {
       title: 'List beta app review details (typically one per app)',
       description:
         'List BetaAppReviewDetail records. Filter by appId to scope to one app (typically returns one record per app). The detail record persists across builds — same contact info + demo account + notes are reused for every submission unless you patch it.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema.optional().describe(
           "Optional filter. Apple's filter[app]={id} parameter on /v1/betaAppReviewDetails.",
         ),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -265,9 +265,9 @@ export function registerBetaReview(server: McpServer, client: ASCClient): void {
       title: 'Get a beta app review detail',
       description:
         'Fetch the per-app BetaAppReviewDetail. Returns contact info + demo account + notes + demoAccountRequired flag. Apple stores demo passwords in cleartext on this record — treat it as a secret; rotate after each review cycle.',
-      inputSchema: {
+      inputSchema: z.object({
         betaAppReviewDetailId: BetaAppReviewDetailIdSchema,
-      },
+      }),
     },
     async ({ betaAppReviewDetailId }) => {
       const path = `/v1/betaAppReviewDetails/${encodeURIComponent(betaAppReviewDetailId)}`;
@@ -287,7 +287,7 @@ export function registerBetaReview(server: McpServer, client: ASCClient): void {
       description:
         "Update the contact info, demo account, and notes on a BetaAppReviewDetail. All eight attrs are individually optional (encodeIfPresent). Set demoAccountRequired=true ONLY when the app gates content behind login — Apple's reviewer will use the demo credentials. Set demoAccountRequired=false to skip demo credential rendering on the review tool (omit demoAccountName/Password if so). " +
         'Wire-key note: `demoAccountRequired` is the on-the-wire name (Apple strips the `is` prefix). Tool layer refuses empty PATCH.',
-      inputSchema: {
+      inputSchema: z.object({
         betaAppReviewDetailId: BetaAppReviewDetailIdSchema,
         contactFirstName: ContactFirstNameSchema.optional(),
         contactLastName: ContactLastNameSchema.optional(),
@@ -302,7 +302,7 @@ export function registerBetaReview(server: McpServer, client: ASCClient): void {
             'true: Apple reviewer is shown demo credentials. Requires demoAccountName + demoAccountPassword to be set (current values, or pass in the same PATCH). false: reviewer reaches the app without credentials.',
           ),
         notes: ReviewNotesSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const anyField = [
@@ -370,13 +370,13 @@ export function registerBetaReview(server: McpServer, client: ASCClient): void {
       title: 'List pre-release versions',
       description:
         'List pre-release versions (one per version string Apple has seen, across all platforms). Pass appId to scope to one app. Useful for grouping builds by version train (e.g. find every build of "2.5.0"). The /v1/preReleaseVersions resource is read-only — Apple creates and ages these records automatically based on uploaded builds.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema.optional().describe(
           'Optional. When provided, list via /v1/apps/{id}/preReleaseVersions (scoped).',
         ),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -401,9 +401,9 @@ export function registerBetaReview(server: McpServer, client: ASCClient): void {
       title: 'Get a pre-release version',
       description:
         'Fetch a single PreReleaseVersion with its builds relationship expanded. Returns version + platform + the to-many builds linkage. Read-only.',
-      inputSchema: {
+      inputSchema: z.object({
         preReleaseVersionId: PreReleaseVersionIdSchema,
-      },
+      }),
     },
     async ({ preReleaseVersionId }) => {
       const path = `/v1/preReleaseVersions/${encodeURIComponent(preReleaseVersionId)}?include=builds,app`;

@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestBuilds } from '../digest.js';
@@ -108,7 +108,7 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
       title: 'List TestFlight builds',
       description:
         "List TestFlight builds. Pass appId to scope to a single app (the common case — Apple paginates global build lists across the whole team). Optional processingState filter narrows to a single state (VALID is usually what you want — that's the testable subset). The digest shows version + processingState + uploadedDate + expiration in a compact table.",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema.optional().describe(
           'When provided, list via /v1/apps/{id}/builds (scoped). When omitted, list via /v1/builds (team-wide — typically large; pair with processingState to narrow).',
         ),
@@ -117,7 +117,7 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
         ),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, processingState, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -149,10 +149,10 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
       title: 'Get a TestFlight build',
       description:
         'Fetch a single build with relationships expanded (app + preReleaseVersion + buildBetaDetail + betaBuildLocalizations + betaGroups + betaAppReviewSubmission). Useful before deciding to retire, assign to a group, or submit for beta review.',
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ buildId, raw: _raw }) => {
       const path = `/v1/builds/${encodeURIComponent(
@@ -174,7 +174,7 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
       description:
         "Mutate a build's `expired` flag (retire a build early — Apple normally expires 90 days after upload, but security holes or broken releases warrant immediate retirement) or `usesNonExemptEncryption` (compliance flag required before some submissions). " +
         "Apple's PATCH schema on this resource ONLY accepts these two attributes — version/minOsVersion/processingState/etc are all immutable. Pass at least one of the two flags; omitting both no-ops at the wire (Apple returns the unchanged resource).",
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
         expired: z
           .boolean()
@@ -188,7 +188,7 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
           .describe(
             'Compliance flag. Set to declare the build uses encryption outside the OS-provided exemptions (e.g. custom crypto). Many TestFlight flows refuse external distribution until this is explicitly set true or false.',
           ),
-      },
+      }),
     },
     async ({ buildId, expired, usesNonExemptEncryption }) => {
       if (expired === undefined && usesNonExemptEncryption === undefined) {
@@ -240,9 +240,9 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
       title: "Get a build's BuildBetaDetail companion record",
       description:
         'Fetch the BuildBetaDetail for a build — carries `autoNotifyEnabled` (whether Apple auto-pushes the build to assigned testers on availability) + `internalBuildState` + `externalBuildState` (Apple-managed beta-review reflections). The state fields are read-only; PATCH this resource via asc_patch_build_beta_detail to toggle autoNotifyEnabled.',
-      inputSchema: {
+      inputSchema: z.object({
         buildBetaDetailId: BuildBetaDetailIdSchema,
-      },
+      }),
     },
     async ({ buildBetaDetailId }) => {
       const params = new URLSearchParams();
@@ -266,14 +266,14 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
       description:
         'Toggle `autoNotifyEnabled` on a BuildBetaDetail — when true, Apple pushes a TestFlight notification to every assigned tester the moment the build clears review + processing. ' +
         "Apple's PATCH schema on this resource ONLY accepts autoNotifyEnabled; internal/external build state attrs are Apple-managed reflections of review state and rejected from PATCH bodies.",
-      inputSchema: {
+      inputSchema: z.object({
         buildBetaDetailId: BuildBetaDetailIdSchema,
         autoNotifyEnabled: z
           .boolean()
           .describe(
             'true: Apple auto-pushes notifications to testers when the build becomes available. false: testers only see the build when they manually refresh TestFlight or you trigger a notification separately.',
           ),
-      },
+      }),
     },
     async ({ buildBetaDetailId, autoNotifyEnabled }) => {
       const body = buildBuildBetaDetailPatchBody({ buildBetaDetailId, autoNotifyEnabled });

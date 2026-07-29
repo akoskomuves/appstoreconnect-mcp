@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestDiagnosticSignatures } from '../digest.js';
@@ -68,12 +68,12 @@ export function registerDiagnostics(server: McpServer, client: ASCClient): void 
       title: 'List diagnostic signatures of a build',
       description:
         "GET /v1/builds/{id}/diagnosticSignatures — Apple's aggregated problem hotspots for one build (DISK_WRITES / HANGS / LAUNCHES), weighted by impact (weight sums to ~1 per type). Drill a signature's anonymized call stacks with asc_get_diagnostic_logs. Populates only with enough opted-in usage — empty on small apps is normal.",
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
         diagnosticType: DiagnosticTypeSchema.optional(),
         maxItems: z.number().int().positive().max(500).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ buildId, diagnosticType, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -97,7 +97,7 @@ export function registerDiagnostics(server: McpServer, client: ASCClient): void 
       title: 'Get the call-stack logs of a diagnostic signature',
       description:
         'GET /v1/diagnosticSignatures/{id}/logs — the anonymized call-stack documents behind one signature. NOT JSON:API: content type application/vnd.apple.diagnostic-logs+json with callStackTree nodes. Returned as raw JSON (capped at maxChars).',
-      inputSchema: {
+      inputSchema: z.object({
         signatureId: DiagnosticSignatureIdSchema,
         limit: z
           .number()
@@ -107,7 +107,7 @@ export function registerDiagnostics(server: McpServer, client: ASCClient): void 
           .default(50)
           .describe('Max log documents Apple returns.'),
         maxChars: z.number().int().positive().max(1_000_000).default(200_000),
-      },
+      }),
     },
     async ({ signatureId, limit, maxChars }) => {
       const path = `/v1/diagnosticSignatures/${encodeURIComponent(signatureId)}/logs?limit=${limit}`;
@@ -128,7 +128,7 @@ export function registerDiagnostics(server: McpServer, client: ASCClient): void 
       title: 'Get perf/power metrics of an app',
       description:
         'GET /v1/apps/{id}/perfPowerMetrics — Xcode-metrics percentile curves (LAUNCH, MEMORY, BATTERY, HANG, DISK, ANIMATION, TERMINATION, STORAGE) per device class, rolling across recent versions. NOT JSON:API: content type application/vnd.apple.xcode-metrics+json, returned as raw JSON (capped at maxChars). Narrow with metricType/deviceType (e.g. deviceType "iPhone15,2") — the full document is large.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         metricType: PerfMetricTypeSchema.optional(),
         deviceType: z
@@ -136,7 +136,7 @@ export function registerDiagnostics(server: McpServer, client: ASCClient): void 
           .optional()
           .describe('Device identifier filter, e.g. "iPhone15,2" or "all_iphones".'),
         maxChars: z.number().int().positive().max(1_000_000).default(150_000),
-      },
+      }),
     },
     async ({ appId, metricType, deviceType, maxChars }) => {
       const params = buildPerfPowerMetricsQuery({
@@ -160,12 +160,12 @@ export function registerDiagnostics(server: McpServer, client: ASCClient): void 
       title: 'Get perf/power metrics of a build',
       description:
         'GET /v1/builds/{id}/perfPowerMetrics — same Xcode-metrics document as the app-level tool but scoped to ONE build (compare a new build against the app-level rolling baseline). Same filters and raw-JSON output.',
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
         metricType: PerfMetricTypeSchema.optional(),
         deviceType: z.string().optional(),
         maxChars: z.number().int().positive().max(1_000_000).default(150_000),
-      },
+      }),
     },
     async ({ buildId, metricType, deviceType, maxChars }) => {
       const params = buildPerfPowerMetricsQuery({

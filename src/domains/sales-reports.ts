@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { ASCError } from '../errors.js';
@@ -156,7 +156,7 @@ export function registerSalesReports(server: McpServer, client: ASCClient): void
       title: 'Download a sales report',
       description:
         'GET /v1/salesReports — gzipped TSV download, NOT a JSON:API list. Pick reportType (SALES = units by day/week/month; SUBSCRIPTION = active sub counts; SUBSCRIPTION_EVENT = renew/cancel events; SUBSCRIBER = per-subscriber detail; INSTALLS, PRE_ORDER, …), reportSubType, frequency, and reportDate matching the frequency granularity (DAILY/WEEKLY → YYYY-MM-DD, MONTHLY → YYYY-MM, YEARLY → YYYY). Omit reportDate for the latest available — SALES-family only; subscription-family types have NO latest-default on Apple\'s side (observed live), so the tool defaults their DAILY date to yesterday. Subscription-family types also require filter[version] — the tool auto-retries with the version Apple names. Returns a header + row preview; use saveTo for the full file. Apple 404s with "there were no sales" when no data exists for that date — absence, not a malformed request.',
-      inputSchema: {
+      inputSchema: z.object({
         vendorNumber: VendorNumberSchema.optional(),
         reportType: SalesReportTypeSchema,
         reportSubType: SalesReportSubTypeSchema.default('SUMMARY'),
@@ -179,7 +179,7 @@ export function registerSalesReports(server: McpServer, client: ASCClient): void
           .string()
           .optional()
           .describe('Absolute file path — write the full decoded TSV there instead of inlining.'),
-      },
+      }),
     },
     async (input) => {
       const vendorNumber = resolveVendorNumber(input.vendorNumber);
@@ -244,7 +244,7 @@ export function registerSalesReports(server: McpServer, client: ASCClient): void
       title: 'Download a finance report',
       description:
         'GET /v1/financeReports — gzipped TSV download of Apple\'s monthly financial report (what Apple actually pays out, post-commission, in payout currency). ALL params required by Apple: regionCode (a currency/region like "US", "EU", "JP" — or "ZZ" for the consolidated all-regions FINANCIAL report), reportDate (YYYY-MM, Apple\'s FISCAL months — Apple\'s fiscal calendar is offset from calendar months), reportType FINANCIAL or FINANCE_DETAIL (FINANCE_DETAIL only supports regionCode Z1). Returns header + row preview; saveTo for the full file.',
-      inputSchema: {
+      inputSchema: z.object({
         vendorNumber: VendorNumberSchema.optional(),
         regionCode: FinanceRegionCodeSchema,
         reportDate: z
@@ -260,7 +260,7 @@ export function registerSalesReports(server: McpServer, client: ASCClient): void
         maxRows: z.number().int().positive().max(500).default(50),
         raw: z.boolean().default(false),
         saveTo: z.string().optional(),
-      },
+      }),
     },
     async (input) => {
       const vendorNumber = resolveVendorNumber(input.vendorNumber);

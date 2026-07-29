@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppPricePoints, digestAppPrices } from '../digest.js';
@@ -41,11 +41,11 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
       title: 'List app prices',
       description:
         'List the current price schedule for a paid app across territories. Returns both manual (per-territory) overrides and automatic prices derived from the base territory. Auto-paginates; pass raw:true for the full JSON:API payload.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       // Apple's /apps/{id}/appPriceSchedule rejects:
@@ -75,7 +75,7 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
       description:
         'List the valid price points a paid app can be set to in a given territory. Apple rotates these IDs; cache only within a single run. ' +
         'Pass nearAmount when you already know the target price — the response is narrowed to the nearest tiers client-side (Apple does not support a near-amount filter server-side, so the full list is still paginated but only the nearest tiers are surfaced).',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         territoryId: TerritoryIdSchema,
         maxItems: z.number().int().positive().max(5000).default(1000),
@@ -94,7 +94,7 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
           .default(10)
           .describe('Max tiers to return when nearAmount is set.'),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, territoryId, maxItems, nearAmount, nearCount, raw }) => {
       const params = new URLSearchParams();
@@ -132,7 +132,7 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
         'Changing `baseTerritory` from the current value deletes any pending scheduled price changes (Apple behavior); ' +
         'set `acknowledgeDeletesScheduledIfBaseChanges: true` if you intend that. ' +
         "Apps have NO grandfather mechanism — new prices activate atomically at each entry's startDate.",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         baseTerritory: TerritoryIdSchema,
         prices: z
@@ -163,7 +163,7 @@ export function registerAppPricing(server: McpServer, client: ASCClient): void {
           .describe(
             "Required `true` if `baseTerritory` differs from the app's current base territory. Apple deletes pending scheduled changes when the base changes.",
           ),
-      },
+      }),
     },
     async ({ appId, baseTerritory, prices, acknowledgeDeletesScheduledIfBaseChanges }) => {
       // Pre-flight: the new schedule must include at least one entry for

@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestApps, digestSingle } from '../digest.js';
@@ -15,11 +15,11 @@ export function registerApps(server: McpServer, client: ASCClient): void {
       title: 'List apps',
       description:
         'List apps on the App Store Connect account. Returns a compact table by default; pass raw:true to get the full JSON:API response.',
-      inputSchema: {
+      inputSchema: z.object({
         bundleId: BundleIdSchema.optional(),
         maxItems: z.number().int().positive().max(2000).default(1000),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ bundleId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -37,10 +37,10 @@ export function registerApps(server: McpServer, client: ASCClient): void {
     {
       title: 'Get app',
       description: 'Fetch a single app by its App Store Connect ID.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, raw }) => {
       const params = new URLSearchParams();

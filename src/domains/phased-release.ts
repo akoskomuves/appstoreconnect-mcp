@@ -1,4 +1,5 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
+import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { ASCError } from '../errors.js';
 import {
@@ -104,9 +105,9 @@ export function registerPhasedRelease(server: McpServer, client: ASCClient): voi
       title: 'Get the phased release for an App Store version',
       description:
         "Fetch the AppStoreVersionPhasedRelease attached to an AppStoreVersion. Returns the current phasedReleaseState (INACTIVE / ACTIVE / PAUSED / COMPLETE), startDate, totalPauseDuration (seconds the rollout has been paused), and currentDayNumber (how many days into Apple's 7-day rollout the release is on). Returns `{ data: null }` if no phased release is attached (NOT a 404).",
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionId: AppStoreVersionIdSchema,
-      },
+      }),
     },
     async ({ appStoreVersionId }) => {
       const path = `/v1/appStoreVersions/${encodeURIComponent(appStoreVersionId)}/appStoreVersionPhasedRelease?fields[appStoreVersionPhasedReleases]=${PHASED_RELEASE_FIELDS}`;
@@ -125,10 +126,10 @@ export function registerPhasedRelease(server: McpServer, client: ASCClient): voi
       title: 'Create / start a phased release on an App Store version',
       description:
         "Create a new AppStoreVersionPhasedRelease attached to an AppStoreVersion. Required: appStoreVersionId. Optional: phasedReleaseState — pass `ACTIVE` to start the rollout immediately, omit to land in INACTIVE. NO-ATTRS-BLOCK GOTCHA: when state is omitted, the body builder omits the entire `attributes` key (Apple rejects bare attrs:{}). Apple's rollout schedule: 1% day 1, 2% day 2, 5% day 3, 10% day 4, 20% day 5, 50% day 6, 100% day 7.",
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionId: AppStoreVersionIdSchema,
         phasedReleaseState: PhasedReleaseStateSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildPhasedReleaseCreateBody({
@@ -162,10 +163,10 @@ export function registerPhasedRelease(server: McpServer, client: ASCClient): voi
       title: 'Change the state of a phased release (pause / resume / complete)',
       description:
         "PATCH the phasedReleaseState on an existing AppStoreVersionPhasedRelease. Apple's valid transitions: INACTIVE → ACTIVE (start the rollout), ACTIVE ↔ PAUSED (developer pause / resume), ACTIVE → COMPLETE (force immediate 100% rollout). Apple rejects invalid transitions with a clear error — pass through. This is the only mutable attr.",
-      inputSchema: {
+      inputSchema: z.object({
         phasedReleaseId: PhasedReleaseIdSchema,
         phasedReleaseState: PhasedReleaseStateSchema,
-      },
+      }),
     },
     async (input) => {
       const body = buildPhasedReleasePatchBody({
@@ -197,9 +198,9 @@ export function registerPhasedRelease(server: McpServer, client: ASCClient): voi
       title: 'Cancel / delete a phased release',
       description:
         'DELETE an AppStoreVersionPhasedRelease — cancels the staged rollout and reverts the version to standard immediate release (all users on the next App Store refresh). Apple may refuse if the rollout has already reached COMPLETE.',
-      inputSchema: {
+      inputSchema: z.object({
         phasedReleaseId: PhasedReleaseIdSchema,
-      },
+      }),
     },
     async ({ phasedReleaseId }) => {
       try {
