@@ -657,7 +657,7 @@ export const AppInfoIdSchema = z
   .string()
   .min(1)
   .describe(
-    "AppInfo ID from /v1/apps/{id}/appInfos. Per-app metadata layer above the version: carries primary/secondary categories (+ subcategories one/two) and appStoreAgeRating. (kidsAgeBand was REMOVED from Apple's contract.) Apple manages create/delete automatically (typically one per app, sometimes more across NOTARIZATION/APP_STORE tracks); only PATCH is exposed for setting category relationships.",
+    'AppInfo ID from /v1/apps/{id}/appInfos. Per-app metadata layer above the version: carries primary/secondary categories (+ subcategories one/two) and appStoreAgeRating. (kidsAgeBand was removed from AppInfo specifically — it lives on the age-rating declaration, reachable via asc_get_age_rating_declaration.) Apple manages create/delete automatically (typically one per app, sometimes more across NOTARIZATION/APP_STORE tracks); only PATCH is exposed for setting category relationships. The AppInfo ID doubles as the AgeRatingDeclaration ID.',
   );
 
 export const AppInfoLocalizationIdSchema = z
@@ -1532,4 +1532,46 @@ export const MarketplaceWebhookIdSchema = z
   .min(1)
   .describe(
     'MarketplaceWebhook ID from /v1/marketplaceWebhooks. Team-level webhook for marketplace apps (alternative app stores) — Apple notifies the marketplace about app updates. endpointUrl + write-only secret (HMAC), same secret semantics as v0.17 app webhooks.',
+  );
+
+// ---------------------------------------------------------------------------
+// Age rating declarations
+//
+// The declaration hangs off AppInfo, NOT AppStoreVersion
+// (/v1/appStoreVersions/{id}/ageRatingDeclaration 404s — verified live
+// 2026-07-30), and its `id` IS the appInfo id (another entry in the
+// "Apple resource ids are not always opaque" family).
+//
+// Three value vocabularies across 29 attributes: a shared content-frequency
+// enum, three rating-override enums, and plain booleans.
+
+export const AgeRatingDeclarationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AgeRatingDeclaration ID. Equal to the AppInfo ID it belongs to — read it from /v1/apps/{id}/appInfos, or let asc_patch_age_rating_declaration resolve it for you by passing appId.',
+  );
+
+export const AgeRatingFrequencySchema = z
+  .enum(['NONE', 'INFREQUENT_OR_MILD', 'FREQUENT_OR_INTENSE', 'INFREQUENT', 'FREQUENT'])
+  .describe(
+    'How often/intensely this content appears. NONE = absent. INFREQUENT_OR_MILD / FREQUENT_OR_INTENSE are the pair Apple uses for most categories; INFREQUENT / FREQUENT appear on newer categories. Raising any of these raises the computed age rating.',
+  );
+
+export const AgeRatingOverrideV2Schema = z
+  .enum(['NONE', 'NINE_PLUS', 'THIRTEEN_PLUS', 'SIXTEEN_PLUS', 'EIGHTEEN_PLUS', 'UNRATED'])
+  .describe(
+    "Raise the app's rating ABOVE what the questionnaire computes (you can never lower it). NONE = use the computed rating. UNRATED withholds a rating in territories that require one. Note EIGHTEEN_PLUS — the deprecated v1 attribute used SEVENTEEN_PLUS instead.",
+  );
+
+export const KoreaAgeRatingOverrideSchema = z
+  .enum(['NONE', 'FIFTEEN_PLUS', 'NINETEEN_PLUS'])
+  .describe(
+    'Korea-specific rating override, applied only in the Korean storefront. NONE = use the computed rating.',
+  );
+
+export const KidsAgeBandSchema = z
+  .enum(['FIVE_AND_UNDER', 'SIX_TO_EIGHT', 'NINE_TO_ELEVEN'])
+  .describe(
+    'Kids Category age band. Set ONLY if the app is in the Kids category — it brings extra App Review requirements (no third-party analytics/ads without parental gate). Lives on the age-rating declaration; it was removed from AppInfo, which is a different resource.',
   );

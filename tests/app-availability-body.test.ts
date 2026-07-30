@@ -4,7 +4,9 @@ import {
   buildAppAvailabilityV2CreateBody,
   buildEndAppAvailabilityPreOrderBody,
   buildTerritoryAvailabilityPatchBody,
+  explainAvailability404,
 } from '../src/domains/app-availability.js';
+import { ASCError } from '../src/errors.js';
 import { TerritoryAvailabilityIdSchema } from '../src/schemas.js';
 
 // Pin the wire shape for AppAvailabilityV2 + EndAppAvailabilityPreOrder.
@@ -161,5 +163,34 @@ describe('TerritoryAvailabilityIdSchema — bare-code guard', () => {
     // Only the exact bare-code shape is refused — no over-eager matching.
     expect(TerritoryAvailabilityIdSchema.safeParse('usa').success).toBe(true);
     expect(TerritoryAvailabilityIdSchema.safeParse('USAX').success).toBe(true);
+  });
+});
+
+describe('explainAvailability404', () => {
+  // Measured across 11 real apps 2026-07-30: the availability record appears
+  // at FIRST SUBMISSION, not at publish. An app in PREPARE_FOR_SUBMISSION
+  // 404s here with nothing wrong; read bare, that looks like "territories
+  // are unset" and sends you to configure them by hand.
+  it('turns a 404 into an explanation naming first submission', () => {
+    const msg = explainAvailability404(new ASCError(404, 'Not Found', '{}'), 'APP-1');
+    expect(msg).toBeDefined();
+    expect(msg).toContain('FIRST SUBMISSION');
+    expect(msg).toContain('APP-1');
+    // Must explicitly kill the wrong conclusion, not just describe the state.
+    expect(msg).toContain('does NOT mean territory availability is misconfigured');
+  });
+
+  it('still says a 404 on a submitted app is worth investigating', () => {
+    const msg = explainAvailability404(new ASCError(404, 'Not Found', '{}'), 'APP-1');
+    expect(msg).toContain('HAS been submitted');
+  });
+
+  it('leaves non-404 errors alone', () => {
+    expect(explainAvailability404(new ASCError(409, 'Conflict', '{}'), 'APP-1')).toBeUndefined();
+    expect(explainAvailability404(new ASCError(400, 'Bad', '{}'), 'APP-1')).toBeUndefined();
+  });
+
+  it('leaves non-ASC errors alone', () => {
+    expect(explainAvailability404(new Error('boom'), 'APP-1')).toBeUndefined();
   });
 });

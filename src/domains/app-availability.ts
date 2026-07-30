@@ -113,6 +113,23 @@ function formatASCError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * Explains an availability 404 instead of surfacing it bare.
+ *
+ * Apple has no AppAvailability record until an app's first submission — a
+ * brand-new app in PREPARE_FOR_SUBMISSION 404s here even though nothing is
+ * wrong. Measured across 11 real apps 2026-07-30: every app that had ever
+ * left PREPARE_FOR_SUBMISSION returned 200 (including one never released),
+ * every app still in it returned 404 NOT_FOUND.
+ *
+ * Read as-is this looks like "territories are unset", which is the wrong
+ * conclusion and an expensive one — it sends you to set territories by hand.
+ */
+export function explainAvailability404(err: unknown, appId: string): string | undefined {
+  if (!(err instanceof ASCError) || err.status !== 404) return undefined;
+  return `App ${appId} has no app-availability record yet.\n\nThis is expected — Apple creates it at the app's FIRST SUBMISSION, not when the app is created. An app still in PREPARE_FOR_SUBMISSION has no availability record, and that is not the same as "no territories are selected": there is nothing to read yet either way.\n\nIt does NOT mean territory availability is misconfigured. Submit the first version, then set territories.\n\n(If the app HAS been submitted, this 404 is a real problem worth investigating.)\n\n${formatASCError(err)}`;
+}
+
 export interface TerritoryAvailabilityPatchInput {
   territoryAvailabilityId: string;
   available?: boolean | undefined;
@@ -158,7 +175,8 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
         const data = await client.request<unknown>(path, { method: 'GET' });
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
       } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+        const hint = explainAvailability404(err, appId);
+        return { content: [{ type: 'text', text: hint ?? formatASCError(err) }], isError: true };
       }
     },
   );
@@ -189,7 +207,8 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
         const text = raw ? JSON.stringify(pages, null, 2) : digestTerritoryAvailabilities(pages);
         return { content: [{ type: 'text', text }] };
       } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+        const hint = explainAvailability404(err, appId);
+        return { content: [{ type: 'text', text: hint ?? formatASCError(err) }], isError: true };
       }
     },
   );

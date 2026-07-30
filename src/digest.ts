@@ -1793,3 +1793,57 @@ export function digestMarketplaceWebhooks(pages: CollectedPages): string {
   const rows = pages.data.map((w) => [s(attr(w, 'endpointUrl') ?? ''), w.id]);
   return `${summaryFooter(pages, 'marketplace webhooks')} (secret write-only — never shown)\n\n${formatTable(columns, rows)}`;
 }
+
+// Age rating declarations carry 29 attributes, and on a typical app almost
+// all of them sit at their default (NONE / false). Dumping all 29 buries the
+// few that actually drive the rating, so the digest leads with the answers
+// that are NOT default, then always shows the overrides and Kids band
+// (absent ones matter — an unset override is a real answer). Full payload is
+// still one `raw:true` away.
+export function digestAgeRatingDeclaration(doc: { data?: JSONAPIResource }): string {
+  const d = doc?.data;
+  if (!d) return 'No age rating declaration returned.';
+  const a = d.attributes ?? {};
+
+  const isDefault = (v: unknown) => v === 'NONE' || v === false || v === null || v === undefined;
+  const answered = Object.keys(a)
+    .filter((k) => !k.startsWith('ageRatingOverride') && k !== 'koreaAgeRatingOverride')
+    .filter((k) => k !== 'kidsAgeBand' && k !== 'developerAgeRatingInfoUrl')
+    .filter((k) => !isDefault(a[k]))
+    .sort();
+
+  const columns: Column[] = [{ header: 'QUESTION' }, { header: 'ANSWER' }];
+  const rows = answered.map((k) => [k, s(a[k])]);
+
+  const lines: string[] = [];
+  lines.push(`Age rating declaration ${s(d.id)}`);
+  lines.push('');
+  if (rows.length === 0) {
+    lines.push('All content questions are at their default (NONE / false).');
+  } else {
+    lines.push(`Non-default answers (${rows.length} of 24 content questions):`);
+    lines.push(formatTable(columns, rows));
+  }
+  lines.push('');
+  lines.push('Overrides + Kids category:');
+  const overrideRows = [
+    ['ageRatingOverrideV2', s(a.ageRatingOverrideV2 ?? 'NONE')],
+    ['koreaAgeRatingOverride', s(a.koreaAgeRatingOverride ?? 'NONE')],
+    ['kidsAgeBand', a.kidsAgeBand ? s(a.kidsAgeBand) : '— (not a Kids app)'],
+    [
+      'developerAgeRatingInfoUrl',
+      a.developerAgeRatingInfoUrl ? s(a.developerAgeRatingInfoUrl) : '—',
+    ],
+  ];
+  // ageRatingOverride (v1) is deprecated; surface it only when Apple returns
+  // something other than NONE, so a stale value can still be spotted.
+  if (a.ageRatingOverride && a.ageRatingOverride !== 'NONE') {
+    overrideRows.push(['ageRatingOverride (DEPRECATED)', s(a.ageRatingOverride)]);
+  }
+  lines.push(formatTable([{ header: 'FIELD' }, { header: 'VALUE' }], overrideRows));
+  lines.push('');
+  lines.push(
+    'Answers merge on PATCH — omitted keys keep their value. Send an explicit NONE/false to clear one. Overrides only raise the rating, never lower it.',
+  );
+  return lines.join('\n');
+}

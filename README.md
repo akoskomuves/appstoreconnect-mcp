@@ -164,6 +164,17 @@ The cryptographic signer that makes promo/intro offers redeemable in your iOS ap
 
 All signatures are valid for 24 hours from signing time — re-sign per redemption attempt rather than pre-signing and caching.
 
+### Age rating
+
+The questionnaire App Review scores an app against — it gates submission, and there was previously no way to set it from here.
+
+- `asc_get_age_rating_declaration` — read the answers. Shows only the non-default ones (a typical declaration has 29 attributes, nearly all at `NONE`/`false`) plus every override, so the few that actually drive the rating stand out.
+- `asc_patch_age_rating_declaration` — answer the questionnaire. Content questions take a frequency (`NONE` / `INFREQUENT_OR_MILD` / `FREQUENT_OR_INTENSE`); the rest are booleans, plus the rating overrides and the Kids age band.
+
+Two things about this resource are easy to get wrong, so the tools handle them for you. It hangs off **AppInfo, not the version** — age rating is per-app metadata like categories, and `/v1/appStoreVersions/{id}/ageRatingDeclaration` returns 404. And its ID **is** the AppInfo ID, so passing `appId` resolves the target automatically (if an app has several AppInfos across notarization tracks, the tool reports the candidates instead of guessing).
+
+Apple **merges** on write: omitted keys keep their current value, so a partial update is safe — but you can't clear an answer by leaving it out, you have to send the explicit `NONE`/`false`. Overrides only ever raise the rating, never lower it.
+
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
 

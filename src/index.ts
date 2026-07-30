@@ -8,6 +8,7 @@ import { createASCClient } from './client.js';
 import type { Config } from './config.js';
 import { loadConfig } from './config.js';
 import { registerAccessibilityDeclarations } from './domains/accessibility-declarations.js';
+import { registerAgeRating } from './domains/age-rating.js';
 import { registerAlternativeDistribution } from './domains/alternative-distribution.js';
 import { registerAnalyticsReports } from './domains/analytics-reports.js';
 import { registerAppAvailability } from './domains/app-availability.js';
@@ -168,6 +169,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerDiagnostics(server, client);
   registerAccessibilityDeclarations(server, client);
   registerAlternativeDistribution(server, client);
+  registerAgeRating(server, client);
   registerPpp(server, client);
 
   return server;
