@@ -101,6 +101,47 @@ function formatASCError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+export interface BuildsListQueryInput {
+  appId?: string | undefined;
+  processingState?: string | undefined;
+}
+
+/**
+ * Picks the endpoint + query for listing builds.
+ *
+ * Apple's per-app RELATIONSHIP path `/v1/apps/{id}/builds` rejects both
+ * `sort` and `filter[…]` with 400 `PARAMETER_ERROR.ILLEGAL` — verified live
+ * 2026-07-30 ("The parameter 'filter[processingState]' can not be used with
+ * this request"). The team-wide COLLECTION `/v1/builds` accepts both, and
+ * `filter[app]` scopes it to a single app, so any request that needs a filter
+ * has to go through the collection instead.
+ *
+ * The relationship path is kept for the plain per-app listing: it is Apple's
+ * canonical path for the relationship and needs no sort (digestBuilds always
+ * sorts newest-first client-side).
+ */
+export function buildBuildsListQuery(input: BuildsListQueryInput): {
+  path: string;
+  usesCollection: boolean;
+} {
+  const params = new URLSearchParams();
+  params.set('fields[builds]', BUILD_FIELDS);
+  params.set('limit', '200');
+
+  if (input.appId && input.processingState === undefined) {
+    // Relationship path — must carry no sort and no filter.
+    return {
+      path: `/v1/apps/${encodeURIComponent(input.appId)}/builds?${params.toString()}`,
+      usesCollection: false,
+    };
+  }
+
+  params.set('sort', '-uploadedDate');
+  if (input.appId) params.set('filter[app]', input.appId);
+  if (input.processingState) params.set('filter[processingState]', input.processingState);
+  return { path: `/v1/builds?${params.toString()}`, usesCollection: true };
+}
+
 export function registerBuilds(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_list_builds',
@@ -110,7 +151,7 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
         "List TestFlight builds. Pass appId to scope to a single app (the common case — Apple paginates global build lists across the whole team). Optional processingState filter narrows to a single state (VALID is usually what you want — that's the testable subset). The digest shows version + processingState + uploadedDate + expiration in a compact table.",
       inputSchema: z.object({
         appId: AppIdSchema.optional().describe(
-          'When provided, list via /v1/apps/{id}/builds (scoped). When omitted, list via /v1/builds (team-wide — typically large; pair with processingState to narrow).',
+          'When provided, scope to one app. When omitted, list team-wide (typically large — pair with processingState to narrow).',
         ),
         processingState: ProcessingStateSchema.optional().describe(
           'Optional filter. VALID = builds Apple has accepted and that can be distributed. PROCESSING = still being ingested. FAILED/INVALID = unusable.',
@@ -120,19 +161,7 @@ export function registerBuilds(server: McpServer, client: ASCClient): void {
       }),
     },
     async ({ appId, processingState, maxItems, raw }) => {
-      const params = new URLSearchParams();
-      params.set('fields[builds]', BUILD_FIELDS);
-      params.set('limit', '200');
-      // Apple accepts `sort` on the team-wide /v1/builds collection but
-      // REJECTS it on the per-app relationship path /v1/apps/{id}/builds
-      // (PARAMETER_ERROR.ILLEGAL). digestBuilds always client-side-sorts
-      // newest first, so this is purely an Apple-side optimization for the
-      // team-wide path; on the per-app path the client-side sort suffices.
-      if (!appId) params.set('sort', '-uploadedDate');
-      if (processingState) params.set('filter[processingState]', processingState);
-      const path = appId
-        ? `/v1/apps/${encodeURIComponent(appId)}/builds?${params.toString()}`
-        : `/v1/builds?${params.toString()}`;
+      const { path } = buildBuildsListQuery({ appId, processingState });
       try {
         const pages = await paginate(client, path, maxItems);
         const text = raw ? JSON.stringify(pages, null, 2) : digestBuilds(pages);

@@ -1160,8 +1160,16 @@ export const AvailableInNewTerritoriesSchema = z
 export const TerritoryAvailabilityIdSchema = z
   .string()
   .min(1)
+  // Pre-flight the single most likely mistake. A real ID is base64 of a JSON
+  // object, so it is always ~38 chars — a bare 3-letter code can never be
+  // one, and Apple's own error for it is an opaque 404/409 that doesn't say
+  // what to do instead. Verified against live IDs 2026-07-30.
+  .refine((v) => !/^[A-Z]{3}$/.test(v), {
+    message:
+      'Looks like a bare territory code, not a TerritoryAvailability ID. These IDs are per-(app, territory) Apple-opaque composites — call asc_list_territory_availabilities and pass its TERR_ID values through verbatim.',
+  })
   .describe(
-    'TerritoryAvailability ID. APPLE-OPAQUE composite: base64 of `{"s":<appId>,"t":<3-letter-code>}` (e.g. `eyJzIjoiMTIzNDUiLCJ0IjoiVVNBIn0=` for app 12345 in USA). The ID is per-(app, territory), NOT the bare territory code — DO NOT pass `"USA"` directly. Get IDs by calling asc_list_territory_availabilities first, then pass them through to asc_post_app_availability_v2 / asc_end_app_availability_pre_order verbatim.',
+    'TerritoryAvailability ID. APPLE-OPAQUE composite: base64 of `{"s":"<appId>","t":"<3-letter-code>"}` with padding stripped — e.g. `eyJzIjoiMTIzNDU2Nzg5MCIsInQiOiJVU0EifQ` decodes to `{"s":"1234567890","t":"USA"}` (38 chars, no trailing `=`). The ID is per-(app, territory), NOT the bare territory code — DO NOT pass `"USA"` directly. Get IDs by calling asc_list_territory_availabilities first, then pass them through to asc_post_app_availability_v2 / asc_end_app_availability_pre_order verbatim.',
   );
 
 export const AppEncryptionDeclarationDescriptionSchema = z

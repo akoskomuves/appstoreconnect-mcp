@@ -45,7 +45,7 @@ import {
 //     (not a bare filter[createdDate] range syntax).
 //
 // LIVE-SMOKE FINDINGS (2026-06-11, full create→ping→deliveries→redeliver→
-// delete drill against WikiCatch):
+// delete drill against a real app):
 //   - The deliveries list REQUIRES filter[createdDateGreaterThanOrEqualTo].
 //     Without it Apple 400s with the (misleading) "Filter is required and
 //     only one must be provided" — deliveryState alone does NOT satisfy it.

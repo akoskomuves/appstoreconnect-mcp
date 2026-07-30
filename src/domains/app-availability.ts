@@ -42,6 +42,11 @@ import {
 const TERRITORY_AVAILABILITY_FIELDS =
   'available,releaseDate,preOrderEnabled,preOrderPublishDate,contentStatuses';
 
+// AppAvailabilityV2 lives ONLY on /v2 — there is no /v1/appAvailabilities
+// resource at all (404 PATH_ERROR). Named so both the read relationship path
+// and the create path derive from one place and can't drift apart again.
+export const APP_AVAILABILITIES_V2_ENDPOINT = '/v2/appAvailabilities';
+
 interface JSONAPIBody {
   data: {
     type: string;
@@ -178,7 +183,7 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
       // AppAvailability.id == appId (Apple shares the numeric identifier across
       // the two surfaces). The v1 /apps/{id}/appAvailabilityV2/territoryAvailabilities
       // path does not exist (PATH_ERROR on the live API).
-      const path = `/v2/appAvailabilities/${encodeURIComponent(appId)}/territoryAvailabilities?${params.toString()}`;
+      const path = `${APP_AVAILABILITIES_V2_ENDPOINT}/${encodeURIComponent(appId)}/territoryAvailabilities?${params.toString()}`;
       try {
         const pages = await paginate(client, path, maxItems);
         const text = raw ? JSON.stringify(pages, null, 2) : digestTerritoryAvailabilities(pages);
@@ -213,7 +218,12 @@ export function registerAppAvailability(server: McpServer, client: ASCClient): v
         territoryIds,
       });
       try {
-        const data = await client.request<unknown>('/v1/appAvailabilities', {
+        // /v2, NOT /v1 — Apple serves this resource only on v2. POSTing to
+        // /v1/appAvailabilities returns 404 PATH_ERROR ("The resource
+        // 'v1/appAvailabilities' does not exist"); verified live 2026-07-30,
+        // and it matches the sibling read path used by
+        // asc_list_territory_availabilities above.
+        const data = await client.request<unknown>(APP_AVAILABILITIES_V2_ENDPOINT, {
           method: 'POST',
           body: JSON.stringify(body),
         });
