@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -18,7 +18,7 @@ export function registerPricing(server: McpServer, client: ASCClient): void {
         'Schedule a price change for a single (subscription, territory) on a future date. ' +
         'Always pass preserveCurrentPrice=true unless you intend to re-price existing subscribers. ' +
         'Apple requires startDate ≥ today + 24h; this server defaults to ≥7 days for safety.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         territoryId: TerritoryIdSchema,
         pricePointId: PricePointIdSchema,
@@ -29,7 +29,7 @@ export function registerPricing(server: McpServer, client: ASCClient): void {
           .describe(
             'Grandfather existing subscribers at their current price. Strongly recommended.',
           ),
-      },
+      }),
     },
     async ({ subscriptionId, territoryId, pricePointId, startDate, preserveCurrentPrice }) => {
       const body = {
@@ -62,9 +62,9 @@ export function registerPricing(server: McpServer, client: ASCClient): void {
       title: 'Cancel a pending subscription price change',
       description:
         'Delete a pending scheduled subscription price by ID. Use this to roll back a change that has not yet activated.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionPriceId: SubscriptionPriceIdSchema,
-      },
+      }),
     },
     async ({ subscriptionPriceId }) => {
       await client.request<void>(

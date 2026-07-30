@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppEventScreenshots } from '../digest.js';
@@ -113,11 +113,11 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
       title: 'List event screenshots under a localization',
       description:
         'List AppEventScreenshot records under an AppEventLocalization. Each row carries fileName + fileSize + the asset slot (EVENT_CARD / EVENT_DETAILS_PAGE) + assetDeliveryState (UPLOAD_COMPLETE / PROCESSING / COMPLETE / FAILED). Use to inspect upload progress or to enumerate IDs.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appEventLocalizationId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -140,9 +140,9 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
       title: 'Get an AppEventScreenshot',
       description:
         'Fetch a single AppEventScreenshot by ID. Returns fileName / fileSize / appEventAssetType / assetDeliveryState / the imageAsset URLs once processed / the uploadOperations[] before commit.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventScreenshotId: AppEventScreenshotIdSchema,
-      },
+      }),
     },
     async ({ appEventScreenshotId }) => {
       const path = `/v1/appEventScreenshots/${encodeURIComponent(appEventScreenshotId)}`;
@@ -161,12 +161,12 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
       title: 'Reserve an AppEventScreenshot upload (raw step 1)',
       description:
         'RAW step 1 of the three-step upload flow (same shape as v0.13 AppScreenshot). Reserves an AppEventScreenshot under an event localization with fileName + fileSize + appEventAssetType (EVENT_CARD / EVENT_DETAILS_PAGE). Returns the resource with uploadOperations[] populated. Use asc_upload_asset_chunk to PUT each, then asc_patch_app_event_screenshot to commit. Most callers should use the composite asc_upload_app_event_screenshot instead.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         fileName: FileNameSchema,
         fileSize: FileSizeSchema,
         appEventAssetType: AppEventAssetTypeSchema,
-      },
+      }),
     },
     async (input) => {
       const body = buildAppEventScreenshotCreateBody({
@@ -200,10 +200,10 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
       title: 'Commit an AppEventScreenshot upload (raw step 3)',
       description:
         'RAW step 3 of the three-step upload flow. PATCH with uploaded=true to commit the reservation. Wire-key gotcha: Swift `isUploaded` → wire `uploaded` (same strip as v0.13 AppScreenshot). The composite asc_upload_app_event_screenshot handles this automatically.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventScreenshotId: AppEventScreenshotIdSchema,
         uploaded: z.boolean(),
-      },
+      }),
     },
     async (input) => {
       const body = buildAppEventScreenshotPatchBody({
@@ -235,9 +235,9 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
       title: 'Delete an AppEventScreenshot',
       description:
         'DELETE an AppEventScreenshot. Removes the asset under its slot; if the slot goes empty Apple may reject the event for review with an asset-missing error.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventScreenshotId: AppEventScreenshotIdSchema,
-      },
+      }),
     },
     async ({ appEventScreenshotId }) => {
       try {
@@ -260,14 +260,14 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
       title: 'Upload an event screenshot from a local file (composite)',
       description:
         'Composite tool. Reads localFilePath from disk, reserves an AppEventScreenshot under the given event localization for the given asset slot (EVENT_CARD / EVENT_DETAILS_PAGE), PUTs every uploadOperation chunk to Apple storage in sequence, then commits with uploaded=true. Returns the committed resource + per-chunk summary. Tilde paths (~/...) are expanded. Note: this resource has NO sourceFileChecksum on the commit step — Apple does not require an MD5 here (unlike v0.13 AppScreenshot).',
-      inputSchema: {
+      inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         localFilePath: LocalFilePathSchema,
         appEventAssetType: AppEventAssetTypeSchema,
         fileName: FileNameSchema.optional().describe(
           'Override the file name sent to Apple. Defaults to basename(localFilePath).',
         ),
-      },
+      }),
     },
     async (input) => {
       const resolvedPath = expandHomePath(input.localFilePath);

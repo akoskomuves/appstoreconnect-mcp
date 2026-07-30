@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppCategories, digestAppTags, digestSearchKeywords } from '../digest.js';
@@ -95,13 +95,13 @@ export function registerAsoCatalog(server: McpServer, client: ASCClient): void {
       description:
         "List Apple's App Store category catalog with subcategories included. Read-only. Each category carries the platforms it applies to (IOS/MAC_OS/TV_OS/VISION_OS); subcategories are returned in `included[]` via the parent → subcategories relationship. Use to resolve human-readable category names to category IDs before calling asc_patch_app_info to set primary/secondary categories. " +
         'Categories are app-scope, not app-store-version-scope — changing them mutates the AppInfo record.',
-      inputSchema: {
+      inputSchema: z.object({
         platform: PlatformSchema.optional().describe(
           'Optional filter — narrow to categories applicable to one platform.',
         ),
         maxItems: z.number().int().positive().max(1000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ platform, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -129,11 +129,11 @@ export function registerAsoCatalog(server: McpServer, client: ASCClient): void {
       description:
         "List the AppTag membership for an app — Apple's structured-ASO tag surface. Each row shows the tag name and isVisibleInAppStore flag. " +
         'Tag membership management (adding/removing tags) is via the App.appTags linkage, which v0.12 does not yet wrap — coming in v0.12.1.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -157,10 +157,10 @@ export function registerAsoCatalog(server: McpServer, client: ASCClient): void {
       description:
         "Toggle whether an AppTag is shown in the App Store search/product page UI. Wire key `visibleInAppStore` (stripped from Swift `isVisibleInAppStore`). Setting false hides the tag without removing it from the app's tag list — flip true to re-show. " +
         'This is the ONLY mutable attribute on AppTag; categories/territories management lives on other linkage endpoints (v0.12.1).',
-      inputSchema: {
+      inputSchema: z.object({
         appTagId: AppTagIdSchema,
         visibleInAppStore: VisibleInAppStoreSchema,
-      },
+      }),
     },
     async ({ appTagId, visibleInAppStore }) => {
       const body = buildAppTagPatchBody({ appTagId, visibleInAppStore });
@@ -192,7 +192,7 @@ export function registerAsoCatalog(server: McpServer, client: ASCClient): void {
       description:
         "List Apple's aggregated AppKeyword records for an app — every keyword Apple has indexed across the app's localizations. Optional filter[platform] + filter[locale] to narrow. Read-only at this surface; actual keyword writes still happen via the per-version `keywords` field on AppStoreVersionLocalization (v0.10's asc_patch_app_store_version_localization). " +
         "Use this to inspect what Apple is actually indexing — useful for diagnosing ASO underperformance when your version-level keywords seemingly aren't surfacing in search.",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         platform: PlatformSchema.optional().describe(
           'Optional filter[platform]. Narrow to one platform (IOS/MAC_OS/TV_OS/VISION_OS).',
@@ -202,7 +202,7 @@ export function registerAsoCatalog(server: McpServer, client: ASCClient): void {
         ),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, platform, locale, maxItems, raw }) => {
       const params = new URLSearchParams();

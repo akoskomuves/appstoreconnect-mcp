@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestBetaGroups } from '../digest.js';
@@ -214,13 +214,13 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
       title: 'List beta groups',
       description:
         'List beta groups. Pass appId to scope to a single app (the common case). Each row shows name, kind (INT/EXT), tester-count via the betaTesters relationship if requested, public-link state, and ID. Use to find a group before assigning a build or inviting testers.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema.optional().describe(
           'When provided, list via /v1/apps/{id}/betaGroups (scoped). When omitted, list via /v1/betaGroups (team-wide across all apps).',
         ),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -245,9 +245,9 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
       title: 'Get a beta group',
       description:
         "Fetch a single beta group with relationships expanded (app + builds + betaTesters). Use to see the full membership before adding/removing testers or builds. Apple's tester list under a group can be large — paginate via asc_list_beta_testers with the group filter if you need the full list cleanly.",
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
-      },
+      }),
     },
     async ({ betaGroupId }) => {
       const path = `/v1/betaGroups/${encodeURIComponent(
@@ -269,7 +269,7 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
       description:
         'Create a beta group on an app. Required: name + appId. Optional: isInternalGroup (default false → external), hasAccessToAllBuilds (default false), public-link settings (external only), feedbackEnabled, and pre-seeded testers/builds. ' +
         "isInternalGroup and hasAccessToAllBuilds are IMMUTABLE after create — pick them carefully. To change later, delete and re-create. Pre-seeded testers/builds are added atomically; passing IDs that don't exist or aren't valid (e.g. expired build) rejects the whole POST.",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         name: BetaGroupNameSchema,
         isInternalGroup: z
@@ -322,7 +322,7 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
           .describe(
             'Optional: pre-seed the group with these build IDs (assign them to the group at creation). All builds must be in VALID processingState; Apple rejects FAILED/INVALID builds.',
           ),
-      },
+      }),
     },
     async (input) => {
       const refusal = publicLinkSanityCheck({
@@ -390,7 +390,7 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
       description:
         "Mutate a beta group's attributes. Apple PATCH on this resource accepts name, public-link state (publicLinkEnabled/publicLinkLimitEnabled/publicLinkLimit), feedbackEnabled, and the Apple Silicon Mac / Apple Vision build-availability flags. " +
         'isInternalGroup and hasAccessToAllBuilds are IMMUTABLE — Apple rejects them in PATCH bodies. Tester and build membership is managed via the dedicated linkage tools (asc_add_beta_group_testers, asc_add_beta_group_builds, etc.) — not through this PATCH.',
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
         name: BetaGroupNameSchema.optional(),
         publicLinkEnabled: z.boolean().optional(),
@@ -407,7 +407,7 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
           .boolean()
           .optional()
           .describe('true: iOS builds in this group can be installed on Apple Vision Pro.'),
-      },
+      }),
     },
     async (input) => {
       const refusal = publicLinkSanityCheck({
@@ -487,9 +487,9 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
       title: 'Delete a beta group',
       description:
         'DELETE a beta group. Apple supports DELETE on this resource (unlike offer codes). All tester + build linkages are removed atomically. Testers themselves are NOT deleted — they remain as BetaTester records, just unassigned from this group. Builds are NOT affected.',
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
-      },
+      }),
     },
     async ({ betaGroupId }) => {
       try {
@@ -518,13 +518,13 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
       title: 'Add beta testers to a group',
       description:
         'Add existing BetaTester records to a beta group via POST /v1/betaGroups/{id}/relationships/betaTesters. Pass tester IDs (NOT emails — use asc_post_beta_tester to look up or create from an email). Idempotent on the wire (re-adding a member is a no-op). Apple does not push a fresh invite email on re-add.',
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
         testerIds: z
           .array(BetaTesterIdSchema)
           .min(1)
           .describe('At least one tester ID. Each must already exist as a BetaTester record.'),
-      },
+      }),
     },
     async ({ betaGroupId, testerIds }) => {
       const body = buildRelationshipLinkageBody({
@@ -557,10 +557,10 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
       title: 'Remove beta testers from a group',
       description:
         'Remove testers from a beta group via DELETE /v1/betaGroups/{id}/relationships/betaTesters. Pass only the IDs you want removed — Apple uses the body, not a "clear all" semantic. The BetaTester records themselves are NOT deleted (use asc_delete_beta_tester for that). Removed testers immediately lose access to the group\'s builds in TestFlight.',
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
         testerIds: z.array(BetaTesterIdSchema).min(1),
-      },
+      }),
     },
     async ({ betaGroupId, testerIds }) => {
       const body = buildRelationshipLinkageBody({
@@ -595,13 +595,13 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
       title: 'Assign builds to a beta group',
       description:
         'Assign builds to a beta group via POST /v1/betaGroups/{id}/relationships/builds. Builds must be in VALID processingState; Apple rejects PROCESSING/FAILED/INVALID. For external groups, the first build to be distributed externally must clear beta review (handled by the beta-review sub-domain). Use asc_patch_build_beta_detail to control autoNotifyEnabled per build.',
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
         buildIds: z
           .array(BuildIdSchema)
           .min(1)
           .describe('At least one build ID, all in VALID processingState.'),
-      },
+      }),
     },
     async ({ betaGroupId, buildIds }) => {
       const body = buildRelationshipLinkageBody({
@@ -634,10 +634,10 @@ export function registerBetaGroups(server: McpServer, client: ASCClient): void {
       title: 'Unassign builds from a beta group',
       description:
         'Unassign builds from a beta group via DELETE /v1/betaGroups/{id}/relationships/builds. The build itself is not deleted; only the group→build linkage is removed. Testers in the group lose visibility of these builds in TestFlight.',
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
         buildIds: z.array(BuildIdSchema).min(1),
-      },
+      }),
     },
     async ({ betaGroupId, buildIds }) => {
       const body = buildRelationshipLinkageBody({

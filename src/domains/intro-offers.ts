@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestIntroOffers } from '../digest.js';
@@ -30,7 +30,10 @@ type OfferDuration = z.infer<typeof SubscriptionOfferDurationSchema>;
 
 export interface IntroOfferInput {
   subscriptionId: string;
-  territoryId: string | undefined;
+  // Optional key (not just `string | undefined`): zod ≥4.2 infers `.optional()`
+  // fields as optional properties, and the builder already guards on
+  // `!== undefined` before emitting the territory relationship.
+  territoryId?: string | undefined;
   offerMode: OfferMode;
   duration: OfferDuration;
   startDate: string;
@@ -126,11 +129,11 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
       description:
         'List introductory offers (free trial / pay-as-you-go / pay-up-front) configured for a subscription, across territories. ' +
         'Auto-paginates; pass raw:true for the full JSON:API payload. Wildcard offers (Apple\'s "all territories") show TERR as "(all)".',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ subscriptionId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -154,10 +157,10 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
     {
       title: 'Get a subscription introductory offer',
       description: 'Fetch a single introductory offer by ID.',
-      inputSchema: {
+      inputSchema: z.object({
         offerId: SubscriptionIntroductoryOfferIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ offerId, raw }) => {
       const path = `/v1/subscriptionIntroductoryOffers/${encodeURIComponent(
@@ -185,7 +188,7 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
         'Create an introductory offer on a subscription. Server-side checks: pricePointId required unless offerMode=FREE_TRIAL; numberOfPeriods required when offerMode=PAY_AS_YOU_GO; ' +
         'territoryId omitted = Apple\'s "all territories" wildcard (uses the literal price point in every market — for PPP-aware multi-territory offers, create one per territory). ' +
         'startDate must be ≥ today+24h (Apple); ≥7 days recommended.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         territoryId: TerritoryIdSchema.optional().describe(
           'Target territory. Omit for Apple\'s "all territories" wildcard (literal price point in every market — no auto-FX).',
@@ -200,7 +203,7 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
           'Required for PAY_AS_YOU_GO and PAY_UP_FRONT. Omit for FREE_TRIAL. Use asc_list_subscription_price_points (with nearAmount) to pick.',
         ),
         numberOfPeriods: NumberOfPeriodsSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       if (input.offerMode !== 'FREE_TRIAL' && !input.pricePointId) {
@@ -256,12 +259,12 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
       description:
         "Update an introductory offer's window or price point. Apple's PATCH is narrow: only startDate, endDate, and pricePointId can change. " +
         'To change offerMode / duration / numberOfPeriods, delete the offer and create a new one. Most common use: extending endDate to keep a campaign running.',
-      inputSchema: {
+      inputSchema: z.object({
         offerId: SubscriptionIntroductoryOfferIdSchema,
         startDate: StartDateSchema.optional(),
         endDate: StartDateSchema.optional(),
         pricePointId: PricePointIdSchema.optional(),
-      },
+      }),
     },
     async ({ offerId, startDate, endDate, pricePointId }) => {
       if (startDate === undefined && endDate === undefined && pricePointId === undefined) {
@@ -305,9 +308,9 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
       title: 'Delete a subscription introductory offer',
       description:
         'Delete a pending or active introductory offer by ID. Apple refuses to delete an offer that is currently redeemable by users — to stop an active offer, PATCH endDate to today instead.',
-      inputSchema: {
+      inputSchema: z.object({
         offerId: SubscriptionIntroductoryOfferIdSchema,
-      },
+      }),
     },
     async ({ offerId }) => {
       try {

@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAccessibilityDeclarations } from '../digest.js';
@@ -138,13 +138,13 @@ export function registerAccessibilityDeclarations(server: McpServer, client: ASC
       title: 'List accessibility declarations of an app',
       description:
         'GET /v1/apps/{id}/accessibilityDeclarations — the per-device-family accessibility feature declarations ("Accessibility Nutrition Labels"). Filter by deviceFamily and/or state (DRAFT / PUBLISHED / REPLACED). The digest shows one row per declaration with the supported-feature flags.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         deviceFamily: DeviceFamilySchema.optional(),
         state: AccessibilityDeclarationStateSchema.optional(),
         maxItems: z.number().int().positive().max(500).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, deviceFamily, state, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -169,11 +169,11 @@ export function registerAccessibilityDeclarations(server: McpServer, client: ASC
       title: 'Create an accessibility declaration (DRAFT)',
       description:
         'POST /v1/accessibilityDeclarations — create a DRAFT declaration for one device family (required) with any subset of the nine supports* flags (omitted ≠ false: omitted flags are simply not declared). Drafts are invisible until published via asc_patch_accessibility_declaration publish=true. One DRAFT per device family at a time.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         deviceFamily: DeviceFamilySchema,
         ...flagInputSchema,
-      },
+      }),
     },
     async (input) => {
       const body = buildAccessibilityDeclarationCreateBody({
@@ -206,14 +206,14 @@ export function registerAccessibilityDeclarations(server: McpServer, client: ASC
       title: 'Patch / publish an accessibility declaration',
       description:
         '⚠️ publish=true is CUSTOMER-FACING: PATCH /v1/accessibilityDeclarations/{id} with publish=true puts the accessibility label live on the App Store product page (state → PUBLISHED; a previously published declaration for the family becomes REPLACED). Without publish, mutates the supports* flags on a DRAFT. Wire-key gotchas pinned by tests: `publish` (Swift isPublish) and the nine `supports*` flags (Swift isSupports*). Get explicit human approval before publishing.',
-      inputSchema: {
+      inputSchema: z.object({
         declarationId: AccessibilityDeclarationIdSchema,
         publish: z
           .boolean()
           .optional()
           .describe('true: publish this DRAFT to the live product page. Requires human approval.'),
         ...flagInputSchema,
-      },
+      }),
     },
     async (input) => {
       const flags = flagsFromInput(input);
@@ -258,9 +258,9 @@ export function registerAccessibilityDeclarations(server: McpServer, client: ASC
       title: 'Delete an accessibility declaration',
       description:
         'DELETE /v1/accessibilityDeclarations/{id} — remove a DRAFT declaration. Published declarations are superseded by publishing a new draft (REPLACED), not deleted.',
-      inputSchema: {
+      inputSchema: z.object({
         declarationId: AccessibilityDeclarationIdSchema,
-      },
+      }),
     },
     async ({ declarationId }) => {
       try {

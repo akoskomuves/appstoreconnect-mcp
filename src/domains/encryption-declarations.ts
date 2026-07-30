@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppEncryptionDeclarations } from '../digest.js';
@@ -201,11 +201,11 @@ export function registerEncryptionDeclarations(server: McpServer, client: ASCCli
       title: 'List App Encryption Declarations for an app',
       description:
         'List AppEncryptionDeclaration records under an app. Each row carries the appDescription, current state (CREATED / IN_REVIEW / APPROVED / REJECTED / INVALID / EXPIRED), codeValue (ECCN export classification once Apple has reviewed), the exempt flag, and the three encryption flags (proprietary / thirdParty / availableOnFrenchStore). Used to find a declaration to link a build to.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -228,9 +228,9 @@ export function registerEncryptionDeclarations(server: McpServer, client: ASCCli
       title: 'Get an AppEncryptionDeclaration',
       description:
         'Fetch a single AppEncryptionDeclaration by ID with its document relationship expanded. Returns the full attribute surface including the 4 deprecated read-only fields (usesEncryption, uploadedDate, documentURL, documentName, documentType) for legacy declarations.',
-      inputSchema: {
+      inputSchema: z.object({
         appEncryptionDeclarationId: AppEncryptionDeclarationIdSchema,
-      },
+      }),
     },
     async ({ appEncryptionDeclarationId }) => {
       const path = `/v1/appEncryptionDeclarations/${encodeURIComponent(appEncryptionDeclarationId)}?include=appEncryptionDeclarationDocument`;
@@ -249,13 +249,13 @@ export function registerEncryptionDeclarations(server: McpServer, client: ASCCli
       title: 'Create an AppEncryptionDeclaration',
       description:
         "Create an AppEncryptionDeclaration for an app. Required: appId + appDescription + containsProprietaryCryptography + containsThirdPartyCryptography + availableOnFrenchStore. Apple reviews the declaration server-side; state walks CREATED → IN_REVIEW → APPROVED / REJECTED. There is NO PATCH for declarations — create a new one to refresh the answers. Wire-key gotcha: Swift `isAvailableOnFrenchStore` → wire `availableOnFrenchStore`. NOTE: the deprecated `usesEncryption` attribute is not accepted on writes — Apple's modern path uses `exempt` (server-set) instead.",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         appDescription: AppEncryptionDeclarationDescriptionSchema,
         containsProprietaryCryptography: ContainsProprietaryCryptographySchema,
         containsThirdPartyCryptography: ContainsThirdPartyCryptographySchema,
         availableOnFrenchStore: AvailableOnFrenchStoreSchema,
-      },
+      }),
     },
     async (input) => {
       const body = buildAppEncryptionDeclarationCreateBody({
@@ -292,9 +292,9 @@ export function registerEncryptionDeclarations(server: McpServer, client: ASCCli
       title: 'Get the AppEncryptionDeclaration linked to a build',
       description:
         'Fetch the AppEncryptionDeclaration currently linked to a build. Each build has at most ONE declaration. Returns 404 if no declaration is linked.',
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
-      },
+      }),
     },
     async ({ buildId }) => {
       const path = `/v1/builds/${encodeURIComponent(buildId)}/appEncryptionDeclaration`;
@@ -313,12 +313,12 @@ export function registerEncryptionDeclarations(server: McpServer, client: ASCCli
       title: 'Link a build to an AppEncryptionDeclaration (or null to unlink)',
       description:
         "Set the AppEncryptionDeclaration for a build. PATCH /v1/builds/{id}/relationships/appEncryptionDeclaration. Pass `appEncryptionDeclarationId` to link, pass null to clear the linkage. Each build can have at most ONE declaration. Apple's inverse linkage (declaration → builds[]) is DEPRECATED and not wrapped here — manage the linkage from the build side.",
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
         appEncryptionDeclarationId: AppEncryptionDeclarationIdSchema.nullable().describe(
           'Pass an AppEncryptionDeclaration ID to link; pass null to clear the linkage.',
         ),
-      },
+      }),
     },
     async ({ buildId, appEncryptionDeclarationId }) => {
       const body = buildBuildEncryptionLinkageBody({
@@ -354,9 +354,9 @@ export function registerEncryptionDeclarations(server: McpServer, client: ASCCli
       title: 'Get an AppEncryptionDeclarationDocument',
       description:
         'Fetch a single AppEncryptionDeclarationDocument by ID. Returns fileName / fileSize / sourceFileChecksum / assetDeliveryState / the downloadUrl once Apple has processed the upload (wire-key gotcha: Swift `downloadURL` → wire `downloadUrl`).',
-      inputSchema: {
+      inputSchema: z.object({
         appEncryptionDeclarationDocumentId: AppEncryptionDeclarationDocumentIdSchema,
-      },
+      }),
     },
     async ({ appEncryptionDeclarationDocumentId }) => {
       const path = `/v1/appEncryptionDeclarationDocuments/${encodeURIComponent(appEncryptionDeclarationDocumentId)}?fields[appEncryptionDeclarationDocuments]=${ENCRYPTION_DOCUMENT_FIELDS}`;
@@ -375,11 +375,11 @@ export function registerEncryptionDeclarations(server: McpServer, client: ASCCli
       title: 'Reserve an AppEncryptionDeclarationDocument upload (raw step 1)',
       description:
         'RAW step 1 of the three-step upload flow (same shape as v0.13 AppScreenshot). Reserves an AppEncryptionDeclarationDocument under a declaration with fileName + fileSize. Returns the resource with uploadOperations[] populated. Use asc_upload_asset_chunk to PUT each, then asc_patch_app_encryption_declaration_document to commit. Most callers should use the composite asc_upload_app_encryption_declaration_document instead.',
-      inputSchema: {
+      inputSchema: z.object({
         appEncryptionDeclarationId: AppEncryptionDeclarationIdSchema,
         fileName: FileNameSchema,
         fileSize: FileSizeSchema,
-      },
+      }),
     },
     async (input) => {
       const body = buildAppEncryptionDeclarationDocumentCreateBody({
@@ -412,11 +412,11 @@ export function registerEncryptionDeclarations(server: McpServer, client: ASCCli
       title: 'Commit an AppEncryptionDeclarationDocument upload (raw step 3)',
       description:
         'RAW step 3 of the three-step upload flow. PATCH with sourceFileChecksum (lowercase hex MD5 of the full file) + uploaded=true to commit. Wire-key gotcha: Swift `isUploaded` → wire `uploaded` (same strip as v0.13 / v0.14). Pass at least one of the two — empty PATCH refused. The composite asc_upload_app_encryption_declaration_document handles this automatically.',
-      inputSchema: {
+      inputSchema: z.object({
         appEncryptionDeclarationDocumentId: AppEncryptionDeclarationDocumentIdSchema,
         sourceFileChecksum: SourceFileChecksumSchema.optional(),
         uploaded: z.boolean().optional(),
-      },
+      }),
     },
     async (input) => {
       if (input.sourceFileChecksum === undefined && input.uploaded === undefined) {
@@ -462,13 +462,13 @@ export function registerEncryptionDeclarations(server: McpServer, client: ASCCli
       title: 'Upload an encryption-declaration document from a local file (composite)',
       description:
         'Composite tool. Reads localFilePath from disk (typically a PDF questionnaire), reserves an AppEncryptionDeclarationDocument under the given declaration with fileName + fileSize derived from the file, PUTs every uploadOperation chunk to Apple storage in sequence, then commits with sourceFileChecksum (md5 hex) + uploaded=true. Returns the final committed resource + per-chunk summary. Tilde paths (~/...) are expanded. Same protocol as v0.13 asc_upload_screenshot.',
-      inputSchema: {
+      inputSchema: z.object({
         appEncryptionDeclarationId: AppEncryptionDeclarationIdSchema,
         localFilePath: LocalFilePathSchema,
         fileName: FileNameSchema.optional().describe(
           'Override the file name sent to Apple. Defaults to basename(localFilePath).',
         ),
-      },
+      }),
     },
     async (input) => {
       const resolvedPath = expandHomePath(input.localFilePath);

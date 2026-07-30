@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -178,11 +178,11 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'List product-page experiments of an app',
       description:
         'GET /v1/apps/{id}/appStoreVersionExperimentsV2 (note: a /v1 path listing the V2, app-attached experiments — the modern surface). Each row shows name, state (9-state lifecycle), platform, traffic %, review-required flag, and start/end dates. Filter client-side by state from the digest.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(500).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -205,9 +205,9 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'Get a product-page experiment',
       description:
         'GET /v2/appStoreVersionExperiments/{id} with treatments + latestControlVersion included — the full experiment record for inspecting state before submitting, starting, or stopping.',
-      inputSchema: {
+      inputSchema: z.object({
         experimentId: VersionExperimentIdSchema,
-      },
+      }),
     },
     async ({ experimentId }) => {
       const path = `/v2/appStoreVersionExperiments/${encodeURIComponent(
@@ -228,12 +228,12 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'Create a product-page experiment',
       description:
         'POST /v2/appStoreVersionExperiments — create an A/B test on the product page. ALL THREE attributes required: name, platform, trafficProportion (1–99% of page traffic, split across treatments). Created in PREPARE_FOR_SUBMISSION; it shows nothing publicly until submitted (V2 review submission flow, v0.11 tools) AND explicitly started (asc_patch_version_experiment started=true after APPROVED). Build flow: create → add treatments → add treatment localizations → attach variant screenshots via the v0.13 asset tools → submit → start.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         name: z.string().min(1).describe('Internal experiment name (not customer-visible).'),
         platform: PlatformSchema,
         trafficProportion: TrafficProportionSchema,
-      },
+      }),
     },
     async ({ appId, name, platform, trafficProportion }) => {
       const body = buildExperimentCreateBody({ appId, name, platform, trafficProportion });
@@ -262,7 +262,7 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'Patch / start a product-page experiment',
       description:
         '⚠️ started=true is CUSTOMER-FACING: PATCH /v2/appStoreVersionExperiments/{id} with started=true begins serving treatment pages to real App Store traffic (requires state APPROVED). Also mutates name and trafficProportion while still in PREPARE_FOR_SUBMISSION. Wire-key gotcha pinned by tests: the start flag is `started` (Swift isStarted). There is no started=false — stopping is its own semantics via Apple (STOPPED is terminal); confirm intent before starting.',
-      inputSchema: {
+      inputSchema: z.object({
         experimentId: VersionExperimentIdSchema,
         name: z.string().min(1).optional(),
         trafficProportion: TrafficProportionSchema.optional(),
@@ -272,7 +272,7 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
           .describe(
             'true: START the experiment (APPROVED state required; goes live to customers). Get explicit human approval first.',
           ),
-      },
+      }),
     },
     async (input) => {
       const anyField = [input.name, input.trafficProportion, input.started].some(
@@ -322,9 +322,9 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'Delete a product-page experiment',
       description:
         'DELETE /v2/appStoreVersionExperiments/{id} — removes the experiment and its treatments/localizations. Works on un-started experiments; running experiments should be stopped through App Store Connect first.',
-      inputSchema: {
+      inputSchema: z.object({
         experimentId: VersionExperimentIdSchema,
-      },
+      }),
     },
     async ({ experimentId }) => {
       try {
@@ -345,10 +345,10 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'List treatments of an experiment',
       description:
         'GET /v2/appStoreVersionExperiments/{id}/appStoreVersionExperimentTreatments — the variants under test. PROMOTED column shows when a winning treatment was promoted to the real product page.',
-      inputSchema: {
+      inputSchema: z.object({
         experimentId: VersionExperimentIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ experimentId, raw }) => {
       const params = new URLSearchParams();
@@ -373,14 +373,14 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'Create an experiment treatment',
       description:
         'POST /v1/appStoreVersionExperimentTreatments — add a variant to an experiment (PREPARE_FOR_SUBMISSION only). name required; appIconName optional (tests an alternate icon — the icon must ship in the app binary as an alternate icon). Relationship emitted is appStoreVersionExperimentV2 (the modern surface). After creating: asc_post_treatment_localization per locale, then v0.13 asset tools for variant screenshots.',
-      inputSchema: {
+      inputSchema: z.object({
         experimentId: VersionExperimentIdSchema,
         name: z.string().min(1).describe('Treatment name (internal).'),
         appIconName: z
           .string()
           .optional()
           .describe('Optional alternate-icon name to test (must exist in the binary).'),
-      },
+      }),
     },
     async ({ experimentId, name, appIconName }) => {
       const body = buildTreatmentCreateBody({
@@ -413,11 +413,11 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'Patch an experiment treatment',
       description:
         'PATCH /v1/appStoreVersionExperimentTreatments/{id} — mutate name and/or appIconName (pre-submission). Pass at least one.',
-      inputSchema: {
+      inputSchema: z.object({
         treatmentId: ExperimentTreatmentIdSchema,
         name: z.string().min(1).optional(),
         appIconName: z.string().optional(),
-      },
+      }),
     },
     async ({ treatmentId, name, appIconName }) => {
       if (name === undefined && appIconName === undefined) {
@@ -456,9 +456,9 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'Delete an experiment treatment',
       description:
         'DELETE /v1/appStoreVersionExperimentTreatments/{id} — remove a variant (and its localizations/assets) from a pre-submission experiment.',
-      inputSchema: {
+      inputSchema: z.object({
         treatmentId: ExperimentTreatmentIdSchema,
-      },
+      }),
     },
     async ({ treatmentId }) => {
       try {
@@ -479,10 +479,10 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'List localizations of a treatment',
       description:
         'GET /v1/appStoreVersionExperimentTreatments/{id}/appStoreVersionExperimentTreatmentLocalizations — the per-locale containers for variant assets. Hang screenshot/preview sets off each with the v0.13 asset tools (parentType appStoreVersionExperimentTreatmentLocalizations).',
-      inputSchema: {
+      inputSchema: z.object({
         treatmentId: ExperimentTreatmentIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ treatmentId, raw }) => {
       const params = new URLSearchParams();
@@ -510,10 +510,10 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'Create a treatment localization',
       description:
         'POST /v1/appStoreVersionExperimentTreatmentLocalizations — add a locale to a treatment (locale required, e.g. "en-US"). Then create variant screenshot/preview sets against it with asc_post_app_screenshot_set / asc_post_app_preview_set (parentType appStoreVersionExperimentTreatmentLocalizations) and upload with the v0.13 composite tools.',
-      inputSchema: {
+      inputSchema: z.object({
         treatmentId: ExperimentTreatmentIdSchema,
         locale: LocaleSchema,
-      },
+      }),
     },
     async ({ treatmentId, locale }) => {
       const body = buildTreatmentLocalizationCreateBody({ treatmentId, locale });
@@ -542,9 +542,9 @@ export function registerVersionExperiments(server: McpServer, client: ASCClient)
       title: 'Delete a treatment localization',
       description:
         'DELETE /v1/appStoreVersionExperimentTreatmentLocalizations/{id} — remove a locale (and its variant assets) from a treatment.',
-      inputSchema: {
+      inputSchema: z.object({
         treatmentLocalizationId: TreatmentLocalizationIdSchema,
-      },
+      }),
     },
     async ({ treatmentLocalizationId }) => {
       try {

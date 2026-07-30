@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestPromotionalOfferPrices, digestPromotionalOffers } from '../digest.js';
@@ -180,11 +180,11 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
       title: 'List subscription promotional offers',
       description:
         'List promotional offers (PAY_AS_YOU_GO / PAY_UP_FRONT / FREE_TRIAL) configured for a subscription. Promo offers target existing or lapsed subscribers (intro offers target new subscribers). Apple caps active promo offers at 10 per subscription.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ subscriptionId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -209,10 +209,10 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
     {
       title: 'Get a subscription promotional offer',
       description: 'Fetch a single promotional offer by ID, including its per-territory prices.',
-      inputSchema: {
+      inputSchema: z.object({
         offerId: SubscriptionPromotionalOfferIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ offerId, raw }) => {
       const path = `/v1/subscriptionPromotionalOffers/${encodeURIComponent(
@@ -236,11 +236,11 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
       title: 'List subscription promotional offer prices',
       description:
         'List the per-territory price rows attached to a promotional offer. Each row is a (territory, subscriptionPricePoint) pair — the price-point amount is resolved via the included subscriptionPricePoints resources.',
-      inputSchema: {
+      inputSchema: z.object({
         offerId: SubscriptionPromotionalOfferIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ offerId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -267,7 +267,7 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
         'Create a promotional offer with name + offerCode + mode + duration plus all per-territory prices in one atomic POST. Apple caps active promo offers at 10 per subscription; this tool pre-flights the count and refuses if at the limit. ' +
         'Immutability: name, offerCode, mode, duration, and numberOfPeriods are immutable after creation — to change any of them, delete and re-create. Use asc_patch_subscription_promotional_offer_prices to update prices only. ' +
         'offerCode must be unique within the subscription (used by StoreKit as SubscriptionOffer.id when redeeming).',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         name: OfferNameSchema,
         offerCode: OfferCodeSchema,
@@ -285,7 +285,7 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
           .describe(
             'Per-territory prices. Each entry is (territoryId, pricePointId). At least one required. Use asc_list_subscription_price_points to pick price points per territory (nearAmount narrows to a target band).',
           ),
-      },
+      }),
     },
     async (input) => {
       if (input.offerMode === 'PAY_AS_YOU_GO' && input.numberOfPeriods === undefined) {
@@ -374,7 +374,7 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
         'Update the per-territory prices on an existing promotional offer. Apple PATCH on this resource only permits price changes — name, offerCode, mode, duration, and numberOfPeriods are immutable post-create. ' +
         "FOOTGUN: Apple's wire semantic is REPLACE — the prices array becomes the new post-state, dropping any territory not listed. This tool's mode parameter abstracts that: " +
         "'replace' (raw wire semantic — you pass the full new set), 'add' (reads current prices, appends/overrides your entries by territory, posts the union — safe when extending an offer to new markets without dropping existing ones), 'remove' (reads current, filters out the territories you list, posts the difference).",
-      inputSchema: {
+      inputSchema: z.object({
         offerId: SubscriptionPromotionalOfferIdSchema,
         mode: z
           .enum(['replace', 'add', 'remove'])
@@ -392,7 +392,7 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
             }),
           )
           .min(1),
-      },
+      }),
     },
     async ({ offerId, mode, prices }) => {
       // Validate inputs per mode.
@@ -481,9 +481,9 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
       title: 'Delete a subscription promotional offer',
       description:
         'Delete a promotional offer by ID. Returns 204 on success. Apple does not document whether the offerCode is immediately reusable after delete — recommend appending a suffix when rotating campaigns rather than reusing the same code.',
-      inputSchema: {
+      inputSchema: z.object({
         offerId: SubscriptionPromotionalOfferIdSchema,
-      },
+      }),
     },
     async ({ offerId }) => {
       try {

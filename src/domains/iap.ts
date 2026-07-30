@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestIapPricePoints, digestIapPrices, digestIaps, digestSingle } from '../digest.js';
@@ -50,7 +50,7 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
         'Auto-renewable subscriptions are NOT listed here; use asc_list_subscriptions instead. ' +
         'Returns a compact table by default; pass raw:true for the full JSON:API payload. ' +
         'If this returns zero rows for an app you know has IAPs, the IAPs may be legacy-only (v1, deprecated) — migrate via the App Store Connect web UI.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         filterType: z
           .enum(['CONSUMABLE', 'NON_CONSUMABLE', 'NON_RENEWING_SUBSCRIPTION'])
@@ -62,7 +62,7 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
           .describe('Restrict by ASC state, e.g. APPROVED, READY_TO_SUBMIT.'),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, filterType, filterState, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -86,10 +86,10 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
     {
       title: 'Get an in-app purchase',
       description: 'Fetch a single in-app purchase (v2) by its ASC ID.',
-      inputSchema: {
+      inputSchema: z.object({
         iapId: InAppPurchaseIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ iapId, raw }) => {
       const params = new URLSearchParams();
@@ -115,11 +115,11 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
       description:
         'List the current price schedule for an in-app purchase across territories. Like apps (and unlike subs), the schedule is one object with manual + automatic price children. ' +
         'Apple may reject chained includes or fields[inAppPurchasePricePoints] selectors on this endpoint (matches the appPriceSchedule pattern); we ask only for top-level relationships and resolve amounts separately via asc_list_iap_price_points.',
-      inputSchema: {
+      inputSchema: z.object({
         iapId: InAppPurchaseIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ iapId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -143,7 +143,7 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
       description:
         'List the valid Apple price tiers for an in-app purchase in a given territory. Apple rotates these IDs; cache only within a single run. ' +
         'Pass nearAmount when you already know the target price — the response is narrowed to the nearest tiers client-side (Apple does not support a near-amount filter server-side, so the full list is still paginated but only the nearest tiers are surfaced).',
-      inputSchema: {
+      inputSchema: z.object({
         iapId: InAppPurchaseIdSchema,
         territoryId: TerritoryIdSchema,
         maxItems: z.number().int().positive().max(5000).default(1000),
@@ -162,7 +162,7 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
           .default(10)
           .describe('Max tiers to return when nearAmount is set.'),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ iapId, territoryId, maxItems, nearAmount, nearCount, raw }) => {
       const params = new URLSearchParams();
@@ -200,7 +200,7 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
         'At least one entry MUST target `baseTerritory` with no startDate (= active now). ' +
         "IAPs have NO grandfather mechanism (no preserveCurrentPrice analog) — new prices activate atomically at each entry's startDate. " +
         'For auto-renewable subscriptions use asc_post_subscription_price instead.',
-      inputSchema: {
+      inputSchema: z.object({
         iapId: InAppPurchaseIdSchema,
         baseTerritory: TerritoryIdSchema,
         prices: z
@@ -231,7 +231,7 @@ export function registerIaps(server: McpServer, client: ASCClient): void {
           .describe(
             "Required `true` if `baseTerritory` differs from the IAP's current base territory.",
           ),
-      },
+      }),
     },
     async ({ iapId, baseTerritory, prices, acknowledgeDeletesScheduledIfBaseChanges }) => {
       // Pre-flight: baseTerritory must appear in prices[] with no startDate.

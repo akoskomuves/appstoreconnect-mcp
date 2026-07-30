@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestBetaRecruitmentCriterionOptions } from '../digest.js';
@@ -133,9 +133,9 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
       title: 'Get the recruitment criterion of a beta group',
       description:
         "GET /v1/betaGroups/{id}/betaRecruitmentCriteria — the group's single recruitment criterion (a beta group has at most one; the plural path segment is Apple's naming, the response is one resource). Returns deviceFamilyOsVersionFilters + lastModifiedDate. When the group has NO criterion yet, Apple answers 409 ENTITY_ERROR (observed live) — this tool translates that to a clear 'no criterion yet' message; create one with asc_post_beta_recruitment_criterion.",
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
-      },
+      }),
     },
     async ({ betaGroupId }) => {
       const path = `/v1/betaGroups/${encodeURIComponent(betaGroupId)}/betaRecruitmentCriteria`;
@@ -168,7 +168,7 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
       title: 'Create a recruitment criterion on a beta group',
       description:
         'POST /v1/betaRecruitmentCriteria — gate public-link auto-recruitment on a beta group to devices matching the given device-family + OS-version windows. The group should be EXTERNAL with the public link enabled (see asc_patch_beta_group) for the criterion to have any effect. One criterion per group — if one already exists, PATCH it instead. Valid OS versions per family: asc_list_beta_recruitment_criterion_options. After creating, sanity-check with asc_get_beta_recruitment_compatible_build_check that matching devices can actually install a build.',
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
         filters: z
           .array(DeviceFamilyOsVersionFilterSchema)
@@ -176,7 +176,7 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
           .describe(
             'At least one device-family window. A device joins if it matches ANY entry (OR semantics).',
           ),
-      },
+      }),
     },
     async ({ betaGroupId, filters }) => {
       const body = buildBetaRecruitmentCriterionCreateBody({
@@ -216,13 +216,13 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
       title: 'Patch a recruitment criterion',
       description:
         'PATCH /v1/betaRecruitmentCriteria/{id} — REPLACES the whole deviceFamilyOsVersionFilters array (no per-entry add/remove on the wire). Read the current set first with asc_get_beta_group_recruitment_criterion, then send the complete desired set.',
-      inputSchema: {
+      inputSchema: z.object({
         criterionId: BetaRecruitmentCriterionIdSchema,
         filters: z
           .array(DeviceFamilyOsVersionFilterSchema)
           .min(1)
           .describe('The COMPLETE replacement set — entries not listed here are dropped.'),
-      },
+      }),
     },
     async ({ criterionId, filters }) => {
       const body = buildBetaRecruitmentCriterionPatchBody({
@@ -262,9 +262,9 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
       title: 'Delete a recruitment criterion',
       description:
         'DELETE /v1/betaRecruitmentCriteria/{id} — remove the criterion entirely; the public link goes back to accepting ANY device. The beta group and its public link are untouched.',
-      inputSchema: {
+      inputSchema: z.object({
         criterionId: BetaRecruitmentCriterionIdSchema,
-      },
+      }),
     },
     async ({ criterionId }) => {
       try {
@@ -287,10 +287,10 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
       title: 'List valid recruitment criterion options',
       description:
         'GET /v1/betaRecruitmentCriterionOptions — the device families and OS versions Apple currently accepts in deviceFamilyOsVersionFilters. Consult before creating/patching a criterion so min/max values are valid.',
-      inputSchema: {
+      inputSchema: z.object({
         maxItems: z.number().int().positive().max(500).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ maxItems, raw }) => {
       const path = `/v1/betaRecruitmentCriterionOptions?limit=200`;
@@ -312,9 +312,9 @@ export function registerBetaRecruitment(server: McpServer, client: ASCClient): v
       title: 'Check recruitment criteria against available builds',
       description:
         'GET /v1/betaGroups/{id}/betaRecruitmentCriterionCompatibleBuildCheck — hasCompatibleBuild tells you whether the group currently distributes at least one build that devices matching the recruitment criteria could install. false means public-link joiners who pass the criteria would find NO installable build — fix the criteria or assign a compatible build before promoting the link. 404s when the group has no criterion at all (observed live) — the check only exists once a criterion does.',
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema,
-      },
+      }),
     },
     async ({ betaGroupId }) => {
       const path = `/v1/betaGroups/${encodeURIComponent(

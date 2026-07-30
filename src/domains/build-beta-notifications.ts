@@ -1,4 +1,5 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
+import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { ASCError } from '../errors.js';
 import { BuildIdSchema } from '../schemas.js';
@@ -53,9 +54,9 @@ export function registerBuildBetaNotifications(server: McpServer, client: ASCCli
       title: 'Notify testers about a build',
       description:
         'POST /v1/buildBetaNotifications — send the "new build available" TestFlight notification to every tester who has access to the build. Fire-and-forget: Apple returns an acknowledgment resource with no attributes, and there is no way to list or revoke a sent notification. Use for builds where autoNotifyEnabled is off (see asc_patch_build_beta_detail), or to re-ping testers. The build must be in VALID processingState and already distributed to at least one group/tester.',
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
-      },
+      }),
     },
     async ({ buildId }) => {
       const body = buildBuildBetaNotificationCreateBody(buildId);

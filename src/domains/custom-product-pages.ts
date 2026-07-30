@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -261,11 +261,11 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'List Custom Product Pages for an app',
       description:
         'List AppCustomProductPage records under an app. Each row carries the page name, the public URL (once a version is APPROVED), the visible flag (wire `visible`, Swift `isVisible`), and the page ID. Use to inspect which CPP variants exist before patching, adding versions, or deleting.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -288,9 +288,9 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Get an AppCustomProductPage',
       description:
         'Fetch a single AppCustomProductPage with its versions expanded. Returns the page metadata + every AppCustomProductPageVersion under it (with state + deepLink). Use to navigate from a page to its current version.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageId: AppCustomProductPageIdSchema,
-      },
+      }),
     },
     async ({ appCustomProductPageId }) => {
       const path = `/v1/appCustomProductPages/${encodeURIComponent(appCustomProductPageId)}?include=appCustomProductPageVersions`;
@@ -309,10 +309,10 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Create an AppCustomProductPage',
       description:
         'Create an AppCustomProductPage for an app with a reference name (UI-only, not customer-facing). Required: appId + name. Apple automatically creates an initial AppCustomProductPageVersion in PREPARE_FOR_SUBMISSION — fetch it via asc_get_app_custom_product_page and attach localizations / asset sets to that version.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         name: CustomProductPageNameSchema,
-      },
+      }),
     },
     async (input) => {
       const body = buildCustomProductPageCreateBody({ appId: input.appId, name: input.name });
@@ -341,11 +341,11 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Patch an AppCustomProductPage (name / visible)',
       description:
         'Update name and/or visibility on an existing AppCustomProductPage. Wire-key gotcha: Swift `isVisible` → wire `visible` (same strip pattern as AppTag.visibleInAppStore). Toggling visible=false retracts the public URL without deleting the page. Tool refuses empty PATCH.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageId: AppCustomProductPageIdSchema,
         name: CustomProductPageNameSchema.optional(),
         visible: CustomProductPageVisibleSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       if (input.name === undefined && input.visible === undefined) {
@@ -389,9 +389,9 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Delete an AppCustomProductPage',
       description:
         'DELETE an AppCustomProductPage. Removes the page + every version + every localization + every asset set under it. The public CPP URL stops resolving immediately. Apple may refuse if a version is currently IN_REVIEW.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageId: AppCustomProductPageIdSchema,
-      },
+      }),
     },
     async ({ appCustomProductPageId }) => {
       try {
@@ -418,11 +418,11 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'List versions for a Custom Product Page',
       description:
         'List AppCustomProductPageVersion records under a CPP. Each row carries the version string (typically auto-generated), state (PREPARE_FOR_SUBMISSION / READY_FOR_REVIEW / WAITING_FOR_REVIEW / IN_REVIEW / ACCEPTED / APPROVED / REPLACED_WITH_NEW_VERSION / REJECTED), deepLink, and version ID.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageId: AppCustomProductPageIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appCustomProductPageId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -447,9 +447,9 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Get an AppCustomProductPageVersion',
       description:
         'Fetch a single AppCustomProductPageVersion with its localizations expanded. Returns the version metadata (state, deepLink) + every AppCustomProductPageLocalization under it.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageVersionId: AppCustomProductPageVersionIdSchema,
-      },
+      }),
     },
     async ({ appCustomProductPageVersionId }) => {
       const path = `/v1/appCustomProductPageVersions/${encodeURIComponent(appCustomProductPageVersionId)}?include=appCustomProductPageLocalizations`;
@@ -468,10 +468,10 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Create an AppCustomProductPageVersion',
       description:
         'Create a new AppCustomProductPageVersion under a CPP. Required: appCustomProductPageId. Optional: deepLink (URL appended to the CPP click-through). No-attrs-block gotcha: when deepLink is omitted, the body sends NO attributes key at all (Apple rejects bare attrs:{} on this endpoint, same as v0.9 AppInfo PATCH). New versions land in PREPARE_FOR_SUBMISSION.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageId: AppCustomProductPageIdSchema,
         deepLink: CustomProductPageDeepLinkSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildCustomProductPageVersionCreateBody({
@@ -503,9 +503,9 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Delete an AppCustomProductPageVersion',
       description:
         'DELETE an AppCustomProductPageVersion. Removes every localization + asset set under it. Apple gates this — versions in WAITING_FOR_REVIEW / IN_REVIEW typically cannot be deleted directly.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageVersionId: AppCustomProductPageVersionIdSchema,
-      },
+      }),
     },
     async ({ appCustomProductPageVersionId }) => {
       try {
@@ -535,11 +535,11 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'List localizations for a CPP version',
       description:
         'List AppCustomProductPageLocalization records under an AppCustomProductPageVersion. Each row carries locale + promotionalText length + a short preview + the localization ID. Per (version, locale).',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageVersionId: AppCustomProductPageVersionIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appCustomProductPageVersionId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -564,9 +564,9 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Get an AppCustomProductPageLocalization',
       description:
         'Fetch a single AppCustomProductPageLocalization by ID. Returns locale + promotionalText + the relationship IDs for any attached screenshot sets, preview sets, and search keywords.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageLocalizationId: AppCustomProductPageLocalizationIdSchema,
-      },
+      }),
     },
     async ({ appCustomProductPageLocalizationId }) => {
       const path = `/v1/appCustomProductPageLocalizations/${encodeURIComponent(appCustomProductPageLocalizationId)}?include=appScreenshotSets,appPreviewSets,searchKeywords`;
@@ -585,11 +585,11 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Create an AppCustomProductPageLocalization',
       description:
         'Create an AppCustomProductPageLocalization under a CPP version for ONE locale. Required: appCustomProductPageVersionId + locale. Optional: promotionalText (170 chars). The (version, locale) pair must be unique. Pre-check refuses for frozen states (WAITING_FOR_REVIEW, IN_REVIEW).',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageVersionId: AppCustomProductPageVersionIdSchema,
         locale: LocaleSchema,
         promotionalText: CustomProductPagePromotionalTextSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const state = await fetchCustomProductPageVersionState(
@@ -633,10 +633,10 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Patch an AppCustomProductPageLocalization',
       description:
         'Update promotionalText on an existing CPP localization. promotionalText is the ONLY mutable field (locale is immutable). Tool refuses empty PATCH; pass an empty string to clear if Apple allows it.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageLocalizationId: AppCustomProductPageLocalizationIdSchema,
         promotionalText: CustomProductPagePromotionalTextSchema,
-      },
+      }),
     },
     async (input) => {
       const body = buildCustomProductPageLocalizationPatchBody({
@@ -668,9 +668,9 @@ export function registerCustomProductPages(server: McpServer, client: ASCClient)
       title: 'Delete an AppCustomProductPageLocalization',
       description:
         'DELETE an AppCustomProductPageLocalization. Customers in this locale fall back to the parent AppStoreVersionLocalization. Apple may refuse if the parent version is in a frozen state.',
-      inputSchema: {
+      inputSchema: z.object({
         appCustomProductPageLocalizationId: AppCustomProductPageLocalizationIdSchema,
-      },
+      }),
     },
     async ({ appCustomProductPageLocalizationId }) => {
       try {

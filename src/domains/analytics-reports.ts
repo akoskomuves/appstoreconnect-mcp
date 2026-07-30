@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -111,10 +111,10 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
       title: 'Create an analytics report request',
       description:
         'POST /v1/analyticsReportRequests — turn on analytics report generation for an app. accessType ONGOING (Apple keeps producing daily/weekly/monthly instances; may auto-pause after inactivity — stoppedDueToInactivity=true — delete + recreate to resume) or ONE_TIME_SNAPSHOT (single historical backfill). One request per (app, accessType); duplicates are rejected. Instances appear up to ~48h later — an empty chain right after creation is normal.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         accessType: AnalyticsAccessTypeSchema,
-      },
+      }),
     },
     async ({ appId, accessType }) => {
       const body = buildAnalyticsReportRequestCreateBody({ appId, accessType });
@@ -143,11 +143,11 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
       title: 'List analytics report requests of an app',
       description:
         'GET /v1/apps/{id}/analyticsReportRequests — the existing requests (at most one ONGOING + one ONE_TIME_SNAPSHOT). stoppedDueToInactivity=true on an ONGOING request means Apple auto-paused it; delete + recreate to resume.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         accessType: AnalyticsAccessTypeSchema.optional().describe('Optional filter.'),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, accessType, raw }) => {
       const params = new URLSearchParams();
@@ -171,9 +171,9 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
       title: 'Delete an analytics report request',
       description:
         'DELETE /v1/analyticsReportRequests/{id} — stop report generation for this request and drop access to its report chain. Recreating later starts fresh (ONGOING resumes from creation; ONE_TIME_SNAPSHOT re-backfills).',
-      inputSchema: {
+      inputSchema: z.object({
         requestId: AnalyticsReportRequestIdSchema,
-      },
+      }),
     },
     async ({ requestId }) => {
       try {
@@ -196,7 +196,7 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
       title: 'List reports under an analytics report request',
       description:
         'GET /v1/analyticsReportRequests/{id}/reports — the report catalog: one row per report name (e.g. "App Store Installation and Deletion Standard") within a category. Filter by category (COMMERCE for downloads/proceeds, APP_USAGE for sessions/crashes, APP_STORE_ENGAGEMENT for impressions/page views) or exact name. Take a report ID into asc_list_analytics_report_instances.',
-      inputSchema: {
+      inputSchema: z.object({
         requestId: AnalyticsReportRequestIdSchema,
         category: AnalyticsReportCategorySchema.optional(),
         name: z
@@ -205,7 +205,7 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
           .describe('Exact report name filter (e.g. "App Downloads Standard").'),
         maxItems: z.number().int().positive().max(500).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ requestId, category, name, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -230,7 +230,7 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
       title: 'List instances of an analytics report',
       description:
         'GET /v1/analyticsReports/{id}/instances — the dated materializations of one report, one row per (granularity, processingDate). Filter granularity DAILY/WEEKLY/MONTHLY and/or processingDate (YYYY-MM-DD). Take an instance ID into asc_list_analytics_report_segments. Empty within ~48h of creating the request is normal.',
-      inputSchema: {
+      inputSchema: z.object({
         reportId: AnalyticsReportIdSchema,
         granularity: AnalyticsGranularitySchema.optional(),
         processingDate: z
@@ -239,7 +239,7 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
           .describe('YYYY-MM-DD — the date the instance covers/was processed.'),
         maxItems: z.number().int().positive().max(2000).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ reportId, granularity, processingDate, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -264,10 +264,10 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
       title: 'List segments of an analytics report instance',
       description:
         'GET /v1/analyticsReportInstances/{id}/segments — the downloadable chunks of one instance: checksum, sizeInBytes, and a PRE-SIGNED TIME-LIMITED url. Download promptly with asc_download_analytics_report_segment (pass the URL through verbatim); if a URL expires, re-list segments for fresh ones.',
-      inputSchema: {
+      inputSchema: z.object({
         instanceId: AnalyticsReportInstanceIdSchema,
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ instanceId, raw }) => {
       const params = new URLSearchParams();
@@ -290,7 +290,7 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
       title: 'Download an analytics report segment',
       description:
         'Fetch a segment URL from asc_list_analytics_report_segments (pre-signed — fetched WITHOUT the ASC auth header; the signature lives in the URL) and gunzip the CSV. Returns header + row preview; saveTo writes the full decoded CSV to disk. Expired URL → re-list segments for a fresh one.',
-      inputSchema: {
+      inputSchema: z.object({
         url: z
           .string()
           .url()
@@ -301,7 +301,7 @@ export function registerAnalyticsReports(server: McpServer, client: ASCClient): 
           .string()
           .optional()
           .describe('Absolute file path — write the full decoded CSV there instead of inlining.'),
-      },
+      }),
     },
     async ({ url, maxRows, raw, saveTo }) => {
       try {

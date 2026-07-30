@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestReviewAssets } from '../digest.js';
@@ -146,11 +146,11 @@ function registerReads(server: McpServer, client: ASCClient, cfg: AssetResourceC
       {
         title: `List ${cfg.singular}s`,
         description: `List the ${cfg.singular}s attached to a ${cfg.parentLabel}. Each row carries fileName, fileSize, upload state, and whether the reservation has been committed (sourceFileChecksum present).`,
-        inputSchema: {
+        inputSchema: z.object({
           parentId: cfg.parentIdSchema,
           maxItems: z.number().int().positive().max(2000).default(500),
           raw: z.boolean().default(false),
-        },
+        }),
       },
       async ({ parentId, maxItems, raw }) => {
         const params = new URLSearchParams();
@@ -173,7 +173,7 @@ function registerReads(server: McpServer, client: ASCClient, cfg: AssetResourceC
       {
         title: `Get a ${cfg.singular}`,
         description: `Fetch a single ${cfg.singular} by ID. Returns the upload metadata (fileName, fileSize, sourceFileChecksum, state), the processed asset URLs once available, and — if the reservation is not yet committed — the uploadOperations[] needed to PUT chunks to Apple storage.`,
-        inputSchema: { assetId: cfg.resourceIdSchema },
+        inputSchema: z.object({ assetId: cfg.resourceIdSchema }),
       },
       async ({ assetId }) => {
         try {
@@ -190,7 +190,7 @@ function registerReads(server: McpServer, client: ASCClient, cfg: AssetResourceC
       {
         title: `Get the ${cfg.singular}`,
         description: `Fetch the single ${cfg.singular} for a ${cfg.parentLabel} (to-one). Returns null data if none is attached yet. Includes the asset id needed for delete/commit.`,
-        inputSchema: { parentId: cfg.parentIdSchema },
+        inputSchema: z.object({ parentId: cfg.parentIdSchema }),
       },
       async ({ parentId }) => {
         try {
@@ -219,13 +219,13 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
         (isToOne
           ? ` This asset is to-ONE per ${cfg.parentLabel}; if one already exists the tool refuses — delete it first with asc_delete_${cfg.toolBase}.`
           : ''),
-      inputSchema: {
+      inputSchema: z.object({
         parentId: cfg.parentIdSchema,
         localFilePath: LocalFilePathSchema,
         fileName: FileNameSchema.optional().describe(
           'Override the file name sent to Apple. Defaults to basename(localFilePath).',
         ),
-      },
+      }),
     },
     async ({ parentId, localFilePath, fileName }) => {
       const resolvedPath = expandHomePath(localFilePath);
@@ -299,11 +299,11 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
       description:
         `RAW step 1 of the three-step upload. Reserves a ${cfg.singular} under the ${cfg.parentLabel} with fileName + fileSize and returns the resource with uploadOperations[]. PUT each with asc_upload_asset_chunk, then commit with asc_patch_${cfg.toolBase}. Most callers should use the composite asc_upload_${cfg.toolBase} instead.` +
         (isToOne ? ` To-one — refuses if one already exists.` : ''),
-      inputSchema: {
+      inputSchema: z.object({
         parentId: cfg.parentIdSchema,
         fileName: FileNameSchema,
         fileSize: FileSizeSchema,
-      },
+      }),
     },
     async ({ parentId, fileName, fileSize }) => {
       try {
@@ -354,11 +354,11 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
     {
       title: `Commit a ${cfg.singular} upload (raw step 3)`,
       description: `RAW step 3 of the three-step upload. PATCH the ${cfg.singular} with sourceFileChecksum (lowercase hex MD5 of the full file) + uploaded=true to commit. Wire-key gotcha: Swift \`isUploaded\` → wire \`uploaded\`. Pass at least one field — empty PATCH is refused. The composite asc_upload_${cfg.toolBase} handles this automatically.`,
-      inputSchema: {
+      inputSchema: z.object({
         assetId: cfg.resourceIdSchema,
         sourceFileChecksum: SourceFileChecksumSchema.optional(),
         uploaded: z.boolean().optional(),
-      },
+      }),
     },
     async ({ assetId, sourceFileChecksum, uploaded }) => {
       if (sourceFileChecksum === undefined && uploaded === undefined) {
@@ -404,7 +404,7 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
     {
       title: `Delete a ${cfg.singular}`,
       description: `DELETE a ${cfg.singular} by ID → 204. ${isToOne ? `Removes the ${cfg.parentLabel}'s single review screenshot — the ${cfg.parentLabel} then needs a new one before it can be submitted.` : `Removes one image from the ${cfg.parentLabel}'s set.`}`,
-      inputSchema: { assetId: cfg.resourceIdSchema },
+      inputSchema: z.object({ assetId: cfg.resourceIdSchema }),
     },
     async ({ assetId }) => {
       try {

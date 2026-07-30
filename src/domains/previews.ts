@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppPreviewSets, digestAppPreviews } from '../digest.js';
@@ -179,12 +179,12 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'List preview sets under a parent localization',
       description:
         'List AppPreviewSet records under a parent localization (an AppStoreVersionLocalization, an AppCustomProductPageLocalization, or an AppStoreVersionExperimentTreatmentLocalization). Each row carries the previewType (IPHONE_67, IPAD_PRO_129, …) and the set ID. Note: PreviewType values are distinct from ScreenshotDisplayType — no `APP_` prefix.',
-      inputSchema: {
+      inputSchema: z.object({
         parentType: ScreenshotSetParentTypeSchema,
         parentLocalizationId: z.string().min(1),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ parentType, parentLocalizationId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -207,9 +207,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'Get an AppPreviewSet',
       description:
         'Fetch a single AppPreviewSet by ID with its previews expanded. The included AppPreview resources carry fileName, fileSize, previewFrameTimeCode, mimeType, and the video delivery state.',
-      inputSchema: {
+      inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
-      },
+      }),
     },
     async ({ appPreviewSetId }) => {
       const path = `/v1/appPreviewSets/${encodeURIComponent(appPreviewSetId)}?include=appPreviews`;
@@ -228,11 +228,11 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'Create an AppPreviewSet',
       description:
         'Create an AppPreviewSet for ONE (parent localization, previewType) pair. Required: parentType + parentLocalizationId + previewType. Apple enforces uniqueness — a duplicate (parent, previewType) is rejected.',
-      inputSchema: {
+      inputSchema: z.object({
         parentType: ScreenshotSetParentTypeSchema,
         parentLocalizationId: z.string().min(1),
         previewType: PreviewTypeSchema,
-      },
+      }),
     },
     async ({ parentType, parentLocalizationId, previewType }) => {
       const body = buildAppPreviewSetCreateBody({
@@ -265,9 +265,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'Delete an AppPreviewSet',
       description:
         'DELETE an AppPreviewSet. All AppPreview resources under the set are removed as well.',
-      inputSchema: {
+      inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
-      },
+      }),
     },
     async ({ appPreviewSetId }) => {
       try {
@@ -291,11 +291,11 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'List previews under a set',
       description:
         'List AppPreview records under an AppPreviewSet. Each row carries fileName + fileSize + previewFrameTimeCode + the two delivery states (assetDeliveryState for the source file, videoDeliveryState for Apple-side transcode).',
-      inputSchema: {
+      inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appPreviewSetId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -318,9 +318,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'Get an AppPreview',
       description:
         'Fetch a single AppPreview by ID. Returns the upload metadata + previewFrameTimeCode + (post-ingest) videoUrl and previewImage. Wire-key gotcha: Apple emits `videoUrl` (camelCase) where Swift names it `videoURL`.',
-      inputSchema: {
+      inputSchema: z.object({
         appPreviewId: AppPreviewIdSchema,
-      },
+      }),
     },
     async ({ appPreviewId }) => {
       const path = `/v1/appPreviews/${encodeURIComponent(appPreviewId)}`;
@@ -339,13 +339,13 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'Reserve an AppPreview upload (raw step 1)',
       description:
         'RAW step 1 of the three-step upload flow for previews. Reserves an AppPreview under a set with fileName + fileSize (+ optional previewFrameTimeCode + mimeType), and returns the resource with uploadOperations[] populated. Most callers should use the composite asc_upload_app_preview instead — this exists for manual control.',
-      inputSchema: {
+      inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
         fileName: FileNameSchema,
         fileSize: FileSizeSchema,
         previewFrameTimeCode: PreviewFrameTimeCodeSchema.optional(),
         mimeType: PreviewMimeTypeSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildAppPreviewCreateBody({
@@ -382,12 +382,12 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'Patch / commit an AppPreview (raw step 3)',
       description:
         'RAW step 3 of the three-step upload flow + the only way to tweak previewFrameTimeCode on an existing preview. PATCH with sourceFileChecksum + uploaded=true to commit a reservation, or with previewFrameTimeCode alone to change the poster frame without re-uploading the video. Wire-key gotcha: Swift `isUploaded` → wire `uploaded`. Tool refuses empty PATCHes.',
-      inputSchema: {
+      inputSchema: z.object({
         appPreviewId: AppPreviewIdSchema,
         sourceFileChecksum: SourceFileChecksumSchema.optional(),
         previewFrameTimeCode: PreviewFrameTimeCodeSchema.optional(),
         uploaded: z.boolean().optional(),
-      },
+      }),
     },
     async (input) => {
       const anyAttr =
@@ -440,9 +440,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'Delete an AppPreview',
       description:
         'DELETE an AppPreview. Removes the video asset + its slot in the set; if all previews are removed the parent localization may need a new upload before submission.',
-      inputSchema: {
+      inputSchema: z.object({
         appPreviewId: AppPreviewIdSchema,
-      },
+      }),
     },
     async ({ appPreviewId }) => {
       try {
@@ -462,7 +462,7 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
       title: 'Upload an app preview video from a local file (composite)',
       description:
         "Composite tool. Reads localFilePath from disk (Apple's recommended: .mov H.264/HEVC, ≤500 MB, 15–30s), reserves an AppPreview under the given set, PUTs every uploadOperation chunk to Apple storage in sequence, then commits with sourceFileChecksum + uploaded=true. Optionally sets previewFrameTimeCode (poster frame) at reserve. Returns the committed resource + per-chunk summary. Tilde paths (~/...) are expanded.",
-      inputSchema: {
+      inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
         localFilePath: LocalFilePathSchema,
         fileName: FileNameSchema.optional().describe(
@@ -470,7 +470,7 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
         ),
         previewFrameTimeCode: PreviewFrameTimeCodeSchema.optional(),
         mimeType: PreviewMimeTypeSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const resolvedPath = expandHomePath(input.localFilePath);

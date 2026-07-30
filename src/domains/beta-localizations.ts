@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestBetaAppLocalizations, digestBetaBuildLocalizations } from '../digest.js';
@@ -179,11 +179,11 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
       title: 'List per-build "What to Test" localizations',
       description:
         'List BetaBuildLocalizations under a build. Each row is one locale\'s "What to Test" entry for that build (max 4000 chars). Use to see what locales already have copy before adding/patching more.',
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ buildId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -208,9 +208,9 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
       title: 'Get a per-build "What to Test" localization',
       description:
         'Fetch a single BetaBuildLocalization by ID. Returns the locale + the full whatsNew text. Use before PATCH to read current copy.',
-      inputSchema: {
+      inputSchema: z.object({
         betaBuildLocalizationId: BetaBuildLocalizationIdSchema,
-      },
+      }),
     },
     async ({ betaBuildLocalizationId }) => {
       const path = `/v1/betaBuildLocalizations/${encodeURIComponent(betaBuildLocalizationId)}`;
@@ -229,13 +229,13 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
       title: 'Create a per-build "What to Test" localization',
       description:
         'Create a BetaBuildLocalization for ONE build + ONE locale. whatsNew is optional at create time (you can leave it blank and patch later). The (build, locale) pair must be unique — Apple rejects a duplicate. Locale is immutable post-create; to change locale, delete this resource and re-create.',
-      inputSchema: {
+      inputSchema: z.object({
         buildId: BuildIdSchema,
         locale: LocaleSchema,
         whatsNew: WhatsNewSchema.optional().describe(
           'Per-build "What to Test" body, max 4000 characters. Optional at create — set or patch later via asc_patch_beta_build_localization.',
         ),
-      },
+      }),
     },
     async (input) => {
       const body = buildBetaBuildLocalizationCreateBody({
@@ -268,10 +268,10 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
       title: 'Patch a per-build "What to Test" localization',
       description:
         "Update the whatsNew body on an existing BetaBuildLocalization. Apple PATCH on this resource accepts ONLY whatsNew — locale is immutable. Pass the new copy verbatim (no diff/merge); the value replaces what's there.",
-      inputSchema: {
+      inputSchema: z.object({
         betaBuildLocalizationId: BetaBuildLocalizationIdSchema,
         whatsNew: WhatsNewSchema,
-      },
+      }),
     },
     async ({ betaBuildLocalizationId, whatsNew }) => {
       const body = buildBetaBuildLocalizationPatchBody({ betaBuildLocalizationId, whatsNew });
@@ -300,9 +300,9 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
       title: 'Delete a per-build "What to Test" localization',
       description:
         "DELETE a BetaBuildLocalization. The locale is removed for this build; testers in that locale fall back to whatever default locale TestFlight chooses. Doesn't affect the build itself.",
-      inputSchema: {
+      inputSchema: z.object({
         betaBuildLocalizationId: BetaBuildLocalizationIdSchema,
-      },
+      }),
     },
     async ({ betaBuildLocalizationId }) => {
       try {
@@ -329,11 +329,11 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
       title: 'List per-app beta localizations',
       description:
         'List BetaAppLocalizations under an app. Each row carries description + feedbackEmail + marketingUrl + privacyPolicyUrl + tvOsPrivacyPolicy + locale. These are the standing beta-app fields shown in TestFlight above each build\'s "What to Test".',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -357,9 +357,9 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
     {
       title: 'Get a per-app beta localization',
       description: 'Fetch a single BetaAppLocalization by ID.',
-      inputSchema: {
+      inputSchema: z.object({
         betaAppLocalizationId: BetaAppLocalizationIdSchema,
-      },
+      }),
     },
     async ({ betaAppLocalizationId }) => {
       const path = `/v1/betaAppLocalizations/${encodeURIComponent(betaAppLocalizationId)}`;
@@ -378,7 +378,7 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
       title: 'Create a per-app beta localization',
       description:
         'Create a BetaAppLocalization for ONE app + ONE locale. Required: appId + locale. Optional: description, feedbackEmail, marketingUrl (camelCase wire key — NOT marketingURL), privacyPolicyUrl, tvOsPrivacyPolicy. The (app, locale) pair must be unique — Apple rejects a duplicate. Locale is immutable post-create.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         locale: LocaleSchema,
         description: BetaAppDescriptionSchema.optional(),
@@ -392,7 +392,7 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
           .describe(
             'Optional tvOS-specific privacy policy text (not URL — full text body). Only meaningful for tvOS apps.',
           ),
-      },
+      }),
     },
     async (input) => {
       const body = buildBetaAppLocalizationCreateBody({
@@ -433,14 +433,14 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
       title: 'Patch a per-app beta localization',
       description:
         'Update one or more attrs on an existing BetaAppLocalization. All five attrs are individually optional (encodeIfPresent — only what you pass is sent). Locale is immutable. Tool refuses an empty PATCH (no attrs passed) at the tool layer.',
-      inputSchema: {
+      inputSchema: z.object({
         betaAppLocalizationId: BetaAppLocalizationIdSchema,
         description: BetaAppDescriptionSchema.optional(),
         feedbackEmail: FeedbackEmailSchema.optional(),
         marketingUrl: MarketingUrlSchema.optional(),
         privacyPolicyUrl: PrivacyPolicyUrlSchema.optional(),
         tvOsPrivacyPolicy: z.string().max(4000).optional(),
-      },
+      }),
     },
     async (input) => {
       const anyField = [
@@ -498,9 +498,9 @@ export function registerBetaLocalizations(server: McpServer, client: ASCClient):
       title: 'Delete a per-app beta localization',
       description:
         'DELETE a BetaAppLocalization. The locale-specific copy is removed; testers in that locale fall back to whatever default TestFlight uses. Per-build "What to Test" localizations are NOT affected.',
-      inputSchema: {
+      inputSchema: z.object({
         betaAppLocalizationId: BetaAppLocalizationIdSchema,
-      },
+      }),
     },
     async ({ betaAppLocalizationId }) => {
       try {

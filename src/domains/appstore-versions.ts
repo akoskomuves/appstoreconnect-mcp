@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppStoreVersions } from '../digest.js';
@@ -240,14 +240,14 @@ export function registerAppStoreVersions(server: McpServer, client: ASCClient): 
       title: 'List App Store versions for an app',
       description:
         'List App Store versions for ONE app. appId is required — Apple\'s /v1/appStoreVersions collection is write-only on the GET side (returns FORBIDDEN_ERROR: "does not allow GET_COLLECTION"), so the only way to enumerate versions is via the per-app relationship path /v1/apps/{id}/appStoreVersions. Returns rows with platform, versionString, current state, and IDs in Apple\'s default order (no `sort` parameter is accepted on this path — Apple rejects it). Use raw:true and post-sort client-side if a specific order is needed.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         platform: PlatformSchema.optional().describe(
           'Optional filter — narrow to one platform (IOS/MAC_OS/TV_OS/WATCH_OS/VISION_OS).',
         ),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, platform, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -271,9 +271,9 @@ export function registerAppStoreVersions(server: McpServer, client: ASCClient): 
       title: 'Get an App Store version',
       description:
         "Fetch a single App Store version with relationships expanded (app + appStoreVersionLocalizations + build). Use to see which locales already have copy and which still need localizing — the appStoreVersionLocalizations to-many relationship is the typical entry point for the v0.10 'translate release notes into N locales' workflow.",
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionId: AppStoreVersionIdSchema,
-      },
+      }),
     },
     async ({ appStoreVersionId }) => {
       const path = `/v1/appStoreVersions/${encodeURIComponent(
@@ -298,7 +298,7 @@ export function registerAppStoreVersions(server: McpServer, client: ASCClient): 
         'Create a new App Store version on an app. Required: appId + platform + versionString. The versionString must compare HIGHER than every prior version for this (app, platform) — Apple rejects duplicates or decreasing values. Optional: copyright, reviewType (APP_STORE default / NOTARIZATION for macOS notarization-only), releaseType (MANUAL / AFTER_APPROVAL / SCHEDULED), earliestReleaseDate (required if releaseType=SCHEDULED). ' +
         'Optional buildId attaches a build at create time — useful for the end-to-end flow "TestFlight build → App Store version → submit for review". The build must be in VALID processingState and APP_STORE_ELIGIBLE buildAudienceType. ' +
         'After create, the version sits in PREPARE_FOR_SUBMISSION. Add localizations (asc_post_app_store_version_localization) for at least the primary locale, then create a review submission (asc_post_review_submission + asc_post_review_submission_item) and submit it.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         platform: PlatformSchema,
         versionString: VersionStringSchema,
@@ -311,7 +311,7 @@ export function registerAppStoreVersions(server: McpServer, client: ASCClient): 
         buildId: BuildIdSchema.optional().describe(
           'Optional: attach a build at create time. The build must be VALID + APP_STORE_ELIGIBLE. Can also be attached later via asc_patch_app_store_version.',
         ),
-      },
+      }),
     },
     async (input) => {
       // Cross-field check: SCHEDULED release without earliestReleaseDate is
@@ -365,7 +365,7 @@ export function registerAppStoreVersions(server: McpServer, client: ASCClient): 
       description:
         'Mutate version-level attributes: versionString, copyright, reviewType, releaseType, earliestReleaseDate, downloadable. Plus the build relationship (attach/swap/clear). All attrs are encodeIfPresent (only what you pass is sent). Wire-key gotcha: Swift `isDownloadable` → wire `downloadable`. ' +
         "STATE GATING IS DEFERRED — Apple's field-by-state matrix is not exhaustively documented and the rules vary (e.g. versionString is immutable post-release, but releaseType + earliestReleaseDate are mutable in PENDING_DEVELOPER_RELEASE to allow rescheduling). The tool does NOT pre-check; Apple's 409 STATE_ERROR is surfaced verbatim. Use asc_get_app_store_version first to inspect the current state and field set.",
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionId: AppStoreVersionIdSchema,
         versionString: VersionStringSchema.optional(),
         copyright: CopyrightSchema.optional(),
@@ -387,7 +387,7 @@ export function registerAppStoreVersions(server: McpServer, client: ASCClient): 
           .describe(
             'Pass true to clear the build relationship (Apple accepts data: null on the build rel). Useful when swapping builds — first clear, then re-attach. Mutually exclusive with buildId.',
           ),
-      },
+      }),
     },
     async (input) => {
       if (input.buildId !== undefined && input.clearBuild === true) {
@@ -458,9 +458,9 @@ export function registerAppStoreVersions(server: McpServer, client: ASCClient): 
       title: 'Delete an App Store version',
       description:
         'DELETE an App Store version. Allowed only when the version is in an editable state (PREPARE_FOR_SUBMISSION, *_REJECTED, INVALID_BINARY, DEVELOPER_REMOVED_FROM_SALE). The tool pre-checks the state with one GET and refuses client-side for frozen states (under review) or live states (READY_FOR_SALE — would orphan customers; release-pending — Apple rejects).',
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionId: AppStoreVersionIdSchema,
-      },
+      }),
     },
     async ({ appStoreVersionId }) => {
       const state = await fetchVersionState(client, appStoreVersionId);

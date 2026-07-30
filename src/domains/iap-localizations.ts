@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestIapLocalizations } from '../digest.js';
@@ -108,11 +108,11 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
       title: 'List IAP localizations',
       description:
         "List InAppPurchaseLocalizations under an IAP. Each row carries locale + name + description + state. v2 IAPs only — legacy v1 IAPs aren't supported on this surface. Use asc_list_iaps to find an IAP ID first.",
-      inputSchema: {
+      inputSchema: z.object({
         iapId: InAppPurchaseIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ iapId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -139,9 +139,9 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
       title: 'Get an IAP localization',
       description:
         'Fetch a single InAppPurchaseLocalization by ID. Returns name + description + locale + state.',
-      inputSchema: {
+      inputSchema: z.object({
         iapLocalizationId: InAppPurchaseLocalizationIdSchema,
-      },
+      }),
     },
     async ({ iapLocalizationId }) => {
       const path = `/v1/inAppPurchaseLocalizations/${encodeURIComponent(iapLocalizationId)}`;
@@ -160,12 +160,12 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
       title: 'Create an IAP localization',
       description:
         'Create an InAppPurchaseLocalization for ONE v2 IAP + ONE locale. Required: iapId (v2 IAP only — legacy v1 not supported) + name (30 chars) + locale. Optional: description (45 chars). (IAP, locale) must be unique. Locale immutable post-create.',
-      inputSchema: {
+      inputSchema: z.object({
         iapId: InAppPurchaseIdSchema,
         name: IapLocalizationNameSchema,
         locale: LocaleSchema,
         description: IapLocalizationDescriptionSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildIapLocalizationCreateBody({
@@ -200,11 +200,11 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
       description:
         'Update name and/or description on an existing InAppPurchaseLocalization. Both optional (encodeIfPresent). Locale immutable; state server-managed. Tool refuses empty PATCH. ' +
         '** PARENT-STATE GATE (likely): ** Same structural pattern as SubscriptionLocalization — Apple likely locks name/description while the parent IAP is WAITING_FOR_REVIEW or APPROVED. If Apple returns STATE_ERROR "cannot be edited at this time", that\'s the cause. Constraint not yet pre-checked client-side (deferred to a future patch once verified live).',
-      inputSchema: {
+      inputSchema: z.object({
         iapLocalizationId: InAppPurchaseLocalizationIdSchema,
         name: IapLocalizationNameSchema.optional(),
         description: IapLocalizationDescriptionSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       if (input.name === undefined && input.description === undefined) {
@@ -248,9 +248,9 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
       title: 'Delete an IAP localization',
       description:
         'DELETE an InAppPurchaseLocalization. The locale-specific copy is removed; customers in that locale fall back to the default. Apple may reject if the IAP is in a state that locks localizations.',
-      inputSchema: {
+      inputSchema: z.object({
         iapLocalizationId: InAppPurchaseLocalizationIdSchema,
-      },
+      }),
     },
     async ({ iapLocalizationId }) => {
       try {

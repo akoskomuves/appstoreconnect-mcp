@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestBetaTesters } from '../digest.js';
@@ -131,13 +131,13 @@ export function registerBetaTesters(server: McpServer, client: ASCClient): void 
       title: 'List beta testers',
       description:
         'List beta testers. Pass betaGroupId to scope to one group, or omit it to list team-wide. Per-app scoping is NOT supported by Apple — /v1/apps/{id}/betaTesters returns 403 FORBIDDEN_ERROR ("does not allow GET_RELATED. Allowed operation is: DELETE"). To get every tester on an app, list the app\'s groups with asc_list_beta_groups, then iterate this tool with each betaGroupId and dedupe by tester ID. Each row shows email + firstName + lastName + invite state.',
-      inputSchema: {
+      inputSchema: z.object({
         betaGroupId: BetaGroupIdSchema.optional().describe(
           'When provided, list via /v1/betaGroups/{id}/betaTesters (scoped to one group). When omitted, list via /v1/betaTesters (team-wide across all groups and apps).',
         ),
         maxItems: z.number().int().positive().max(5000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ betaGroupId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -162,9 +162,9 @@ export function registerBetaTesters(server: McpServer, client: ASCClient): void 
       title: 'Get a beta tester',
       description:
         'Fetch a single beta tester with relationships expanded (apps + betaGroups + builds). Use to inspect which groups and apps a tester has been onboarded to before changing membership.',
-      inputSchema: {
+      inputSchema: z.object({
         betaTesterId: BetaTesterIdSchema,
-      },
+      }),
     },
     async ({ betaTesterId }) => {
       const path = `/v1/betaTesters/${encodeURIComponent(betaTesterId)}?include=apps,betaGroups,builds`;
@@ -185,7 +185,7 @@ export function registerBetaTesters(server: McpServer, client: ASCClient): void 
         'Create a BetaTester record from an email. Apple uses the email as the uniqueness key per team; a duplicate email surfaces as an API error verbatim. ' +
         'This endpoint creates the record but does NOT send an invite email — that requires a separate call to asc_post_beta_tester_invitation. ' +
         'Optional: pre-assign the tester to betaGroups and/or builds in the same atomic POST (the IDs you pass become to-many relationships at create time).',
-      inputSchema: {
+      inputSchema: z.object({
         email: TesterEmailSchema,
         firstName: TesterFirstNameSchema.optional(),
         lastName: TesterLastNameSchema.optional(),
@@ -201,7 +201,7 @@ export function registerBetaTesters(server: McpServer, client: ASCClient): void 
           .describe(
             'Optional: grant the new tester direct access to these specific builds (in addition to whatever their group memberships grant). Builds must be VALID.',
           ),
-      },
+      }),
     },
     async (input) => {
       const body = buildBetaTesterCreateBody({
@@ -244,9 +244,9 @@ export function registerBetaTesters(server: McpServer, client: ASCClient): void 
       title: 'Delete a beta tester',
       description:
         'DELETE a beta tester record from the team. All group memberships and build accesses for this tester are removed atomically. The tester loses access to every app + build they had. To remove a tester from only ONE group while keeping them on others, use asc_remove_beta_group_testers instead — DELETE on /v1/betaTesters/{id} is team-wide nuclear.',
-      inputSchema: {
+      inputSchema: z.object({
         betaTesterId: BetaTesterIdSchema,
-      },
+      }),
     },
     async ({ betaTesterId }) => {
       try {
@@ -275,12 +275,12 @@ export function registerBetaTesters(server: McpServer, client: ASCClient): void 
         'Send (or resend) the TestFlight invite email for a tester on a specific app. Required: appId. ' +
         "betaTesterId is OPTIONAL and Apple has marked it DEPRECATED in the contract — the modern flow targets just (app), and the tester is resolved by the email on the BetaTester record they're a member of. Pass betaTesterId only if you need the legacy per-tester invitation shape. " +
         "POST /v1/betaTesterInvitations. The body carries NO attributes — only relationships (app + optionally betaTester). Apple's email delivery is fire-and-forget; retry by re-calling this tool.",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         betaTesterId: BetaTesterIdSchema.optional().describe(
           'Optional / deprecated per Apple. Pass to target a specific BetaTester record; omit for the modern (app-only) flow.',
         ),
-      },
+      }),
     },
     async (input) => {
       const body = buildBetaTesterInvitationBody({

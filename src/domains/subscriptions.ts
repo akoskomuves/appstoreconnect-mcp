@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import {
@@ -29,11 +29,11 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
     {
       title: 'List subscription groups',
       description: 'List subscription groups for an app.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -54,11 +54,11 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
     {
       title: 'List subscriptions',
       description: 'List auto-renewable subscriptions in a subscription group.',
-      inputSchema: {
+      inputSchema: z.object({
         groupId: SubscriptionGroupIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ groupId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -80,11 +80,11 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
       title: 'List subscription prices',
       description:
         'List the current price schedule for a subscription across territories. Auto-paginates to capture all 175 territories. Returns a compact table by default; pass raw:true for the full JSON:API payload.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ subscriptionId, maxItems, raw }) => {
       // Apple's /v1/subscriptions/{id}/prices is picky about extra query params:
@@ -107,7 +107,7 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
       description:
         'List the valid price points a subscription can be set to in a given territory. Apple rotates these IDs; cache only within a single run. ' +
         'Pass nearAmount when you already know the target price — the response is narrowed to the nearest candidates client-side (Apple does not support a near-amount filter server-side, so the full list is still paginated but only the nearest tiers are surfaced).',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         territoryId: TerritoryIdSchema,
         maxItems: z.number().int().positive().max(5000).default(1000),
@@ -126,7 +126,7 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
           .default(10)
           .describe('Max tiers to return when nearAmount is set.'),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ subscriptionId, territoryId, maxItems, nearAmount, nearCount, raw }) => {
       const params = new URLSearchParams();

@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestCustomerReviewSummarizations, digestCustomerReviews } from '../digest.js';
@@ -116,7 +116,7 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
       title: 'List customer reviews',
       description:
         'List published App Store reviews via GET /v1/apps/{id}/customerReviews (or scope to one version via appStoreVersionId — pass exactly one of the two). Filter by star rating (strings "1".."5"), territory, and whether a developer response already exists (hasPublishedResponse=false → the unanswered queue). Sort by createdDate or rating. Each row shows rating, title, reviewer, territory, response state, and IDs. No sentiment filter exists on Apple\'s side — use rating as the proxy ("1-star reviews mentioning the export bug" → filter ratings:["1"], then read bodies).',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema.optional().describe(
           'App-wide review list. Pass exactly one of appId / appStoreVersionId.',
         ),
@@ -137,7 +137,7 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
         sort: ReviewSortSchema.default('-createdDate'),
         maxItems: z.number().int().positive().max(2000).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async (input) => {
       if ((input.appId === undefined) === (input.appStoreVersionId === undefined)) {
@@ -178,9 +178,9 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
       title: 'Get a customer review',
       description:
         'GET /v1/customerReviews/{id} with the developer response included — the full review body (the list digest previews it) plus response state if one exists.',
-      inputSchema: {
+      inputSchema: z.object({
         reviewId: CustomerReviewIdSchema,
-      },
+      }),
     },
     async ({ reviewId }) => {
       const path = `/v1/customerReviews/${encodeURIComponent(reviewId)}?include=response`;
@@ -199,9 +199,9 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
       title: 'Get the developer response to a review',
       description:
         "GET /v1/customerReviews/{id}/response — the review's single developer response (responseBody, state PUBLISHED / PENDING_PUBLISH, lastModifiedDate). A review with no response returns 200 with data:null (observed live, NOT an error) — the tool reports that plainly.",
-      inputSchema: {
+      inputSchema: z.object({
         reviewId: CustomerReviewIdSchema,
-      },
+      }),
     },
     async ({ reviewId }) => {
       const path = `/v1/customerReviews/${encodeURIComponent(reviewId)}/response`;
@@ -232,7 +232,7 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
       title: 'Respond to a customer review (PUBLIC)',
       description:
         '⚠️ PUBLIC-FACING WRITE: POST /v1/customerReviewResponses publishes your reply ON THE APP STORE under the review (state PENDING_PUBLISH → PUBLISHED, usually within a day; the reviewer is notified by Apple). One response per review — posting against an already-answered review REPLACES the previous response. Draft the text, show it to the human, and only call this after explicit approval.',
-      inputSchema: {
+      inputSchema: z.object({
         reviewId: CustomerReviewIdSchema,
         responseBody: z
           .string()
@@ -241,7 +241,7 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
           .describe(
             "The public reply text. Apple's UI caps responses around 5,970 characters; plain text only (no markdown/links rendering).",
           ),
-      },
+      }),
     },
     async ({ reviewId, responseBody }) => {
       const body = buildReviewResponseCreateBody({ reviewId, responseBody });
@@ -270,9 +270,9 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
       title: 'Delete a developer response',
       description:
         'DELETE /v1/customerReviewResponses/{id} — remove your public reply from the App Store. The review itself is untouched (customer reviews cannot be deleted by developers). Get the response ID from asc_get_customer_review_response or the list digest.',
-      inputSchema: {
+      inputSchema: z.object({
         responseId: CustomerReviewResponseIdSchema,
-      },
+      }),
     },
     async ({ responseId }) => {
       try {
@@ -295,7 +295,7 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
       title: 'List customer review summarizations',
       description:
         "GET /v1/apps/{id}/customerReviewSummarizations — Apple's AI-aggregated review summary per (platform, territory, locale): the same summary text shown on the App Store product page. filter[platform] is REQUIRED by Apple; territory optional. Summarizations exist only where Apple has rolled the feature out and the app has enough reviews — an empty list is common.",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         platform: SummarizationPlatformSchema,
         territories: z
@@ -304,7 +304,7 @@ export function registerCustomerReviews(server: McpServer, client: ASCClient): v
           .describe('Optional 3-letter territory codes filter.'),
         maxItems: z.number().int().positive().max(500).default(200),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, platform, territories, maxItems, raw }) => {
       const params = new URLSearchParams();

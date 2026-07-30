@@ -1,6 +1,8 @@
 // Shared helpers for the v0.13 asset-upload flow (screenshots + previews).
 //
 // Apple's upload is multi-step:
+import type { McpServer } from '@modelcontextprotocol/server';
+
 //   1. POST /v1/appScreenshots (or /v1/appPreviews) — reserve. Body carries
 //      fileSize + fileName + parent-set relationship. Apple returns the
 //      resource with uploadOperations[] populated: one operation per chunk,
@@ -22,7 +24,6 @@
 import { createHash } from 'node:crypto';
 import { open, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ASCError } from '../errors.js';
 import { LocalFilePathSchema } from '../schemas.js';
@@ -175,14 +176,14 @@ export function registerAssetUpload(server: McpServer): void {
       title: 'Upload one asset chunk to Apple storage (raw step 2)',
       description:
         "RAW step 2 of the three-step screenshot / preview upload flow. Apple's reserve response returns uploadOperations[] — one per chunk, each with method (always PUT), url (Apple's pre-signed storage URL), length, offset, and requestHeaders. This tool executes ONE operation: reads localFilePath at [offset, offset+length), PUTs the bytes to url with all requestHeaders, and returns the HTTP status. Apple's storage URLs are pre-signed — no ASC bearer auth is applied. Tilde paths (~/...) are expanded.",
-      inputSchema: {
+      inputSchema: z.object({
         method: z.string().default('PUT'),
         url: z.string().url(),
         requestHeaders: z.array(z.object({ name: z.string(), value: z.string() })).default([]),
         localFilePath: LocalFilePathSchema,
         offset: z.number().int().min(0),
         length: z.number().int().positive(),
-      },
+      }),
     },
     async ({ method, url, requestHeaders, localFilePath, offset, length }) => {
       const resolvedPath = expandHomePath(localFilePath);

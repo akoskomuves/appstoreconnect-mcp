@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestPromotedPurchases } from '../digest.js';
@@ -139,11 +139,11 @@ export function registerPromotedPurchases(server: McpServer, client: ASCClient):
       title: 'List Promoted Purchases for an app',
       description:
         'List PromotedPurchase records under an app. Each row carries the visibleForAllUsers flag, enabled flag, current state (PREPARE_FOR_SUBMISSION / IN_REVIEW / APPROVED / REJECTED), the linked IAP / subscription ID, and the promoted-purchase ID. Use to inspect which promotions exist before patching, reordering, or deleting.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -167,9 +167,9 @@ export function registerPromotedPurchases(server: McpServer, client: ASCClient):
       title: 'Get a PromotedPurchase',
       description:
         'Fetch a single PromotedPurchase by ID with its linked IAP / subscription expanded. Returns visibleForAllUsers + enabled + state + the relationship info for the promoted item.',
-      inputSchema: {
+      inputSchema: z.object({
         promotedPurchaseId: PromotedPurchaseIdSchema,
-      },
+      }),
     },
     async ({ promotedPurchaseId }) => {
       const path = `/v1/promotedPurchases/${encodeURIComponent(promotedPurchaseId)}?include=inAppPurchaseV2,subscription`;
@@ -188,13 +188,13 @@ export function registerPromotedPurchases(server: McpServer, client: ASCClient):
       title: 'Create a PromotedPurchase',
       description:
         'Create a PromotedPurchase on an app, linking it to ONE IAP (inAppPurchaseV2Id) OR ONE subscription (subscriptionId) — pass exactly one. Required: appId + visibleForAllUsers. Optional: enabled. Wire-key gotchas: Swift `isVisibleForAllUsers` / `isEnabled` → wire `visibleForAllUsers` / `enabled` (same is-prefix-strip family as v0.13 AppCustomProductPage.isVisible). New promoted purchases land in PREPARE_FOR_SUBMISSION.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         visibleForAllUsers: PromotedPurchaseVisibleForAllUsersSchema,
         enabled: PromotedPurchaseEnabledSchema.optional(),
         inAppPurchaseV2Id: InAppPurchaseIdSchema.optional(),
         subscriptionId: SubscriptionIdSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       if (input.inAppPurchaseV2Id === undefined && input.subscriptionId === undefined) {
@@ -253,11 +253,11 @@ export function registerPromotedPurchases(server: McpServer, client: ASCClient):
       title: 'Patch a PromotedPurchase (visibility / enabled)',
       description:
         'Update visibleForAllUsers and/or enabled on an existing PromotedPurchase. Wire-key gotchas: Swift `isVisibleForAllUsers` / `isEnabled` → wire `visibleForAllUsers` / `enabled`. Toggle enabled=false to retire a promotion without deleting the linkage. Tool refuses empty PATCH.',
-      inputSchema: {
+      inputSchema: z.object({
         promotedPurchaseId: PromotedPurchaseIdSchema,
         visibleForAllUsers: PromotedPurchaseVisibleForAllUsersSchema.optional(),
         enabled: PromotedPurchaseEnabledSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       if (input.visibleForAllUsers === undefined && input.enabled === undefined) {
@@ -303,9 +303,9 @@ export function registerPromotedPurchases(server: McpServer, client: ASCClient):
       title: 'Delete a PromotedPurchase',
       description:
         'DELETE a PromotedPurchase. Removes the IAP / subscription from the promoted slots on the storefront. The underlying IAP / subscription is NOT deleted — only the promotion linkage.',
-      inputSchema: {
+      inputSchema: z.object({
         promotedPurchaseId: PromotedPurchaseIdSchema,
-      },
+      }),
     },
     async ({ promotedPurchaseId }) => {
       try {
@@ -328,7 +328,7 @@ export function registerPromotedPurchases(server: McpServer, client: ASCClient):
       title: "Set the storefront display order of an app's Promoted Purchases",
       description:
         'PATCH /v1/apps/{id}/relationships/promotedPurchases with the ordered list of promoted-purchase IDs. The order in the array IS the storefront display order — slot 1 is the first ID, slot 2 the second, etc. Send the FULL ordered list; Apple replaces the entire ordering. Use asc_list_promoted_purchases to enumerate current IDs first.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         promotedPurchaseIds: z
           .array(PromotedPurchaseIdSchema)
@@ -336,7 +336,7 @@ export function registerPromotedPurchases(server: McpServer, client: ASCClient):
           .describe(
             'Full ordered list of PromotedPurchase IDs. Position 0 is storefront slot 1, position 1 is slot 2, and so on. Apple replaces the entire ordering on this call — partial / delta updates are not supported by this endpoint.',
           ),
-      },
+      }),
     },
     async ({ appId, promotedPurchaseIds }) => {
       const body = buildPromotedPurchasesOrderBody({ promotedPurchaseIds });

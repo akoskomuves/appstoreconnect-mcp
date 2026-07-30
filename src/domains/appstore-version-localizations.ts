@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppStoreVersionLocalizations } from '../digest.js';
@@ -288,11 +288,11 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
       title: 'List App Store version localizations',
       description:
         'List App Store version localizations under one version. Each row carries locale + whatsNew length/preview + description length + keywords + promotionalText. Use to see which locales already have copy before adding/patching more. THIS IS THE LLM-WIN ENTRY POINT: list, pick a source locale, translate into target locales, patch each.',
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionId: AppStoreVersionIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appStoreVersionId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -319,9 +319,9 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
       title: 'Get an App Store version localization',
       description:
         'Fetch a single App Store version localization by ID. Returns the full whatsNew + description + keywords + promotionalText + marketingUrl + supportUrl text. Use as the source-of-truth read before PATCH (so the LLM can diff before writing).',
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionLocalizationId: AppStoreVersionLocalizationIdSchema,
-      },
+      }),
     },
     async ({ appStoreVersionLocalizationId }) => {
       const path = `/v1/appStoreVersionLocalizations/${encodeURIComponent(
@@ -342,7 +342,7 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
       title: 'Create an App Store version localization',
       description:
         'Create an AppStoreVersionLocalization for ONE version + ONE locale. Required: appStoreVersionId + locale. Optional: whatsNew (release notes, 4000), description (4000), keywords (100 TOTAL chars), promotionalText (170), marketingUrl, supportUrl. Apple requires supportUrl per locale for review; submissions without it are rejected. The (version, locale) pair must be unique — Apple rejects a duplicate. Locale is immutable post-create.',
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionId: AppStoreVersionIdSchema,
         locale: LocaleSchema,
         whatsNew: ReleaseNotesSchema.optional(),
@@ -351,7 +351,7 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
         promotionalText: PromotionalTextSchema.optional(),
         marketingUrl: MarketingUrlSchema.optional(),
         supportUrl: SupportUrlSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildAppStoreVersionLocalizationCreateBody({
@@ -395,7 +395,7 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
         '(c) In WAITING_FOR_REVIEW / IN_REVIEW / PROCESSING_FOR_APP_STORE — NOTHING is editable until Apple finishes the cycle. ' +
         'The tool pre-checks the parent version state with one GET (one round-trip) and refuses incompatible PATCHes client-side with a structured {state, allowed, blocked, reason, nextEditablePath} message — rather than letting Apple return a bare "Attribute X cannot be edited at this time" error and rejecting the whole batch atomically. ' +
         'All attrs are encodeIfPresent (only what you pass is sent). Locale is immutable.',
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionLocalizationId: AppStoreVersionLocalizationIdSchema,
         whatsNew: ReleaseNotesSchema.optional(),
         description: ProductDescriptionSchema.optional(),
@@ -403,7 +403,7 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
         promotionalText: PromotionalTextSchema.optional(),
         marketingUrl: MarketingUrlSchema.optional(),
         supportUrl: SupportUrlSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const anyField = [
@@ -490,9 +490,9 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
       title: 'Delete an App Store version localization',
       description:
         "DELETE an AppStoreVersionLocalization. The locale is removed for this version; users in that locale fall back to the default locale's copy on the product page. Doesn't affect other versions or other locales. Apple may reject if the version is in a state that locks localizations (e.g. in review).",
-      inputSchema: {
+      inputSchema: z.object({
         appStoreVersionLocalizationId: AppStoreVersionLocalizationIdSchema,
-      },
+      }),
     },
     async ({ appStoreVersionLocalizationId }) => {
       try {

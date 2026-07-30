@@ -4,7 +4,7 @@ import {
   PromotionalOfferSignatureCreator,
   PromotionalOfferV2SignatureCreator,
 } from '@apple/app-store-server-library';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { type IapSigningConfig, loadIapSigningConfig } from '../config.js';
 import {
@@ -160,14 +160,14 @@ export function registerOfferSigning(
       description:
         "Sign a promotional-offer redemption payload using the legacy ECDSA-concatenated format. Use this when your iOS app uses StoreKit 1 (SKPaymentDiscount) or StoreKit 2's Product.PurchaseOption.promotionalOffer(offerID:keyID:nonce:signature:timestamp:). For new code on iOS 15+, prefer asc_sign_promotional_offer (JWS v2). " +
         'Returns the base64 signature plus the nonce, timestamp, and keyId — pass all four back to StoreKit alongside the offerID. The signature is valid for 24 hours from timestampMs; re-sign per redemption attempt, do not pre-sign and cache.',
-      inputSchema: {
+      inputSchema: z.object({
         appBundleId: BundleIdSchema,
         productId: ProductIdSchema,
         offerCode: OfferCodeSchema,
         applicationUsername: ApplicationUsernameSchema,
         nonce: NonceSchema.optional(),
         timestampMs: TimestampMillisSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const resolved = resolveIapConfig(iapConfig);
@@ -194,12 +194,12 @@ export function registerOfferSigning(
       description:
         "Sign a promotional-offer redemption payload using the JWS v2 format (recommended for new code; introduced WWDC 2025, back-deployed to iOS 15). Use this when your iOS app uses StoreKit 2's newer Product.PurchaseOption.promotionalOffer / subscriptionPromotionalOffer APIs. " +
         "Returns the JWS compact serialization (header.payload.signature, base64url-encoded). Pass it directly to the StoreKit API expecting a JWS string. transactionId is optional but strongly recommended — use the customer's appTransactionId. The signature is valid for 24 hours from the iat claim; re-sign per redemption attempt.",
-      inputSchema: {
+      inputSchema: z.object({
         appBundleId: BundleIdSchema,
         productId: ProductIdSchema,
         offerIdentifier: OfferCodeSchema,
         transactionId: TransactionIdSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const resolved = resolveIapConfig(iapConfig);
@@ -226,7 +226,7 @@ export function registerOfferSigning(
       description:
         'Sign a JWS that overrides StoreKit\'s default introductory-offer eligibility check. Use this when you want to grant a returning customer a fresh introductory offer (which StoreKit normally only allows once per subscription group per Apple ID), or deny an offer the customer would otherwise be eligible for. Same signing key as promo offers; aud="introductory-offer-eligibility". ' +
         "Pair with StoreKit 2's Product.PurchaseOption.introductoryOfferEligibility(...). Signature valid for 24 hours from iat.",
-      inputSchema: {
+      inputSchema: z.object({
         appBundleId: BundleIdSchema,
         productId: ProductIdSchema,
         allowIntroductoryOffer: z
@@ -235,7 +235,7 @@ export function registerOfferSigning(
             'true = allow the customer to redeem an introductory offer (override StoreKit eligibility). false = deny.',
           ),
         transactionId: TransactionIdSchema,
-      },
+      }),
     },
     async (input) => {
       const resolved = resolveIapConfig(iapConfig);

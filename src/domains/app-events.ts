@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppEventLocalizations, digestAppEvents } from '../digest.js';
@@ -261,11 +261,11 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'List App Events for an app',
       description:
         'List AppEvent records for an app. Each row carries the referenceName, current eventState (DRAFT / READY_FOR_REVIEW / WAITING_FOR_REVIEW / IN_REVIEW / REJECTED / ACCEPTED / APPROVED / PUBLISHED / PAST / ARCHIVED), badge, purpose, priority, primaryLocale, and the count of territory schedules. Use to find the event ID before fetching its localizations or assets.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -288,9 +288,9 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'Get an AppEvent',
       description:
         'Fetch a single AppEvent by ID with its localizations expanded. Returns the full attribute surface including territorySchedules (writable per-territory schedule entries) and archivedTerritorySchedules (read-only history).',
-      inputSchema: {
+      inputSchema: z.object({
         appEventId: AppEventIdSchema,
-      },
+      }),
     },
     async ({ appEventId }) => {
       const path = `/v1/appEvents/${encodeURIComponent(appEventId)}?include=localizations`;
@@ -309,7 +309,7 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'Create an AppEvent',
       description:
         'Create an AppEvent on an app. Required: appId + referenceName (internal-only, NOT customer-facing — set per-locale name via asc_post_app_event_localization). Optional: badge, deepLink, purchaseRequirement, primaryLocale, priority, purpose, territorySchedules. New events land in DRAFT. Add localizations + screenshots + video clips before submitting for review.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         referenceName: AppEventReferenceNameSchema,
         badge: AppEventBadgeSchema.optional(),
@@ -319,7 +319,7 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
         priority: AppEventPrioritySchema.optional(),
         purpose: AppEventPurposeSchema.optional(),
         territorySchedules: AppEventTerritorySchedulesSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildAppEventCreateBody({
@@ -362,7 +362,7 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'Patch an AppEvent',
       description:
         "Update an AppEvent's attributes. Pre-check refuses for clearly frozen states (WAITING_FOR_REVIEW, IN_REVIEW). All attrs encodeIfPresent — only what you pass is sent. Tool refuses empty PATCH.",
-      inputSchema: {
+      inputSchema: z.object({
         appEventId: AppEventIdSchema,
         referenceName: AppEventReferenceNameSchema.optional(),
         badge: AppEventBadgeSchema.optional(),
@@ -372,7 +372,7 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
         priority: AppEventPrioritySchema.optional(),
         purpose: AppEventPurposeSchema.optional(),
         territorySchedules: AppEventTerritorySchedulesSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const anyAttr =
@@ -443,9 +443,9 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'Delete an AppEvent',
       description:
         'DELETE an AppEvent. Removes the event + every localization + every asset. Apple may refuse if the event is PUBLISHED or IN_REVIEW.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventId: AppEventIdSchema,
-      },
+      }),
     },
     async ({ appEventId }) => {
       try {
@@ -467,11 +467,11 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'List AppEvent localizations',
       description:
         'List AppEventLocalization records under an AppEvent. Each row carries locale + name + shortDescription length + longDescription length + the localization ID. Per (event, locale). Use to inspect existing per-locale copy before adding new locales or patching existing ones.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventId: AppEventIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appEventId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -494,9 +494,9 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'Get an AppEventLocalization',
       description:
         'Fetch a single AppEventLocalization by ID. Returns the locale + name + shortDescription + longDescription + the relationship IDs for any attached event screenshots and video clips.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
-      },
+      }),
     },
     async ({ appEventLocalizationId }) => {
       const path = `/v1/appEventLocalizations/${encodeURIComponent(appEventLocalizationId)}?include=appEventScreenshots,appEventVideoClips`;
@@ -515,13 +515,13 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'Create an AppEventLocalization',
       description:
         'Create an AppEventLocalization for ONE (event, locale) pair. Required: appEventId + locale. Optional copy attrs: name (30 chars), shortDescription (50 chars), longDescription (120 chars). The (event, locale) pair must be unique — Apple rejects duplicates. Pre-check refuses for frozen parent-event states (WAITING_FOR_REVIEW, IN_REVIEW).',
-      inputSchema: {
+      inputSchema: z.object({
         appEventId: AppEventIdSchema,
         locale: LocaleSchema,
         name: AppEventNameSchema.optional(),
         shortDescription: AppEventShortDescriptionSchema.optional(),
         longDescription: AppEventLongDescriptionSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const state = await fetchAppEventState(client, input.appEventId);
@@ -566,12 +566,12 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'Patch an AppEventLocalization',
       description:
         'Update name / shortDescription / longDescription on an existing AppEventLocalization. Locale is immutable (excluded from UpdateRequest). All three attrs are encodeIfPresent. Tool refuses empty PATCH.',
-      inputSchema: {
+      inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         name: AppEventNameSchema.optional(),
         shortDescription: AppEventShortDescriptionSchema.optional(),
         longDescription: AppEventLongDescriptionSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       if (
@@ -622,9 +622,9 @@ export function registerAppEvents(server: McpServer, client: ASCClient): void {
       title: 'Delete an AppEventLocalization',
       description:
         "DELETE an AppEventLocalization. Removes the per-locale copy + every event screenshot + video clip under it. Customers in this locale fall back to the event's primaryLocale.",
-      inputSchema: {
+      inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
-      },
+      }),
     },
     async ({ appEventLocalizationId }) => {
       try {

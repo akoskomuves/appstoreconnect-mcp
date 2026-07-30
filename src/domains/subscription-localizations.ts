@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestSubscriptionLocalizations } from '../digest.js';
@@ -111,11 +111,11 @@ export function registerSubscriptionLocalizations(server: McpServer, client: ASC
       title: 'List subscription localizations',
       description:
         'List SubscriptionLocalizations under a subscription. Each row carries locale + name + description + state (PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED). Use to see which locales already have copy before adding more.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ subscriptionId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -140,9 +140,9 @@ export function registerSubscriptionLocalizations(server: McpServer, client: ASC
       title: 'Get a subscription localization',
       description:
         'Fetch a single SubscriptionLocalization by ID. Returns name + description + locale + state.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionLocalizationId: SubscriptionLocalizationIdSchema,
-      },
+      }),
     },
     async ({ subscriptionLocalizationId }) => {
       const path = `/v1/subscriptionLocalizations/${encodeURIComponent(
@@ -163,12 +163,12 @@ export function registerSubscriptionLocalizations(server: McpServer, client: ASC
       title: 'Create a subscription localization',
       description:
         'Create a SubscriptionLocalization for ONE subscription + ONE locale. Required: subscriptionId + name (30 chars max) + locale. Optional: description (45 chars max). The (subscription, locale) pair must be unique. Locale is immutable post-create.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         name: SubscriptionLocalizationNameSchema,
         locale: LocaleSchema,
         description: SubscriptionLocalizationDescriptionSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       const body = buildSubscriptionLocalizationCreateBody({
@@ -203,11 +203,11 @@ export function registerSubscriptionLocalizations(server: McpServer, client: ASC
       description:
         'Update name and/or description on an existing SubscriptionLocalization. Both optional (encodeIfPresent). Locale is immutable; state is server-managed and rejected from PATCH bodies. Tool refuses empty PATCH. ' +
         '** PARENT-STATE GATE (likely): ** SubscriptionLocalization\'s state attribute walks PREPARE_FOR_SUBMISSION → WAITING_FOR_REVIEW → APPROVED. Apple\'s pattern across localization resources is to lock name/description while the parent subscription is in review. If Apple returns a STATE_ERROR "cannot be edited at this time", the subscription is in WAITING_FOR_REVIEW or APPROVED — the constraint is undocumented and not yet pre-checked client-side (deferred to a future patch once verified live).',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionLocalizationId: SubscriptionLocalizationIdSchema,
         name: SubscriptionLocalizationNameSchema.optional(),
         description: SubscriptionLocalizationDescriptionSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       if (input.name === undefined && input.description === undefined) {
@@ -251,9 +251,9 @@ export function registerSubscriptionLocalizations(server: McpServer, client: ASC
       title: 'Delete a subscription localization',
       description:
         'DELETE a SubscriptionLocalization. The locale-specific copy is removed; subscribers in that locale fall back to the default locale. Apple may reject if the subscription is in a state that locks localizations.',
-      inputSchema: {
+      inputSchema: z.object({
         subscriptionLocalizationId: SubscriptionLocalizationIdSchema,
-      },
+      }),
     },
     async ({ subscriptionLocalizationId }) => {
       try {

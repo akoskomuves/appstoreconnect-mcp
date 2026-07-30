@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestReviewSubmissions } from '../digest.js';
@@ -154,11 +154,11 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
       title: 'List review submissions',
       description:
         "List review submissions filtered by app. Filter[app]={appId} is required — Apple's collection isn't directly listable without it. Each row shows platform, state (READY_FOR_REVIEW / WAITING_FOR_REVIEW / IN_REVIEW / UNRESOLVED_ISSUES / CANCELING / COMPLETING / COMPLETE), and submittedDate. Use to find an in-flight submission before patching (submit/cancel) or adding items.",
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
-      },
+      }),
     },
     async ({ appId, maxItems, raw }) => {
       const params = new URLSearchParams();
@@ -182,9 +182,9 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
       title: 'Get a review submission',
       description:
         'Fetch a single review submission with its items + app relationship expanded. Use to see the current state and which items (App Store versions, etc.) are attached. The items relationship surfaces ReviewSubmissionItem state (READY_FOR_REVIEW / ACCEPTED / APPROVED / REJECTED / REMOVED), useful for diagnosing partial-approval scenarios.',
-      inputSchema: {
+      inputSchema: z.object({
         reviewSubmissionId: ReviewSubmissionIdSchema,
-      },
+      }),
     },
     async ({ reviewSubmissionId }) => {
       const params = new URLSearchParams();
@@ -211,12 +211,12 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
         'Create a DRAFT review submission on an app. Required: appId. Optional: platform (Apple recommends passing it; defaults to all platforms the app supports). ' +
         'The submission lands in READY_FOR_REVIEW state — you must add at least one item (asc_post_review_submission_item) before submitting. Submitting before adding items returns an Apple validation error. ' +
         'This is the V2 surface. The legacy V1 /v1/appStoreVersionSubmissions endpoint still exists but only supports single-version submissions and is being deprecated; new code should use V2.',
-      inputSchema: {
+      inputSchema: z.object({
         appId: AppIdSchema,
         platform: PlatformSchema.optional().describe(
           'Optional but recommended. Without it, Apple submits all platforms the app supports — surprising behavior for cross-platform apps.',
         ),
-      },
+      }),
     },
     async (input) => {
       const body = buildReviewSubmissionCreateBody({
@@ -250,10 +250,10 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
         "Trigger the submit or cancel action on a review submission. The action enum (submit | cancel) is the friendly wrapper around Apple's mutually-exclusive `submitted: true` / `canceled: true` wire fields. " +
         'submit: only valid in READY_FOR_REVIEW (Apple flips state to WAITING_FOR_REVIEW). cancel: only valid in WAITING_FOR_REVIEW or IN_REVIEW (Apple flips to CANCELING then COMPLETE). COMPLETE / COMPLETING / CANCELING / UNRESOLVED_ISSUES reject both — Apple already finished or is finishing the cycle. ' +
         "Wire-key gotcha: Apple strips the 'is' prefix on both attrs (`submitted`, `canceled`).",
-      inputSchema: {
+      inputSchema: z.object({
         reviewSubmissionId: ReviewSubmissionIdSchema,
         action: ReviewSubmissionActionSchema,
-      },
+      }),
     },
     async ({ reviewSubmissionId, action }) => {
       const body = buildReviewSubmissionPatchBody({ reviewSubmissionId, action });
@@ -286,10 +286,10 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
       description:
         'Add an App Store version as an item under a draft review submission. The parent submission must be in READY_FOR_REVIEW state (drafts only — once submitted, the item set is frozen). One item per call. ' +
         "v0.11 only exposes the appStoreVersion slot; Apple's ReviewSubmissionItem is polymorphic and also accepts IAPs, in-app events, custom product page versions, and experiments — those slots will be wrapped when those domains ship in v0.12+.",
-      inputSchema: {
+      inputSchema: z.object({
         reviewSubmissionId: ReviewSubmissionIdSchema,
         appStoreVersionId: AppStoreVersionIdSchema,
-      },
+      }),
     },
     async ({ reviewSubmissionId, appStoreVersionId }) => {
       const body = buildReviewSubmissionItemCreateBody({
@@ -321,9 +321,9 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
       title: 'Remove an item from a review submission',
       description:
         'DELETE a ReviewSubmissionItem from a draft submission. Only valid while the parent submission is READY_FOR_REVIEW — after submission, items cannot be removed (use asc_patch_review_submission action: "cancel" to cancel the whole submission).',
-      inputSchema: {
+      inputSchema: z.object({
         reviewSubmissionItemId: ReviewSubmissionItemIdSchema,
-      },
+      }),
     },
     async ({ reviewSubmissionItemId }) => {
       try {
