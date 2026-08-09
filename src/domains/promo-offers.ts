@@ -100,9 +100,13 @@ export function buildPromoOfferBody(input: PromoOfferCreateInput): JSONAPIBody {
     offerMode: input.offerMode,
     duration: input.duration,
   };
-  if (input.offerMode === 'PAY_AS_YOU_GO' && input.numberOfPeriods !== undefined) {
-    attributes.numberOfPeriods = input.numberOfPeriods;
-  }
+  // Same rule as intro offers: Apple requires numberOfPeriods for paid modes,
+  // not just PAY_AS_YOU_GO (the intro-offer endpoint 409s a PAY_UP_FRONT
+  // create without it — ENTITY_ERROR.ATTRIBUTE.REQUIRED). Default PAY_UP_FRONT
+  // to 1 (single up-front charge) when the caller omits it.
+  const numberOfPeriods =
+    input.numberOfPeriods ?? (input.offerMode === 'PAY_UP_FRONT' ? 1 : undefined);
+  if (numberOfPeriods !== undefined) attributes.numberOfPeriods = numberOfPeriods;
 
   const included = buildIncludedPrices(input.prices);
   return {
@@ -266,6 +270,7 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
       description:
         'Create a promotional offer with name + offerCode + mode + duration plus all per-territory prices in one atomic POST. Apple caps active promo offers at 10 per subscription; this tool pre-flights the count and refuses if at the limit. ' +
         'Immutability: name, offerCode, mode, duration, and numberOfPeriods are immutable after creation — to change any of them, delete and re-create. Use asc_patch_subscription_promotional_offer_prices to update prices only. ' +
+        'numberOfPeriods is required for PAY_AS_YOU_GO; for PAY_UP_FRONT it defaults to 1 (single up-front period) when omitted. ' +
         'offerCode must be unique within the subscription (used by StoreKit as SubscriptionOffer.id when redeeming).',
       inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
@@ -273,7 +278,9 @@ export function registerPromoOffers(server: McpServer, client: ASCClient): void 
         offerCode: OfferCodeSchema,
         offerMode: OfferModeSchema,
         duration: SubscriptionOfferDurationSchema,
-        numberOfPeriods: NumberOfPeriodsSchema.optional(),
+        numberOfPeriods: NumberOfPeriodsSchema.optional().describe(
+          'Required for PAY_AS_YOU_GO (how many periods the discounted price repeats). PAY_UP_FRONT: defaults to 1 when omitted. Not sent for FREE_TRIAL.',
+        ),
         prices: z
           .array(
             z.object({

@@ -5,7 +5,9 @@ import { buildIntroOfferBody } from '../src/domains/intro-offers.js';
 // /v1/subscriptionIntroductoryOffers body. Apple has three load-bearing rules
 // that are easy to typo:
 //   1. FREE_TRIAL must NOT carry a subscriptionPricePoint relationship.
-//   2. PAY_AS_YOU_GO requires numberOfPeriods; PAY_UP_FRONT must omit it.
+//   2. numberOfPeriods is required for BOTH paid modes — PAY_AS_YOU_GO takes
+//      the caller's count; PAY_UP_FRONT 409s without it (ENTITY_ERROR.
+//      ATTRIBUTE.REQUIRED) and defaults to 1 when omitted.
 //   3. A null territory = wildcard ("all territories"). The relationship key
 //      should be absent — not present with a null `data`.
 
@@ -43,7 +45,7 @@ describe('buildIntroOfferBody', () => {
       expect(body.data.relationships.subscriptionPricePoint).toBeUndefined();
     });
 
-    it('omits numberOfPeriods (only meaningful for PAY_AS_YOU_GO)', () => {
+    it('omits numberOfPeriods (legacy behavior for free trials)', () => {
       expect(body.data.attributes.numberOfPeriods).toBeUndefined();
     });
 
@@ -90,13 +92,25 @@ describe('buildIntroOfferBody', () => {
       duration: 'THREE_MONTHS',
       startDate: '2026-06-01',
       pricePointId: 'POINT-1',
-      // PAY_UP_FRONT charges once for the whole duration — periods irrelevant.
-      // Even if caller passes a value, the builder should drop it.
-      numberOfPeriods: 5,
+      numberOfPeriods: 1,
     }) as Body;
 
-    it('omits numberOfPeriods even when passed in', () => {
-      expect(body.data.attributes.numberOfPeriods).toBeUndefined();
+    // Apple requires numberOfPeriods for PAY_UP_FRONT too — omitting it 409s
+    // with ENTITY_ERROR.ATTRIBUTE.REQUIRED (confirmed live 2026-08-09).
+    it('carries numberOfPeriods when passed', () => {
+      expect(body.data.attributes.numberOfPeriods).toBe(1);
+    });
+
+    it('defaults numberOfPeriods to 1 when omitted (single up-front period)', () => {
+      const defaulted = buildIntroOfferBody({
+        subscriptionId: 'SUB-1',
+        territoryId: 'USA',
+        offerMode: 'PAY_UP_FRONT',
+        duration: 'THREE_MONTHS',
+        startDate: '2026-06-01',
+        pricePointId: 'POINT-1',
+      }) as Body;
+      expect(defaulted.data.attributes.numberOfPeriods).toBe(1);
     });
 
     it('carries subscriptionPricePoint relationship', () => {
