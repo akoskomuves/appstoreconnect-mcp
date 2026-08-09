@@ -14,7 +14,9 @@ import { buildPromoOfferBody, buildPromoOfferPatchBody } from '../src/domains/pr
 //   3. PATCH only permits changing the prices relationship. Attempts to set
 //      name/offerCode/offerMode/duration/numberOfPeriods on the patch body must
 //      not appear in the wire output — Apple 422s if they're present.
-//   4. numberOfPeriods only carried for PAY_AS_YOU_GO (same rule as intro offers).
+//   4. numberOfPeriods is carried for BOTH paid modes (same rule as intro
+//      offers, where Apple 409s a PAY_UP_FRONT create without it);
+//      PAY_UP_FRONT defaults to 1 when omitted.
 //   5. FREE_TRIAL is permitted by Apple's enum but rejected at our domain
 //      layer (no price to compute, promo offers target existing subscribers);
 //      that's a validator concern, not a body-builder one — body builder
@@ -116,13 +118,24 @@ describe('buildPromoOfferBody (create)', () => {
       offerCode: 'WINTER2026',
       offerMode: 'PAY_UP_FRONT',
       duration: 'THREE_MONTHS',
-      // PAY_UP_FRONT charges once; periods irrelevant. Builder drops it.
-      numberOfPeriods: 5,
+      numberOfPeriods: 1,
       prices: [{ territoryId: 'USA', pricePointId: 'POINT-USA' }],
     }) as Body;
 
-    it('omits numberOfPeriods even when passed', () => {
-      expect((body2.data.attributes as Record<string, unknown>).numberOfPeriods).toBeUndefined();
+    it('carries numberOfPeriods when passed', () => {
+      expect((body2.data.attributes as Record<string, unknown>).numberOfPeriods).toBe(1);
+    });
+
+    it('defaults numberOfPeriods to 1 when omitted (single up-front charge)', () => {
+      const defaulted = buildPromoOfferBody({
+        subscriptionId: 'SUB-1',
+        name: 'Winter Sale',
+        offerCode: 'WINTER2026',
+        offerMode: 'PAY_UP_FRONT',
+        duration: 'THREE_MONTHS',
+        prices: [{ territoryId: 'USA', pricePointId: 'POINT-USA' }],
+      }) as Body;
+      expect((defaulted.data.attributes as Record<string, unknown>).numberOfPeriods).toBe(1);
     });
   });
 

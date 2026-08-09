@@ -41,6 +41,7 @@ import {
   SubscriptionIdSchema,
   SubscriptionOfferDurationSchema,
 } from '../schemas.js';
+import { buildIntroOfferBody } from './intro-offers.js';
 import { buildOfferCodeBody } from './offer-codes.js';
 import { buildPromoOfferBody } from './promo-offers.js';
 
@@ -747,28 +748,19 @@ async function postIntroOffer(
     numberOfPeriods: number | undefined;
   },
 ): Promise<{ ok: true; id?: string } | { ok: false; error: string }> {
-  const attributes: Record<string, unknown> = {
-    startDate: args.startDate,
-    duration: args.duration,
+  // Delegate to the shared builder so the wire shape (including the
+  // PAY_UP_FRONT numberOfPeriods requirement) has exactly one implementation —
+  // a hand-rolled twin here once drifted and dropped the attribute.
+  const body = buildIntroOfferBody({
+    subscriptionId: args.subscriptionId,
+    territoryId: args.territoryId,
     offerMode: args.offerMode,
-  };
-  if (args.endDate !== undefined) attributes.endDate = args.endDate;
-  if (args.offerMode === 'PAY_AS_YOU_GO' && args.numberOfPeriods !== undefined) {
-    attributes.numberOfPeriods = args.numberOfPeriods;
-  }
-  const body = {
-    data: {
-      type: 'subscriptionIntroductoryOffers',
-      attributes,
-      relationships: {
-        subscription: { data: { type: 'subscriptions', id: args.subscriptionId } },
-        territory: { data: { type: 'territories', id: args.territoryId } },
-        subscriptionPricePoint: {
-          data: { type: 'subscriptionPricePoints', id: args.pricePointId },
-        },
-      },
-    },
-  };
+    duration: args.duration as Parameters<typeof buildIntroOfferBody>[0]['duration'],
+    startDate: args.startDate,
+    endDate: args.endDate,
+    pricePointId: args.pricePointId,
+    numberOfPeriods: args.numberOfPeriods,
+  });
   try {
     const res = await client.request<{ data?: { id?: string } }>(
       '/v1/subscriptionIntroductoryOffers',
@@ -1238,7 +1230,7 @@ async function applyIntroOfferProposal(
       key: 'ppp_apply_intro_offers_ack',
       message: `Create ${changes} introductory offer${
         changes === 1 ? '' : 's'
-      } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:    ${args.subscriptionId}\nMode:            ${args.offerMode}\nDuration:        ${args.duration}${args.numberOfPeriods ? ` × ${args.numberOfPeriods} periods` : ''}\nStart date:      ${args.startDate}${args.endDate ? `\nEnd date:        ${args.endDate}` : ''}\nLargest Δ:       ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: each row creates a new offer. Apple returns 409 if an active offer already exists for the (sub, territory) cell — those will show as failed in the result table; pre-existing offers are not modified.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
+      } (${drops} cheaper-than-sub, ${lifts} pricier-than-sub vs current base sub price)?\n\nSubscription:    ${args.subscriptionId}\nMode:            ${args.offerMode}\nDuration:        ${args.duration}${args.numberOfPeriods ? ` × ${args.numberOfPeriods} periods` : ''}\nStart date:      ${args.startDate}${args.endDate ? `\nEnd date:        ${args.endDate}` : ''}\nLargest Δ:       ${maxDropRow ? `${maxDropRow.territory} ${fmtPct(maxDropRow.changePct)}` : 'none'}\n\nNote: each row creates a new offer. Apple uses 409 both for entity/validation errors and when an active offer already exists for the (sub, territory) cell — failed rows show the error detail in the result table; pre-existing offers are not modified.\n\n${renderProposalTable(ctx, label, { pointIdMode: 'none' })}`,
       ackTitle: 'I have reviewed the proposal above',
     });
     if (outcome.status === 'ask') return outcome.result;
@@ -1784,7 +1776,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       title: 'Compute PPP rebalance proposal',
       description:
         'Compute a proposed per-territory price schedule using the bundled Apple Music index as the PPP signal. Read-only — does not write to App Store Connect. ' +
-        'Works for subscriptions (resourceType: "subscription", default), paid apps (resourceType: "app"), IAPs (resourceType: "iap"), subscription introductory offers (resourceType: "introductoryOffer" — pass subscriptionId, offerMode, duration; PAY_AS_YOU_GO also needs numberOfPeriods), subscription promotional offers (resourceType: "promotionalOffer" — also needs promoOfferName and promoOfferCode), and subscription offer-code campaigns (resourceType: "offerCode" — also needs offerCodeName and customerEligibilities). FREE_TRIAL is rejected for offer types since there is no price to compute. ' +
+        'Works for subscriptions (resourceType: "subscription", default), paid apps (resourceType: "app"), IAPs (resourceType: "iap"), subscription introductory offers (resourceType: "introductoryOffer" — pass subscriptionId, offerMode, duration; PAY_AS_YOU_GO also needs numberOfPeriods, PAY_UP_FRONT defaults it to 1), subscription promotional offers (resourceType: "promotionalOffer" — also needs promoOfferName and promoOfferCode), and subscription offer-code campaigns (resourceType: "offerCode" — also needs offerCodeName and customerEligibilities). FREE_TRIAL is rejected for offer types since there is no price to compute. ' +
         'Pair with ppp_apply_proposal to schedule changes.',
       inputSchema: z.object({
         resourceType: z
@@ -1816,7 +1808,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           'Required when resourceType="introductoryOffer" or "promotionalOffer". The offer period length.',
         ),
         numberOfPeriods: NumberOfPeriodsSchema.optional().describe(
-          'Required when offerMode="PAY_AS_YOU_GO" (for either offer type). Ignored otherwise.',
+          'Required when offerMode="PAY_AS_YOU_GO" (for either offer type). PAY_UP_FRONT: Apple requires the attribute on create too — the apply step defaults it to 1 when omitted.',
         ),
         promoOfferName: OfferNameSchema.optional().describe(
           'Required when resourceType="promotionalOffer". Display name in App Store Connect (immutable post-create).',
@@ -2024,9 +2016,9 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
       const table = renderProposalTable(ctx, label);
       const footer =
         args.resourceType === 'introductoryOffer'
-          ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args (resourceType="introductoryOffer", subscriptionId, offerMode, duration, numberOfPeriods if PAY_AS_YOU_GO). One POST to /v1/subscriptionIntroductoryOffers per change row. The Δ column compares the snapped offer price to the current regular sub price, so a -50% Δ means the offer is half off.'
+          ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args (resourceType="introductoryOffer", subscriptionId, offerMode, duration, numberOfPeriods if PAY_AS_YOU_GO — PAY_UP_FRONT defaults to 1). One POST to /v1/subscriptionIntroductoryOffers per change row. The Δ column compares the snapped offer price to the current regular sub price, so a -50% Δ means the offer is half off.'
           : args.resourceType === 'promotionalOffer'
-            ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args (resourceType="promotionalOffer", subscriptionId, offerMode, duration, numberOfPeriods if PAY_AS_YOU_GO, promoOfferName, promoOfferCode). One atomic POST to /v1/subscriptionPromotionalOffers creates the offer + all per-territory prices. Refuses if offerCode collides with an existing offer or if the subscription is at Apple\'s 10-offer cap. The Δ column compares the snapped offer price to the current regular sub price.'
+            ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args (resourceType="promotionalOffer", subscriptionId, offerMode, duration, numberOfPeriods if PAY_AS_YOU_GO — PAY_UP_FRONT defaults to 1, promoOfferName, promoOfferCode). One atomic POST to /v1/subscriptionPromotionalOffers creates the offer + all per-territory prices. Refuses if offerCode collides with an existing offer or if the subscription is at Apple\'s 10-offer cap. The Δ column compares the snapped offer price to the current regular sub price.'
             : args.resourceType === 'offerCode'
               ? '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args (resourceType="offerCode", subscriptionId, offerCodeName, customerEligibilities, offerMode, duration, numberOfPeriods if PAY_AS_YOU_GO). One atomic POST to /v1/subscriptionOfferCodes creates the campaign + all per-territory prices. Refuses if campaign name collides on the subscription or if at Apple\'s 10-campaign cap. After apply, generate redeemable strings with asc_post_subscription_offer_code_one_time_use_codes against the new campaign.'
               : '\n\nDry-run only. To apply: call ppp_apply_proposal with the same args. Subscriptions write per-row with preserveCurrentPrice; apps and IAPs do a single whole-schedule-replace POST.';
@@ -2067,7 +2059,7 @@ export function registerPpp(server: McpServer, client: ASCClient): void {
           'Required when resourceType="introductoryOffer", "promotionalOffer", or "offerCode".',
         ),
         numberOfPeriods: NumberOfPeriodsSchema.optional().describe(
-          'Required when offerMode="PAY_AS_YOU_GO" (for any offer type).',
+          'Required when offerMode="PAY_AS_YOU_GO" (for any offer type). PAY_UP_FRONT: Apple requires the attribute on create too — defaults to 1 when omitted.',
         ),
         endDate: StartDateSchema.optional().describe(
           'Optional endDate (YYYY-MM-DD) for the introductory offers. Omit for open-ended. resourceType="introductoryOffer" only.',

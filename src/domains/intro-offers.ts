@@ -20,6 +20,8 @@ import {
 //   - FREE_TRIAL — no price; redeem and get the sub for `duration` free.
 //   - PAY_AS_YOU_GO — discounted price each period for `numberOfPeriods` periods.
 //   - PAY_UP_FRONT — single charge at the offer price for the whole window.
+//     Apple still requires numberOfPeriods here (409 ENTITY_ERROR.ATTRIBUTE.
+//     REQUIRED without it); the single up-front period means 1.
 // Per (subscription, territory) cell you can have at most one active offer.
 // A null territory = Apple's "all territories" wildcard, but the price point
 // is then literal (no auto-FX). For PPP-aware per-territory pricing you must
@@ -57,9 +59,14 @@ export function buildIntroOfferBody(input: IntroOfferInput): JSONAPIBody {
     offerMode: input.offerMode,
   };
   if (input.endDate !== undefined) attributes.endDate = input.endDate;
-  if (input.offerMode === 'PAY_AS_YOU_GO' && input.numberOfPeriods !== undefined) {
-    attributes.numberOfPeriods = input.numberOfPeriods;
-  }
+  // numberOfPeriods is required for both paid modes, not just PAY_AS_YOU_GO —
+  // Apple 409s a PAY_UP_FRONT create without it (ENTITY_ERROR.ATTRIBUTE.
+  // REQUIRED). PAY_UP_FRONT is one up-front charge, so default to 1 when the
+  // caller omits it. FREE_TRIAL keeps the legacy omit (whether Apple enforces
+  // the attribute there too is unverified — UI-created trials store periods=1).
+  const numberOfPeriods =
+    input.numberOfPeriods ?? (input.offerMode === 'PAY_UP_FRONT' ? 1 : undefined);
+  if (numberOfPeriods !== undefined) attributes.numberOfPeriods = numberOfPeriods;
 
   const relationships: Record<string, { data: { type: string; id: string } }> = {
     subscription: { data: { type: 'subscriptions', id: input.subscriptionId } },
@@ -185,7 +192,7 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
     {
       title: 'Create a subscription introductory offer',
       description:
-        'Create an introductory offer on a subscription. Server-side checks: pricePointId required unless offerMode=FREE_TRIAL; numberOfPeriods required when offerMode=PAY_AS_YOU_GO; ' +
+        'Create an introductory offer on a subscription. Server-side checks: pricePointId required unless offerMode=FREE_TRIAL; numberOfPeriods required when offerMode=PAY_AS_YOU_GO, and sent for PAY_UP_FRONT too (Apple requires it — defaults to 1, the single up-front period); ' +
         'territoryId omitted = Apple\'s "all territories" wildcard (uses the literal price point in every market — for PPP-aware multi-territory offers, create one per territory). ' +
         'startDate must be ≥ today+24h (Apple); ≥7 days recommended.',
       inputSchema: z.object({
@@ -202,7 +209,9 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
         pricePointId: PricePointIdSchema.optional().describe(
           'Required for PAY_AS_YOU_GO and PAY_UP_FRONT. Omit for FREE_TRIAL. Use asc_list_subscription_price_points (with nearAmount) to pick.',
         ),
-        numberOfPeriods: NumberOfPeriodsSchema.optional(),
+        numberOfPeriods: NumberOfPeriodsSchema.optional().describe(
+          'Required for PAY_AS_YOU_GO (how many periods the discounted price repeats). PAY_UP_FRONT: Apple requires the attribute too — defaults to 1 when omitted. Not sent for FREE_TRIAL.',
+        ),
       }),
     },
     async (input) => {
