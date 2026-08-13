@@ -198,6 +198,11 @@ The build side of the ship loop: watch runs, read failures, kick builds. Hierarc
 - **SCM reads**: `asc_list_scm_providers` · `asc_list_scm_repositories` · `asc_list_scm_git_references` (branch/tag *reference ids* — what build-start takes) · `asc_list_scm_pull_requests`.
 - **Triggers**: `asc_post_ci_build_run` (start a build — optional branch/tag override + `clean`; uses the team's compute hours) · `asc_patch_ci_workflow` (pause/resume via `isEnabled`, `clean`, name, description — start conditions and actions stay Xcode-owned by design).
 
+### Sandbox testers
+StoreKit test accounts, for exercising the monetization surface end-to-end. Testers are created in the ASC UI; the API manages their settings.
+
+- `asc_list_sandbox_testers` · `asc_patch_sandbox_tester` (territory, `interruptPurchases`, accelerated `subscriptionRenewalRate` — a subscription month renews every 3–60 minutes) · `asc_post_sandbox_testers_clear_purchase_history` (sandbox-only wipe so purchase flows can be re-tested; resets intro-offer eligibility too).
+
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
 

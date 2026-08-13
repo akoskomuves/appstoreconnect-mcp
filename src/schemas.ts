@@ -1681,3 +1681,24 @@ export const ScmGitReferenceIdSchema = z
   .describe(
     'Git reference id (a branch or tag as Apple tracks it) — from asc_list_scm_git_references. NOT a bare branch name.',
   );
+
+// ----- v1.7 sandbox testers -----
+
+export const SandboxTesterIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Sandbox tester id — from asc_list_sandbox_testers. Testers are created in the ASC UI (Users and Access → Sandbox Testers); the API manages settings + purchase history.',
+  );
+
+export const SubscriptionRenewalRateSchema = z
+  .enum([
+    'MONTHLY_RENEWAL_EVERY_ONE_HOUR',
+    'MONTHLY_RENEWAL_EVERY_THIRTY_MINUTES',
+    'MONTHLY_RENEWAL_EVERY_FIFTEEN_MINUTES',
+    'MONTHLY_RENEWAL_EVERY_FIVE_MINUTES',
+    'MONTHLY_RENEWAL_EVERY_THREE_MINUTES',
+  ])
+  .describe(
+    'Accelerated sandbox renewal clock: how fast a ONE-MONTH subscription period elapses for this tester (longer/shorter real periods scale proportionally). For testing renewals, billing retry, and grace-period flows.',
+  );

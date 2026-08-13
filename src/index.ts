@@ -50,6 +50,7 @@ import { registerReviewAssets } from './domains/review-assets.js';
 import { registerReviewDetails } from './domains/review-details.js';
 import { registerReviewSubmissions } from './domains/review-submissions.js';
 import { registerSalesReports } from './domains/sales-reports.js';
+import { registerSandboxTesters } from './domains/sandbox-testers.js';
 import { registerScreenshots } from './domains/screenshots.js';
 import { registerSubscriptionLocalizations } from './domains/subscription-localizations.js';
 import { registerSubscriptions } from './domains/subscriptions.js';
@@ -162,6 +163,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerAppAvailability(server, client);
   registerAvailabilities(server, client);
   registerXcodeCloud(server, client);
+  registerSandboxTesters(server, client);
   registerPhasedRelease(server, client);
   registerEncryptionDeclarations(server, client);
   registerBetaFeedback(server, client);
