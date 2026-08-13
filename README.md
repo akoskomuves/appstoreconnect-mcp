@@ -198,6 +198,15 @@ The build side of the ship loop: watch runs, read failures, kick builds. Hierarc
 - **SCM reads**: `asc_list_scm_providers` · `asc_list_scm_repositories` · `asc_list_scm_git_references` (branch/tag *reference ids* — what build-start takes) · `asc_list_scm_pull_requests`.
 - **Triggers**: `asc_post_ci_build_run` (start a build — optional branch/tag override + `clean`; uses the team's compute hours) · `asc_patch_ci_workflow` (pause/resume via `isEnabled`, `clean`, name, description — start conditions and actions stay Xcode-owned by design).
 
+### Provisioning & code signing
+The Developer-portal surface (fastlane `match`/`sigh`/`cert` territory). **Role gate:** needs an **Admin** (or Account Holder) API key — App Manager/Developer keys get 403 here (the tools explain it).
+
+- **Bundle IDs**: `asc_list_bundle_ids` (identifier filter) · `asc_get_bundle_id` (with capabilities + profiles) · `asc_post_bundle_id` (identifier immutable — check the reverse-DNS string) · `asc_patch_bundle_id` (rename only) · `asc_delete_bundle_id` (refused while an app is attached).
+- **Capabilities**: `asc_post_bundle_id_capability` · `asc_patch_bundle_id_capability` · `asc_delete_bundle_id_capability` — capability changes invalidate existing profiles; regenerate them after.
+- **Certificates**: `asc_list_certificates` · `asc_get_certificate` (base64 DER content) · `asc_post_certificate` (from a PEM CSR — the private key never goes to Apple) · `asc_delete_certificate` (⚠️ DELETE = **revoke**; CI signing with it breaks immediately).
+- **Profiles**: `asc_list_profiles` · `asc_get_profile` (`profileContent` = the actual base64 `.mobileprovision`) · `asc_post_profile` · `asc_delete_profile`. No PATCH — profiles are immutable; rotate by delete + re-create.
+- **Devices**: `asc_list_devices` · `asc_post_device` (⚠️ effectively permanent — devices can only be disabled, never deleted, and count against the 100-per-class yearly limit) · `asc_patch_device` (rename, ENABLED/DISABLED).
+
 ### Sandbox testers
 StoreKit test accounts, for exercising the monetization surface end-to-end. Testers are created in the ASC UI; the API manages their settings.
 
