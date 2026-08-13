@@ -111,6 +111,13 @@ def classify(name, corpus):
         ):
             cond = True
             continue
+        # Config-driven builders emit relationship keys computed from data
+        # (`[input.relKey]: ...`), invisible to a key-grep — but the call site
+        # then carries the name as an exact quoted string (relKey:
+        # 'inAppPurchaseV2'), which is equally strong evidence.
+        if re.search(rf'[\'"]{name}[\'"]', line):
+            always = True
+            continue
         if not re.search(rf'\b{name}\s*:', line):
             continue
         if '?' in line or TYPE_ANNOTATION.search(line):

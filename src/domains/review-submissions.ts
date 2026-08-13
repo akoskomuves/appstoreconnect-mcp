@@ -7,10 +7,13 @@ import { paginate } from '../jsonapi.js';
 import {
   AppIdSchema,
   AppStoreVersionIdSchema,
+  InAppPurchaseIdSchema,
   PlatformSchema,
   ReviewSubmissionActionSchema,
   ReviewSubmissionIdSchema,
   ReviewSubmissionItemIdSchema,
+  SubscriptionGroupIdSchema,
+  SubscriptionIdSchema,
 } from '../schemas.js';
 
 // Apple's V2 review submission surface. Replaces the legacy V1
@@ -131,6 +134,33 @@ export function buildReviewSubmissionItemCreateBody(
         appStoreVersion: {
           data: { type: 'appStoreVersions', id: input.appStoreVersionId },
         },
+      },
+    },
+  };
+}
+
+// Standalone item submissions — a different surface from reviewSubmissionItems.
+// Each is a POST-only resource that sends ONE in-app item's pending metadata
+// changes to App Review on its own, without bundling into a version release:
+// inAppPurchaseSubmissions / subscriptionSubmissions / subscriptionGroupSubmissions.
+// All three are relationships-only bodies. WIRE-KEY GOTCHA (same family as the
+// review-assets factory): the IAP one uses relationship key `inAppPurchaseV2`,
+// not `inAppPurchase`, while the data.type stays 'inAppPurchases'.
+export interface StandaloneItemSubmissionInput {
+  resourceType: string;
+  relKey: string;
+  relType: string;
+  itemId: string;
+}
+
+export function buildStandaloneItemSubmissionBody(
+  input: StandaloneItemSubmissionInput,
+): JSONAPIBody {
+  return {
+    data: {
+      type: input.resourceType,
+      relationships: {
+        [input.relKey]: { data: { type: input.relType, id: input.itemId } },
       },
     },
   };
@@ -336,6 +366,117 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
             {
               type: 'text',
               text: `Removed item ${reviewSubmissionItemId} from its review submission.`,
+            },
+          ],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+      }
+    },
+  );
+
+  // ----- Standalone item submissions (no version release required) -----
+
+  server.registerTool(
+    'asc_post_iap_submission',
+    {
+      title: 'Submit an in-app purchase for review (standalone)',
+      description:
+        "POST an inAppPurchaseSubmission — sends an IAP's pending metadata changes (price, localizations, review screenshot) to App Review on their own, without a version release. The IAP must have complete metadata including its review screenshot (asc_upload_iap_review_screenshot). Irreversible once submitted — Apple reviews the pending changes as-is.",
+      inputSchema: z.object({
+        iapId: InAppPurchaseIdSchema,
+      }),
+    },
+    async ({ iapId }) => {
+      const body = buildStandaloneItemSubmissionBody({
+        resourceType: 'inAppPurchaseSubmissions',
+        // GOTCHA: the relationship key is inAppPurchaseV2, the type 'inAppPurchases'.
+        relKey: 'inAppPurchaseV2',
+        relType: 'inAppPurchases',
+        itemId: iapId,
+      });
+      try {
+        const data = await client.request<unknown>('/v1/inAppPurchaseSubmissions', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Submitted IAP ${iapId} for review.\n\n${JSON.stringify(data, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'asc_post_subscription_submission',
+    {
+      title: 'Submit a subscription for review (standalone)',
+      description:
+        "POST a subscriptionSubmission — sends a subscription's pending metadata changes to App Review without a version release. The subscription needs complete metadata including its review screenshot (asc_upload_subscription_review_screenshot). Irreversible once submitted.",
+      inputSchema: z.object({
+        subscriptionId: SubscriptionIdSchema,
+      }),
+    },
+    async ({ subscriptionId }) => {
+      const body = buildStandaloneItemSubmissionBody({
+        resourceType: 'subscriptionSubmissions',
+        relKey: 'subscription',
+        relType: 'subscriptions',
+        itemId: subscriptionId,
+      });
+      try {
+        const data = await client.request<unknown>('/v1/subscriptionSubmissions', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Submitted subscription ${subscriptionId} for review.\n\n${JSON.stringify(data, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'asc_post_subscription_group_submission',
+    {
+      title: 'Submit a subscription group for review (standalone)',
+      description:
+        "POST a subscriptionGroupSubmission — sends a subscription group's pending changes (group localizations + member subscriptions' metadata) to App Review without a version release. Irreversible once submitted.",
+      inputSchema: z.object({
+        subscriptionGroupId: SubscriptionGroupIdSchema,
+      }),
+    },
+    async ({ subscriptionGroupId }) => {
+      const body = buildStandaloneItemSubmissionBody({
+        resourceType: 'subscriptionGroupSubmissions',
+        relKey: 'subscriptionGroup',
+        relType: 'subscriptionGroups',
+        itemId: subscriptionGroupId,
+      });
+      try {
+        const data = await client.request<unknown>('/v1/subscriptionGroupSubmissions', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Submitted subscription group ${subscriptionGroupId} for review.\n\n${JSON.stringify(data, null, 2)}`,
             },
           ],
         };

@@ -430,13 +430,18 @@ export function digestReviewAssets(pages: CollectedPages, label: string): string
     { header: 'COMMITTED' },
     { header: 'ID' },
   ];
-  const rows = pages.data.map((a) => [
-    s(attr(a, 'fileName')),
-    s(attr(a, 'fileSize') ?? ''),
-    s(attr(a, 'state') ?? ''),
-    attr(a, 'sourceFileChecksum') ? 'yes' : 'no',
-    a.id,
-  ]);
+  const rows = pages.data.map((a) => {
+    // Images/screenshots carry a plain `state` string; appStoreReviewAttachments
+    // carry the v0.13-style assetDeliveryState STRUCT — read whichever exists.
+    const delivery = attr(a, 'assetDeliveryState') as { state?: unknown } | undefined;
+    return [
+      s(attr(a, 'fileName')),
+      s(attr(a, 'fileSize') ?? ''),
+      s(attr(a, 'state') ?? delivery?.state ?? ''),
+      attr(a, 'sourceFileChecksum') ? 'yes' : 'no',
+      a.id,
+    ];
+  });
   return `${summaryFooter(pages, label)}\n\n${formatTable(columns, rows)}`;
 }
 

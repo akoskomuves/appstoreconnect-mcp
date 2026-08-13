@@ -1575,3 +1575,59 @@ export const KidsAgeBandSchema = z
   .describe(
     'Kids Category age band. Set ONLY if the app is in the Kids category — it brings extra App Review requirements (no third-party analytics/ads without parental gate). Lives on the age-rating declaration; it was removed from AppInfo, which is a different resource.',
   );
+
+// ----- v1.5 ship-loop completeness (availabilities + review details) -----
+
+export const SubscriptionAvailabilityIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'SubscriptionAvailability record id — equals the subscription id (verified live; same "shared numeric identifier" pattern as AppAvailability.id == app id). Get it from asc_get_subscription_availability. Its availableTerritories relationship targets plain Territory rows (bare 3-letter ISO codes).',
+  );
+
+export const InAppPurchaseAvailabilityIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'InAppPurchaseAvailability record id — get it from asc_get_iap_availability. Territory linkage uses bare 3-letter ISO codes.',
+  );
+
+export const SubscriptionPlanAvailabilityIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'SubscriptionPlanAvailability record id — an Apple-OPAQUE base64 composite (unlike the plain-numeric subscription availability id); always get it from asc_list_subscription_plan_availabilities, never construct it.',
+  );
+
+export const AppStoreReviewDetailIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'appStoreReviewDetail id — the App Review contact/demo-account/notes card of a version (to-one). Get it from asc_get_app_store_review_detail; also the parent id for App Review attachments.',
+  );
+
+export const AppStoreReviewAttachmentIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'appStoreReviewAttachment id — a file provided to App Review (e.g. demo video), attached to a version via its appStoreReviewDetail.',
+  );
+
+export const SubscriptionGracePeriodIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "subscriptionGracePeriod id — equals the app id (verified live; the per-app config record shares the app's numeric identifier). Get it from asc_get_subscription_grace_period.",
+  );
+
+export const GracePeriodDurationSchema = z
+  .enum(['THREE_DAYS', 'SIXTEEN_DAYS', 'TWENTY_EIGHT_DAYS'])
+  .describe(
+    'How long a lapsed subscriber keeps access while Apple retries the failed renewal payment. Renewals recovered inside the window keep the original renewal date (no revenue gap).',
+  );
+
+export const GracePeriodRenewalTypeSchema = z
+  .enum(['ALL_RENEWALS', 'PAID_TO_PAID_ONLY'])
+  .describe(
+    'Which renewals get a grace period: ALL_RENEWALS includes free-trial → paid conversions; PAID_TO_PAID_ONLY covers only existing paid subscribers renewing.',
+  );
