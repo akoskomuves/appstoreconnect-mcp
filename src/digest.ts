@@ -2057,3 +2057,27 @@ export function digestScmPullRequests(pages: CollectedPages): string {
   ]);
   return `${summaryFooter(pages, 'pull requests')}\n\n${formatTable(columns, rows)}`;
 }
+
+// ----- Sandbox testers (v1.7) -----
+
+export function digestSandboxTesters(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'ACCOUNT' },
+    { header: 'TERR' },
+    { header: 'RENEWAL_RATE' },
+    { header: 'INTERRUPT' },
+    { header: 'APPLE_PAY' },
+    { header: 'TESTER_ID' },
+  ];
+  const rows = pages.data.map((t) => [
+    `${s(attr(t, 'firstName'))} ${s(attr(t, 'lastName'))}`.trim(),
+    s(attr(t, 'acAccountName')),
+    s(attr(t, 'territory') ?? ''),
+    s(attr<string>(t, 'subscriptionRenewalRate') ?? '').replace('MONTHLY_RENEWAL_EVERY_', ''),
+    attr(t, 'interruptPurchases') ? 'yes' : '',
+    attr(t, 'applePayCompatible') ? 'yes' : '',
+    t.id,
+  ]);
+  return `${summaryFooter(pages, 'sandbox testers')}\n\n${formatTable(columns, rows)}`;
+}
