@@ -2081,3 +2081,81 @@ export function digestSandboxTesters(pages: CollectedPages): string {
   ]);
   return `${summaryFooter(pages, 'sandbox testers')}\n\n${formatTable(columns, rows)}`;
 }
+
+// ----- Provisioning (v1.8) -----
+
+export function digestBundleIds(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'IDENTIFIER' },
+    { header: 'NAME' },
+    { header: 'PLATFORM' },
+    { header: 'SEED' },
+    { header: 'BUNDLE_ID_RECORD' },
+  ];
+  const rows = pages.data.map((b) => [
+    s(attr(b, 'identifier')),
+    s(attr(b, 'name')),
+    s(attr(b, 'platform')),
+    s(attr(b, 'seedId') ?? ''),
+    b.id,
+  ]);
+  return `${summaryFooter(pages, 'bundle IDs')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestCertificates(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'TYPE' },
+    { header: 'SERIAL' },
+    { header: 'EXPIRES' },
+    { header: 'CERT_ID' },
+  ];
+  const rows = pages.data.map((c) => [
+    s(attr(c, 'displayName') ?? attr(c, 'name')),
+    s(attr(c, 'certificateType')),
+    s(attr(c, 'serialNumber') ?? ''),
+    s(attr<string>(c, 'expirationDate')?.slice(0, 10) ?? ''),
+    c.id,
+  ]);
+  return `${summaryFooter(pages, 'certificates')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestProfiles(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'TYPE' },
+    { header: 'STATE' },
+    { header: 'EXPIRES' },
+    { header: 'PROFILE_ID' },
+  ];
+  const rows = pages.data.map((p) => [
+    s(attr(p, 'name')),
+    s(attr(p, 'profileType')),
+    s(attr(p, 'profileState') ?? ''),
+    s(attr<string>(p, 'expirationDate')?.slice(0, 10) ?? ''),
+    p.id,
+  ]);
+  return `${summaryFooter(pages, 'profiles')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestDevices(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'CLASS' },
+    { header: 'MODEL' },
+    { header: 'STATUS' },
+    { header: 'ADDED' },
+    { header: 'UDID' },
+    { header: 'DEVICE_ID' },
+  ];
+  const rows = pages.data.map((d) => [
+    s(attr(d, 'name')),
+    s(attr(d, 'deviceClass') ?? ''),
+    s(attr(d, 'model') ?? ''),
+    s(attr(d, 'status')),
+    s(attr<string>(d, 'addedDate')?.slice(0, 10) ?? ''),
+    s(attr(d, 'udid')),
+    d.id,
+  ]);
+  return `${summaryFooter(pages, 'devices')}\n\n${formatTable(columns, rows)}`;
+}

@@ -1702,3 +1702,82 @@ export const SubscriptionRenewalRateSchema = z
   .describe(
     'Accelerated sandbox renewal clock: how fast a ONE-MONTH subscription period elapses for this tester (longer/shorter real periods scale proportionally). For testing renewals, billing retry, and grace-period flows.',
   );
+
+// ----- v1.8 provisioning & code signing (Developer-portal surface) -----
+
+export const ProvisioningBundleIdRecordSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'BundleId RESOURCE id (opaque, from asc_list_bundle_ids) — not the reverse-DNS identifier string itself.',
+  );
+
+export const BundleIdCapabilityIdSchema = z
+  .string()
+  .min(1)
+  .describe('BundleIdCapability record id — from the capabilities listing on asc_get_bundle_id.');
+
+export const CertificateIdSchema = z
+  .string()
+  .min(1)
+  .describe('Certificate id — from asc_list_certificates.');
+
+export const ProfileIdSchema = z
+  .string()
+  .min(1)
+  .describe('Provisioning profile id — from asc_list_profiles.');
+
+export const DeviceIdSchema = z
+  .string()
+  .min(1)
+  .describe('Device id — from asc_list_devices (not the UDID).');
+
+export const BundleIdPlatformSchema = z
+  .enum(['IOS', 'MAC_OS', 'UNIVERSAL'])
+  .describe('Bundle-ID platform. UNIVERSAL covers iOS + macOS.');
+
+export const CertificateTypeSchema = z
+  .enum([
+    'APPLE_PAY',
+    'APPLE_PAY_MERCHANT_IDENTITY',
+    'APPLE_PAY_PSP_IDENTITY',
+    'APPLE_PAY_RSA',
+    'DEVELOPER_ID_KEXT',
+    'DEVELOPER_ID_KEXT_G2',
+    'DEVELOPER_ID_APPLICATION',
+    'DEVELOPER_ID_APPLICATION_G2',
+    'DEVELOPMENT',
+    'DISTRIBUTION',
+    'IDENTITY_ACCESS',
+    'IOS_DEVELOPMENT',
+    'IOS_DISTRIBUTION',
+    'MAC_APP_DISTRIBUTION',
+    'MAC_INSTALLER_DISTRIBUTION',
+    'MAC_APP_DEVELOPMENT',
+    'PASS_TYPE_ID',
+    'PASS_TYPE_ID_WITH_NFC',
+  ])
+  .describe(
+    'Certificate type. DEVELOPMENT / DISTRIBUTION are the modern platform-agnostic pair (IOS_* / MAC_* are the legacy per-platform forms).',
+  );
+
+export const ProfileTypeSchema = z
+  .enum([
+    'IOS_APP_DEVELOPMENT',
+    'IOS_APP_STORE',
+    'IOS_APP_ADHOC',
+    'IOS_APP_INHOUSE',
+    'MAC_APP_DEVELOPMENT',
+    'MAC_APP_STORE',
+    'MAC_APP_DIRECT',
+    'TVOS_APP_DEVELOPMENT',
+    'TVOS_APP_STORE',
+    'TVOS_APP_ADHOC',
+    'TVOS_APP_INHOUSE',
+    'MAC_CATALYST_APP_DEVELOPMENT',
+    'MAC_CATALYST_APP_STORE',
+    'MAC_CATALYST_APP_DIRECT',
+  ])
+  .describe(
+    'Provisioning profile type. *_APP_STORE profiles need distribution certificates and no device list; *_APP_DEVELOPMENT and *_ADHOC need registered devices.',
+  );
