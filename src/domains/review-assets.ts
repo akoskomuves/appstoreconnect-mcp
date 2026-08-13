@@ -5,6 +5,8 @@ import { digestReviewAssets } from '../digest.js';
 import { ASCError } from '../errors.js';
 import { paginate } from '../jsonapi.js';
 import {
+  AppStoreReviewAttachmentIdSchema,
+  AppStoreReviewDetailIdSchema,
   FileNameSchema,
   FileSizeSchema,
   InAppPurchaseAppStoreReviewScreenshotIdSchema,
@@ -30,10 +32,12 @@ import {
 // before it can be submitted, and there was no tool to attach one. The two IMAGE
 // resources are the promotional-image counterpart.
 //
-// All four share the v0.13 three-step asset-upload flow (reserve fileName+fileSize
-// → PUT chunks to Apple storage → PATCH sourceFileChecksum + uploaded=true), so
-// this file drives them from a small config table rather than hand-copying four
-// near-identical tool sets. The per-resource Apple quirks live in the configs:
+// All five (v1.5 added appStoreReviewAttachments — files for App Review, e.g. a
+// demo video, hanging off a version's appStoreReviewDetail) share the v0.13
+// three-step asset-upload flow (reserve fileName+fileSize → PUT chunks to Apple
+// storage → PATCH sourceFileChecksum + uploaded=true), so this file drives them
+// from a small config table rather than hand-copying near-identical tool sets.
+// The per-resource Apple quirks live in the configs:
 //
 //   * WIRE GOTCHA: the IAP image reserve uses relationship key `inAppPurchase`,
 //     but the IAP review screenshot uses `inAppPurchaseV2` — SAME target
@@ -116,6 +120,10 @@ interface AssetResourceConfig {
   // Parent sub-resource path: to-many → the images collection; to-one → the
   // single review-screenshot link. Used by list/get-the-one + the to-one pre-flight.
   parentSubPath: (parentId: string) => string;
+  // Sparse-fieldset override for the list read. Most resources use LIST_FIELDS;
+  // appStoreReviewAttachments has no `state` field (its state lives in the
+  // `assetDeliveryState` struct) and 400s on the shared list.
+  listFields?: string;
 }
 
 const LIST_FIELDS = 'fileName,fileSize,sourceFileChecksum,state';
@@ -154,7 +162,7 @@ function registerReads(server: McpServer, client: ASCClient, cfg: AssetResourceC
       },
       async ({ parentId, maxItems, raw }) => {
         const params = new URLSearchParams();
-        params.set(`fields[${cfg.resourceType}]`, LIST_FIELDS);
+        params.set(`fields[${cfg.resourceType}]`, cfg.listFields ?? LIST_FIELDS);
         params.set('limit', '200');
         const path = `${cfg.parentSubPath(parentId)}?${params.toString()}`;
         try {
@@ -466,6 +474,22 @@ const CONFIGS: AssetResourceConfig[] = [
     parentIdSchema: SubscriptionIdSchema,
     resourceIdSchema: SubscriptionAppStoreReviewScreenshotIdSchema,
     parentSubPath: (id) => `/v1/subscriptions/${encodeURIComponent(id)}/appStoreReviewScreenshot`,
+  },
+  {
+    resourceType: 'appStoreReviewAttachments',
+    relKey: 'appStoreReviewDetail',
+    relType: 'appStoreReviewDetails',
+    cardinality: 'to-many',
+    toolBase: 'review_attachment',
+    singular: 'App Review attachment',
+    parentLabel: 'App Store review detail',
+    parentIdSchema: AppStoreReviewDetailIdSchema,
+    resourceIdSchema: AppStoreReviewAttachmentIdSchema,
+    parentSubPath: (id) =>
+      `/v1/appStoreReviewDetails/${encodeURIComponent(id)}/appStoreReviewAttachments`,
+    // No `state` field on this resource — its delivery state is the
+    // assetDeliveryState struct (digestReviewAssets reads state from either).
+    listFields: 'fileName,fileSize,sourceFileChecksum,assetDeliveryState',
   },
 ];
 

@@ -22,6 +22,7 @@ import { registerAppStoreVersionLocalizations } from './domains/appstore-version
 import { registerAppStoreVersions } from './domains/appstore-versions.js';
 import { registerAsoCatalog } from './domains/aso-catalog.js';
 import { registerAssetUpload } from './domains/asset-upload.js';
+import { registerAvailabilities } from './domains/availabilities.js';
 import { registerBetaFeedback } from './domains/beta-feedback.js';
 import { registerBetaGroups } from './domains/beta-groups.js';
 import { registerBetaLocalizations } from './domains/beta-localizations.js';
@@ -46,6 +47,7 @@ import { registerPricing } from './domains/pricing.js';
 import { registerPromoOffers } from './domains/promo-offers.js';
 import { registerPromotedPurchases } from './domains/promoted-purchases.js';
 import { registerReviewAssets } from './domains/review-assets.js';
+import { registerReviewDetails } from './domains/review-details.js';
 import { registerReviewSubmissions } from './domains/review-submissions.js';
 import { registerSalesReports } from './domains/sales-reports.js';
 import { registerScreenshots } from './domains/screenshots.js';
@@ -143,6 +145,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerAppStoreVersions(server, client);
   registerAppStoreVersionLocalizations(server, client);
   registerReviewSubmissions(server, client);
+  registerReviewDetails(server, client);
   registerSubscriptionLocalizations(server, client);
   registerIapLocalizations(server, client);
   registerAppInfo(server, client);
@@ -156,6 +159,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerAppEventVideoClips(server, client);
   registerPromotedPurchases(server, client);
   registerAppAvailability(server, client);
+  registerAvailabilities(server, client);
   registerPhasedRelease(server, client);
   registerEncryptionDeclarations(server, client);
   registerBetaFeedback(server, client);
