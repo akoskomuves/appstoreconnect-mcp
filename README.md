@@ -198,6 +198,12 @@ The build side of the ship loop: watch runs, read failures, kick builds. Hierarc
 - **SCM reads**: `asc_list_scm_providers` · `asc_list_scm_repositories` · `asc_list_scm_git_references` (branch/tag *reference ids* — what build-start takes) · `asc_list_scm_pull_requests`.
 - **Triggers**: `asc_post_ci_build_run` (start a build — optional branch/tag override + `clean`; uses the team's compute hours) · `asc_patch_ci_workflow` (pause/resume via `isEnabled`, `clean`, name, description — start conditions and actions stay Xcode-owned by design).
 
+### Featuring nominations
+Pitch a release to Apple's editorial team for App Store featuring (Today tab, curated collections). Drafts are private; submission is one-way.
+
+- `asc_list_nominations` (filter by app / state / type) · `asc_get_nomination` · `asc_post_nomination` (defaults to a reviewable **DRAFT** — `submitted:false`) · `asc_patch_nomination` (edit the draft; `submitted:true` **sends it to Apple** — no un-submit, only `archived:true`) · `asc_delete_nomination`.
+- The pitch rides in `description` + `notes`; `publishStartDate`/`publishEndDate` frame the relevance window; `supplementalMaterialsUris` carry press-kit/TestFlight links; `launchInSelectMarketsFirst` is the wire key (Markets, not the UI's "storefronts" wording).
+
 ### Provisioning & code signing
 The Developer-portal surface (fastlane `match`/`sigh`/`cert` territory). **Role gate:** needs an **Admin** (or Account Holder) API key — App Manager/Developer keys get 403 here (the tools explain it).
 

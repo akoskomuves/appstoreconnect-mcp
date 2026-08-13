@@ -38,6 +38,7 @@ import { registerEncryptionDeclarations } from './domains/encryption-declaration
 import { registerIaps } from './domains/iap.js';
 import { registerIapLocalizations } from './domains/iap-localizations.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
+import { registerNominations } from './domains/nominations.js';
 import { registerOfferCodes } from './domains/offer-codes.js';
 import { registerOfferSigning } from './domains/offer-signing.js';
 import { registerPhasedRelease } from './domains/phased-release.js';
@@ -166,6 +167,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerXcodeCloud(server, client);
   registerSandboxTesters(server, client);
   registerProvisioning(server, client);
+  registerNominations(server, client);
   registerPhasedRelease(server, client);
   registerEncryptionDeclarations(server, client);
   registerBetaFeedback(server, client);
