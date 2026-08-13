@@ -57,6 +57,7 @@ import { registerTerritories } from './domains/territories.js';
 import { registerVersionExperiments } from './domains/version-experiments.js';
 import { registerWebhooks } from './domains/webhooks.js';
 import { registerWinBackOffers } from './domains/win-back-offers.js';
+import { registerXcodeCloud } from './domains/xcode-cloud.js';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
@@ -160,6 +161,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerPromotedPurchases(server, client);
   registerAppAvailability(server, client);
   registerAvailabilities(server, client);
+  registerXcodeCloud(server, client);
   registerPhasedRelease(server, client);
   registerEncryptionDeclarations(server, client);
   registerBetaFeedback(server, client);

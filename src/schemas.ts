@@ -1631,3 +1631,53 @@ export const GracePeriodRenewalTypeSchema = z
   .describe(
     'Which renewals get a grace period: ALL_RENEWALS includes free-trial → paid conversions; PAID_TO_PAID_ONLY covers only existing paid subscribers renewing.',
   );
+
+// ----- v1.6 Xcode Cloud -----
+
+export const CiProductIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Xcode Cloud product id — from asc_list_ci_products. One product per app/framework onboarded to Xcode Cloud.',
+  );
+
+export const CiWorkflowIdSchema = z
+  .string()
+  .min(1)
+  .describe('Xcode Cloud workflow id — from asc_list_ci_workflows.');
+
+export const CiBuildRunIdSchema = z
+  .string()
+  .min(1)
+  .describe('Xcode Cloud build-run id — from asc_list_ci_build_runs.');
+
+export const CiBuildActionIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Xcode Cloud build-action id — one step of a build run (build/test/archive/analyze), from asc_list_ci_build_actions.',
+  );
+
+export const CiArtifactIdSchema = z
+  .string()
+  .min(1)
+  .describe('Xcode Cloud artifact id — from asc_list_ci_artifacts.');
+
+export const ScmProviderIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Source-control provider id (GitHub / GitLab / Bitbucket connection) — from asc_list_scm_providers.',
+  );
+
+export const ScmRepositoryIdSchema = z
+  .string()
+  .min(1)
+  .describe('Source-control repository id — from asc_list_scm_repositories.');
+
+export const ScmGitReferenceIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Git reference id (a branch or tag as Apple tracks it) — from asc_list_scm_git_references. NOT a bare branch name.',
+  );
