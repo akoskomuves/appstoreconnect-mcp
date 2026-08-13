@@ -191,6 +191,13 @@ Two things about this resource are easy to get wrong, so the tools handle them f
 
 Apple **merges** on write: omitted keys keep their current value, so a partial update is safe — but you can't clear an answer by leaving it out, you have to send the explicit `NONE`/`false`. Overrides only ever raise the rating, never lower it.
 
+### Xcode Cloud (CI/CD)
+The build side of the ship loop: watch runs, read failures, kick builds. Hierarchy: products → workflows → build runs → actions (build/test/archive/analyze) → issues / test results / artifacts. A finished run links the TestFlight builds it produced, handing off to the TestFlight tools.
+
+- **Reads**: `asc_list_ci_products` · `asc_list_ci_workflows` / `asc_get_ci_workflow` (full config) · `asc_list_ci_build_runs` (by workflow or product) / `asc_get_ci_build_run` · `asc_list_ci_build_actions` · `asc_list_ci_issues` · `asc_list_ci_test_results` · `asc_list_ci_artifacts` / `asc_get_ci_artifact` (pre-signed, time-limited `downloadUrl` — fetch it without the ASC bearer) · `asc_list_ci_build_run_builds` (the TestFlight handoff) · `asc_list_ci_environment_versions` (Xcode/macOS catalogs).
+- **SCM reads**: `asc_list_scm_providers` · `asc_list_scm_repositories` · `asc_list_scm_git_references` (branch/tag *reference ids* — what build-start takes) · `asc_list_scm_pull_requests`.
+- **Triggers**: `asc_post_ci_build_run` (start a build — optional branch/tag override + `clean`; uses the team's compute hours) · `asc_patch_ci_workflow` (pause/resume via `isEnabled`, `clean`, name, description — start conditions and actions stay Xcode-owned by design).
+
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
 
