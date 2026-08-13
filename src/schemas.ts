@@ -1781,3 +1781,20 @@ export const ProfileTypeSchema = z
   .describe(
     'Provisioning profile type. *_APP_STORE profiles need distribution certificates and no device list; *_APP_DEVELOPMENT and *_ADHOC need registered devices.',
   );
+
+// ----- v1.9 featuring nominations -----
+
+export const NominationIdSchema = z
+  .string()
+  .min(1)
+  .describe('Featuring nomination id — from asc_list_nominations.');
+
+export const NominationTypeSchema = z
+  .enum(['APP_LAUNCH', 'APP_ENHANCEMENTS', 'NEW_CONTENT'])
+  .describe(
+    'What is being nominated: APP_LAUNCH (new app or major day-1 release), APP_ENHANCEMENTS (significant update / new features), NEW_CONTENT (content drop in an existing app).',
+  );
+
+export const NominationDeviceFamilySchema = z
+  .enum(['IPHONE', 'IPAD', 'APPLE_TV', 'APPLE_WATCH', 'MAC', 'VISION'])
+  .describe('Device families the nominated experience shines on.');

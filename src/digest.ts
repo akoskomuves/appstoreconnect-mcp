@@ -2159,3 +2159,29 @@ export function digestDevices(pages: CollectedPages): string {
   ]);
   return `${summaryFooter(pages, 'devices')}\n\n${formatTable(columns, rows)}`;
 }
+
+// ----- Featuring nominations (v1.9) -----
+
+export function digestNominations(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'TYPE' },
+    { header: 'STATE' },
+    { header: 'PUBLISH_WINDOW' },
+    { header: 'SUBMITTED' },
+    { header: 'NOMINATION_ID' },
+  ];
+  const rows = pages.data.map((n) => {
+    const start = attr<string>(n, 'publishStartDate')?.slice(0, 10) ?? '';
+    const end = attr<string>(n, 'publishEndDate')?.slice(0, 10) ?? '';
+    return [
+      s(attr(n, 'name')),
+      s(attr(n, 'type')),
+      s(attr(n, 'state') ?? ''),
+      end ? `${start}→${end}` : start,
+      s(attr<string>(n, 'submittedDate')?.slice(0, 10) ?? ''),
+      n.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'nominations')}\n\n${formatTable(columns, rows)}`;
+}
