@@ -1852,3 +1852,208 @@ export function digestAgeRatingDeclaration(doc: { data?: JSONAPIResource }): str
   );
   return lines.join('\n');
 }
+
+// ----- Xcode Cloud (v1.6) -----
+
+// issueCounts is a struct {analyzerWarnings, errors, testFailures, warnings};
+// rendered compactly as "2E/3W/1T/0A" (errors first — the one you act on).
+function issueCountsSummary(v: unknown): string {
+  const c = (v ?? {}) as {
+    errors?: number;
+    warnings?: number;
+    testFailures?: number;
+    analyzerWarnings?: number;
+  };
+  if (
+    c.errors === undefined &&
+    c.warnings === undefined &&
+    c.testFailures === undefined &&
+    c.analyzerWarnings === undefined
+  ) {
+    return '';
+  }
+  return `${c.errors ?? 0}E/${c.warnings ?? 0}W/${c.testFailures ?? 0}T/${c.analyzerWarnings ?? 0}A`;
+}
+
+export function digestCiProducts(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'TYPE' },
+    { header: 'CREATED' },
+    { header: 'PRODUCT_ID' },
+  ];
+  const rows = pages.data.map((p) => [
+    s(attr(p, 'name')),
+    s(attr(p, 'productType')),
+    s(attr<string>(p, 'createdDate')?.slice(0, 10) ?? ''),
+    p.id,
+  ]);
+  return `${summaryFooter(pages, 'Xcode Cloud products')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestCiWorkflows(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'ENABLED' },
+    { header: 'LOCKED' },
+    { header: 'CLEAN' },
+    { header: 'LAST_MODIFIED' },
+    { header: 'WORKFLOW_ID' },
+  ];
+  const rows = pages.data.map((w) => [
+    s(attr(w, 'name')),
+    s(attr(w, 'isEnabled')),
+    s(attr(w, 'isLockedForEditing')),
+    s(attr(w, 'clean')),
+    s(attr<string>(w, 'lastModifiedDate')?.slice(0, 10) ?? ''),
+    w.id,
+  ]);
+  return `${summaryFooter(pages, 'workflows')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestCiBuildRuns(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NUM', align: 'right' },
+    { header: 'STATUS' },
+    { header: 'PROGRESS' },
+    { header: 'ISSUES' },
+    { header: 'REASON' },
+    { header: 'PR' },
+    { header: 'STARTED' },
+    { header: 'RUN_ID' },
+  ];
+  const rows = pages.data.map((r) => [
+    s(attr(r, 'number')),
+    s(attr(r, 'completionStatus') ?? ''),
+    s(attr(r, 'executionProgress') ?? ''),
+    issueCountsSummary(attr(r, 'issueCounts')),
+    s(attr(r, 'startReason') ?? ''),
+    attr(r, 'isPullRequestBuild') ? 'yes' : '',
+    s(attr<string>(r, 'startedDate')?.slice(0, 16)?.replace('T', ' ') ?? ''),
+    r.id,
+  ]);
+  return `${summaryFooter(pages, 'build runs')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestCiBuildActions(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NAME' },
+    { header: 'TYPE' },
+    { header: 'STATUS' },
+    { header: 'PROGRESS' },
+    { header: 'ISSUES' },
+    { header: 'REQUIRED' },
+    { header: 'ACTION_ID' },
+  ];
+  const rows = pages.data.map((a) => [
+    s(attr(a, 'name')),
+    s(attr(a, 'actionType')),
+    s(attr(a, 'completionStatus') ?? ''),
+    s(attr(a, 'executionProgress') ?? ''),
+    issueCountsSummary(attr(a, 'issueCounts')),
+    attr(a, 'isRequiredToPass') ? 'yes' : 'no',
+    a.id,
+  ]);
+  return `${summaryFooter(pages, 'build actions')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestCiIssues(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'TYPE' },
+    { header: 'CATEGORY' },
+    { header: 'FILE' },
+    { header: 'MESSAGE' },
+  ];
+  const rows = pages.data.map((i) => {
+    const file = attr<{ path?: string; lineNumber?: number }>(i, 'fileSource');
+    return [
+      s(attr(i, 'issueType')),
+      s(attr(i, 'category') ?? ''),
+      file?.path ? `${file.path}${file.lineNumber ? `:${file.lineNumber}` : ''}` : '',
+      s(attr<string>(i, 'message') ?? '').slice(0, 120),
+    ];
+  });
+  return `${summaryFooter(pages, 'issues')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestCiTestResults(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'STATUS' },
+    { header: 'CLASS' },
+    { header: 'TEST' },
+    { header: 'MESSAGE' },
+  ];
+  const rows = pages.data.map((t) => [
+    s(attr(t, 'status')),
+    s(attr(t, 'className') ?? ''),
+    s(attr(t, 'name')),
+    s(attr<string>(t, 'message') ?? '').slice(0, 120),
+  ]);
+  return `${summaryFooter(pages, 'test results')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestCiArtifacts(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'FILE' },
+    { header: 'TYPE' },
+    { header: 'SIZE', align: 'right' },
+    { header: 'ARTIFACT_ID' },
+  ];
+  const rows = pages.data.map((a) => [
+    s(attr(a, 'fileName')),
+    s(attr(a, 'fileType')),
+    s(attr(a, 'fileSize') ?? ''),
+    a.id,
+  ]);
+  return `${summaryFooter(pages, 'artifacts')}\n\n${formatTable(columns, rows)} \n\nFetch one by id with asc_get_ci_artifact to get its downloadUrl.`;
+}
+
+export function digestScmRepositories(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'OWNER' },
+    { header: 'REPOSITORY' },
+    { header: 'LAST_ACCESSED' },
+    { header: 'REPO_ID' },
+  ];
+  const rows = pages.data.map((r) => [
+    s(attr(r, 'ownerName')),
+    s(attr(r, 'repositoryName')),
+    s(attr<string>(r, 'lastAccessedDate')?.slice(0, 10) ?? ''),
+    r.id,
+  ]);
+  return `${summaryFooter(pages, 'repositories')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestScmGitReferences(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'KIND' },
+    { header: 'NAME' },
+    { header: 'DELETED' },
+    { header: 'REF_ID' },
+  ];
+  const rows = pages.data.map((r) => [
+    s(attr(r, 'kind')),
+    s(attr(r, 'name')),
+    attr(r, 'isDeleted') ? 'yes' : '',
+    r.id,
+  ]);
+  return `${summaryFooter(pages, 'git references')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestScmPullRequests(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'NUM', align: 'right' },
+    { header: 'TITLE' },
+    { header: 'SOURCE→DEST' },
+    { header: 'CLOSED' },
+    { header: 'PR_ID' },
+  ];
+  const rows = pages.data.map((p) => [
+    s(attr(p, 'number')),
+    s(attr<string>(p, 'title') ?? '').slice(0, 60),
+    `${s(attr(p, 'sourceBranchName'))}→${s(attr(p, 'destinationBranchName'))}`,
+    attr(p, 'isClosed') ? 'yes' : '',
+    p.id,
+  ]);
+  return `${summaryFooter(pages, 'pull requests')}\n\n${formatTable(columns, rows)}`;
+}
