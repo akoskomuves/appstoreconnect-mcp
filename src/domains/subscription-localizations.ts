@@ -181,6 +181,8 @@ function formatSubscriptionLocalizationGateRefusal(g: SubscriptionLocalizationGa
     `Reason:  ${g.reason ?? ''}`,
     '',
     `Next:    ${g.next ?? ''}`,
+    '',
+    'If you believe Apple would accept this edit, retry with force:true — the pre-check is skipped and Apple decides.',
   ].join('\n');
 }
 
@@ -321,11 +323,19 @@ export function registerSubscriptionLocalizations(server: McpServer, client: ASC
       description:
         'Update name and/or description on an existing SubscriptionLocalization. Both optional (encodeIfPresent). Locale is immutable; state is server-managed and rejected from PATCH bodies. Tool refuses empty PATCH. ' +
         '** PARENT-STATE GATE (CONFIRMED live 2026-09-13): ** once the copy is APPROVED and its parent subscription is live, Apple REFUSES the PATCH — 409 ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE, "Cannot edit SubscriptionLocalization when it is in ACTIVE state". Note ACTIVE is in neither public enum, and the list endpoint still reports the locale as APPROVED, so the resource\'s own state does not predict this. The tool pre-checks the localization state + parent subscription state in one round-trip and refuses client-side with the recovery path. ' +
-        'The App Store Connect WEB UI can still make this edit (it goes into the next review cycle); the REST API cannot. Adding a NEW locale with asc_post_subscription_localization still works while the parent is live.',
+        'The App Store Connect WEB UI can still make this edit (it goes into the next review cycle); the REST API cannot. Adding a NEW locale with asc_post_subscription_localization still works while the parent is live. ' +
+        'Pass force:true to skip the pre-check and let Apple judge — the gate models an undocumented constraint and can be wrong.',
       inputSchema: z.object({
         subscriptionLocalizationId: SubscriptionLocalizationIdSchema,
         name: SubscriptionLocalizationNameSchema.optional(),
         description: SubscriptionLocalizationDescriptionSchema.optional(),
+        force: z
+          .boolean()
+          .default(false)
+          .describe(
+            'Skip the client-side state pre-check and send the PATCH anyway, letting Apple be the judge. ' +
+              'Use when the pre-check refuses an edit you believe Apple would accept — the gate models an undocumented constraint, so it can be wrong.',
+          ),
       }),
     },
     async (input) => {
@@ -343,7 +353,15 @@ export function registerSubscriptionLocalizations(server: McpServer, client: ASC
       // State-aware pre-check: one round-trip for the localization's own state
       // plus the parent subscription's. See evaluateSubscriptionLocalizationGate
       // for the confirmed constraint and why both are needed.
-      const states = await fetchLocalizationStates(client, input.subscriptionLocalizationId);
+      //
+      // `force` skips it entirely. The gate models a constraint Apple does not
+      // document and does not expose in any readable state, and three of its
+      // four locked parent states are extrapolated from Apple's pattern rather
+      // than observed — so a client-side refusal must never be the last word on
+      // an edit Apple would have accepted.
+      const states = input.force
+        ? { parentState: undefined, localizationState: undefined }
+        : await fetchLocalizationStates(client, input.subscriptionLocalizationId);
       const gate = evaluateSubscriptionLocalizationGate(
         states.parentState,
         states.localizationState,

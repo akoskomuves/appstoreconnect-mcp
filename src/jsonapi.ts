@@ -140,6 +140,44 @@ export function filterPagesByTerritory(
   return { ...pages, data, total: data.length };
 }
 
+/**
+ * Apple's territory list is ~175 entries, and an introductory-offer list can
+ * run to ~350 rows (a plan type per territory). When narrowing to ONE
+ * territory we have to scan the whole collection regardless of how few rows
+ * the caller wants back, so this is the fetch ceiling used in that case.
+ */
+export const FULL_TERRITORY_SCAN = 2000;
+
+/**
+ * Render the "what did the territory filter do" line.
+ *
+ * The truncation case is the one that matters. Apple returns territories in
+ * its own order, so a fetch that stopped early can leave the requested
+ * territory unseen — and a bare empty table then reads as "this territory has
+ * no price", which is a silently wrong answer rather than a missing one. When
+ * the scan was incomplete AND nothing matched, say so instead.
+ */
+export function territoryFilterNote(
+  territoryId: string,
+  matched: number,
+  scanned: number,
+  truncated: boolean,
+  keptWildcards = false,
+): string {
+  const wildcards = keptWildcards ? ' (plus all-territories wildcards)' : '';
+  if (matched === 0 && truncated) {
+    return (
+      `INCOMPLETE SCAN — no rows matched territory ${territoryId}${wildcards}, but the fetch stopped ` +
+      `after ${scanned} rows before the whole collection was read. This does NOT mean the territory has ` +
+      'no entry; raise maxItems and retry.\n\n'
+    );
+  }
+  const caveat = truncated
+    ? ` — fetch truncated at ${scanned} rows, results may be incomplete`
+    : '';
+  return `Filtered to territory ${territoryId}${wildcards} — ${matched} of ${scanned} rows scanned${caveat}.\n\n`;
+}
+
 export function buildIncludedIndex(included: JSONAPIResource[]): Map<string, JSONAPIResource> {
   const map = new Map<string, JSONAPIResource>();
   for (const r of included) {

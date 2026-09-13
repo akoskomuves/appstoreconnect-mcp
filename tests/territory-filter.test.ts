@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { type CollectedPages, filterPagesByTerritory } from '../src/jsonapi.js';
+import {
+  type CollectedPages,
+  filterPagesByTerritory,
+  territoryFilterNote,
+} from '../src/jsonapi.js';
 
 // Narrowing a price / introductory-offer list to one territory.
 //
@@ -83,5 +87,43 @@ describe('filterPagesByTerritory', () => {
     const out = filterPagesByTerritory(pages([row('a', 'USA')]), 'JPN');
     expect(out.data).toEqual([]);
     expect(out.total).toBe(0);
+  });
+});
+
+describe('territoryFilterNote', () => {
+  // The regression this guards: a fetch that stopped early can leave the
+  // requested territory unseen, and a bare empty table then reads as "this
+  // territory has no price" — a silently WRONG answer rather than a missing
+  // one. Callers narrow with a small maxItems precisely to save tokens, so
+  // the two knobs would otherwise fight each other.
+  it('flags an incomplete scan when nothing matched and the fetch was truncated', () => {
+    const note = territoryFilterNote('JPN', 0, 50, true);
+    expect(note).toContain('INCOMPLETE SCAN');
+    expect(note).toContain('does NOT mean the territory has no entry');
+    expect(note).toContain('raise maxItems');
+  });
+
+  it('does not cry incomplete when nothing matched but the scan was complete', () => {
+    const note = territoryFilterNote('JPN', 0, 175, false);
+    expect(note).not.toContain('INCOMPLETE SCAN');
+    expect(note).toContain('0 of 175');
+  });
+
+  it('still warns when rows matched but the scan was truncated', () => {
+    const note = territoryFilterNote('USA', 1, 50, true);
+    expect(note).not.toContain('INCOMPLETE SCAN');
+    expect(note).toContain('truncated');
+  });
+
+  it('reports the plain counts on a clean filtered scan', () => {
+    const note = territoryFilterNote('USA', 1, 175, false);
+    expect(note).toContain('Filtered to territory USA');
+    expect(note).toContain('1 of 175');
+    expect(note).not.toContain('truncated');
+  });
+
+  it('mentions wildcards only when they were kept', () => {
+    expect(territoryFilterNote('USA', 2, 175, false, true)).toContain('all-territories wildcards');
+    expect(territoryFilterNote('USA', 2, 175, false, false)).not.toContain('wildcard');
   });
 });

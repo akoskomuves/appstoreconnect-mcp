@@ -3,7 +3,12 @@ import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestIntroOffers } from '../digest.js';
 import { ASCError } from '../errors.js';
-import { filterPagesByTerritory, paginate } from '../jsonapi.js';
+import {
+  FULL_TERRITORY_SCAN,
+  filterPagesByTerritory,
+  paginate,
+  territoryFilterNote,
+} from '../jsonapi.js';
 import {
   NumberOfPeriodsSchema,
   OfferModeSchema,
@@ -153,17 +158,34 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
       const path = `/v1/subscriptions/${encodeURIComponent(
         subscriptionId,
       )}/introductoryOffers?${params.toString()}`;
+      // As on the prices lister, maxItems caps what comes BACK, not how far to
+      // look — an offer list can run to ~350 rows (a plan type per territory),
+      // so a small maxItems would stop before the requested territory and
+      // report it as having no offer.
+      const fetchCeiling =
+        territoryId === undefined ? maxItems : Math.max(maxItems, FULL_TERRITORY_SCAN);
       try {
-        const fetched = await paginate(client, path, maxItems);
+        const fetched = await paginate(client, path, fetchCeiling);
         // keepWildcard: an offer created without a territory applies to EVERY
-        // market, so it belongs in a single-territory view.
+        // market, so it belongs in a single-territory view. This is also why
+        // Apple's documented server-side filter[territory] is NOT used here —
+        // its handling of territory-less wildcard rows is unverified, and
+        // silently dropping one would hide an offer live in the requested market.
         const pages =
           territoryId === undefined ? fetched : filterPagesByTerritory(fetched, territoryId, true);
         const note =
           territoryId === undefined
             ? ''
-            : `Filtered to territory ${territoryId} (plus all-territories wildcards) — ${pages.data.length} of ${fetched.data.length} rows.\n\n`;
-        const text = raw ? JSON.stringify(pages, null, 2) : `${note}${digestIntroOffers(pages)}`;
+            : territoryFilterNote(
+                territoryId,
+                pages.data.length,
+                fetched.data.length,
+                fetched.truncated,
+                true,
+              );
+        const text = raw
+          ? `${note}${JSON.stringify(pages, null, 2)}`
+          : `${note}${digestIntroOffers(pages)}`;
         return { content: [{ type: 'text', text }] };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };

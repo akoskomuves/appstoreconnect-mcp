@@ -66,6 +66,15 @@ describe('evaluateSubscriptionLocalizationGate', () => {
     expect(evaluateSubscriptionLocalizationGate('APPROVED', 'ACTIVE').allow).toBe(true);
   });
 
+  it('is bypassable — a refusal on an undocumented constraint must not be the last word', () => {
+    // force:true skips the state fetch entirely, so the gate sees two
+    // undefineds and passes through. The concrete case this protects: a
+    // subscription APPROVED but not yet live (on manual hold alongside an app
+    // version) with APPROVED copy — Apple would take that PATCH, and three of
+    // the four locked parent states are extrapolation, not observation.
+    expect(evaluateSubscriptionLocalizationGate(undefined, undefined).allow).toBe(true);
+  });
+
   it('reports both states back for the refusal message', () => {
     const g = evaluateSubscriptionLocalizationGate('APPROVED', 'APPROVED');
     expect(g.parentState).toBe('APPROVED');
