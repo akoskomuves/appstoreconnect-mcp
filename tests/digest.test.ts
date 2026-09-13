@@ -1036,3 +1036,46 @@ describe('digestBetaGroups (v0.9.0)', () => {
     expect(zIdx).toBeGreaterThan(aIdx);
   });
 });
+
+describe('digestSubscriptionPrices PRESERVE legend', () => {
+  // `preserved` is the most misread field on this resource. It means "this
+  // row's price is held for the cohort that subscribed under it", so it only
+  // flips true once a NEWER row supersedes it — the newest row always reads
+  // false. Without a legend that reads as a silent grandfathering failure,
+  // and has already sent a caller down a delete-and-recreate rabbit hole.
+  const withRows = digestSubscriptionPrices(
+    pages({
+      data: [
+        {
+          type: 'subscriptionPrices',
+          id: 'price-usa',
+          attributes: { startDate: '2026-09-01', preserved: false },
+          relationships: {
+            territory: { data: { type: 'territories', id: 'USA' } },
+            subscriptionPricePoint: { data: { type: 'subscriptionPricePoints', id: 'pp-usa' } },
+          },
+        },
+      ],
+      included: [
+        { type: 'territories', id: 'USA', attributes: { currency: 'USD' } },
+        { type: 'subscriptionPricePoints', id: 'pp-usa', attributes: { customerPrice: '3.99' } },
+      ],
+      total: 1,
+    }),
+  );
+
+  it('explains that a false on the newest row is not a grandfathering failure', () => {
+    expect(withRows).toContain('PRESERVE reads false on the NEWEST row');
+    expect(withRows).toContain('does NOT mean grandfathering failed');
+  });
+
+  it('keeps the legend after the table so the data still leads', () => {
+    expect(withRows.indexOf('PRESERVE reads false')).toBeGreaterThan(withRows.indexOf('price-usa'));
+  });
+
+  it('omits the legend when there are no rows to misread', () => {
+    expect(digestSubscriptionPrices(pages({ data: [], total: 0 }))).not.toContain(
+      'PRESERVE reads false',
+    );
+  });
+});

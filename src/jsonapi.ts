@@ -107,6 +107,77 @@ export function filterPagesByNearAmount(
   };
 }
 
+/**
+ * Narrow a paginated response to the rows belonging to one territory.
+ *
+ * Apple documents `filter[territory]` on both `/prices` and
+ * `/introductoryOffers`, but the narrowing is done client-side here for two
+ * reasons. The prices endpoint is provably picky about extra query params
+ * (adding `fields[]` or `limit=` returns a bare 400 with no detail — see the
+ * comment in domains/subscriptions.ts), and a server-side filter would also
+ * decide on Apple's terms what happens to rows carrying NO territory — the
+ * "all territories" wildcard an introductory offer can be created with.
+ * Dropping a wildcard row would hide an offer that IS live in the requested
+ * territory, so the rule is made explicit here instead: `keepWildcard`
+ * retains rows whose `territory` relationship is absent.
+ *
+ * `total` is restated to the filtered count so the digest footer doesn't
+ * report the pre-filter page total.
+ */
+export function filterPagesByTerritory(
+  pages: CollectedPages,
+  territoryId: string,
+  keepWildcard = false,
+): CollectedPages {
+  const want = territoryId.toUpperCase();
+  const data = pages.data.filter((r) => {
+    const relationship = r.relationships?.['territory'];
+    const linked = relationship?.data;
+    const id = linked && !Array.isArray(linked) ? linked.id : undefined;
+    if (id === undefined) return keepWildcard;
+    return id.toUpperCase() === want;
+  });
+  return { ...pages, data, total: data.length };
+}
+
+/**
+ * Apple's territory list is ~175 entries, and an introductory-offer list can
+ * run to ~350 rows (a plan type per territory). When narrowing to ONE
+ * territory we have to scan the whole collection regardless of how few rows
+ * the caller wants back, so this is the fetch ceiling used in that case.
+ */
+export const FULL_TERRITORY_SCAN = 2000;
+
+/**
+ * Render the "what did the territory filter do" line.
+ *
+ * The truncation case is the one that matters. Apple returns territories in
+ * its own order, so a fetch that stopped early can leave the requested
+ * territory unseen — and a bare empty table then reads as "this territory has
+ * no price", which is a silently wrong answer rather than a missing one. When
+ * the scan was incomplete AND nothing matched, say so instead.
+ */
+export function territoryFilterNote(
+  territoryId: string,
+  matched: number,
+  scanned: number,
+  truncated: boolean,
+  keptWildcards = false,
+): string {
+  const wildcards = keptWildcards ? ' (plus all-territories wildcards)' : '';
+  if (matched === 0 && truncated) {
+    return (
+      `INCOMPLETE SCAN — no rows matched territory ${territoryId}${wildcards}, but the fetch stopped ` +
+      `after ${scanned} rows before the whole collection was read. This does NOT mean the territory has ` +
+      'no entry; raise maxItems and retry.\n\n'
+    );
+  }
+  const caveat = truncated
+    ? ` — fetch truncated at ${scanned} rows, results may be incomplete`
+    : '';
+  return `Filtered to territory ${territoryId}${wildcards} — ${matched} of ${scanned} rows scanned${caveat}.\n\n`;
+}
+
 export function buildIncludedIndex(included: JSONAPIResource[]): Map<string, JSONAPIResource> {
   const map = new Map<string, JSONAPIResource>();
   for (const r of included) {

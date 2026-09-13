@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestAppStoreVersionLocalizations } from '../digest.js';
-import { ASCError } from '../errors.js';
+import { ASCError, ascErrorText } from '../errors.js';
 import { paginate } from '../jsonapi.js';
 import {
   AppStoreVersionIdSchema,
@@ -467,7 +467,11 @@ export function registerAppStoreVersionLocalizations(server: McpServer, client: 
         // Fallback enrichment when the pre-check passed but Apple still
         // returned a state-machine error. Covers the race window between
         // pre-check fetch and PATCH (rare — a version transitioned mid-call).
-        const msg = err instanceof ASCError ? `${err.message}` : '';
+        // Match the FLATTENED error: ASCError.message is only the envelope
+        // ("App Store Connect API 409 on PATCH /v1/..."), so Apple's
+        // "cannot be edited at this time" detail is never in it — checking
+        // the message alone silently never fired.
+        const msg = ascErrorText(err);
         if (msg.includes('cannot be edited at this time') || msg.includes('STATE_ERROR')) {
           return {
             content: [
