@@ -257,6 +257,39 @@ A few details worth knowing before running `ppp_apply_proposal` against a live A
 - **Sanity ceiling on drops.** `maxDropPct` (default 90%) refuses to apply *any* run where a single row drops more than this. If you've ever seen Apple Music tank a market price aggressively, this catches the resulting outlier before you write it to ASC.
 - **Refresh the snapshot when you care.** `data/apple-music-prices.json` is a hand-curated snapshot. Each entry is dated; the snapshot date is shown in proposal output. Pull request a refresh when Apple Music prices move and the project will fold it in.
 
+## Anonymous error reports (opt-in, off by default)
+
+This server holds your App Store Connect credentials, so the bar for anything leaving your machine is high. Telemetry is **off unless you explicitly turn it on**, and there is no "enabled by default, opt out later" step.
+
+`appstoreconnect-mcp init` asks once. Change it any time:
+
+```sh
+appstoreconnect-mcp telemetry status
+appstoreconnect-mcp telemetry on
+appstoreconnect-mcp telemetry off
+```
+
+### What is sent
+
+| | |
+|---|---|
+| **Sent** | Tool name (`asc_patch_subscription_localization`), HTTP status (`409`), Apple's error `code` (`ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE`), Apple's generic `title`, the JSON pointer (`/data/attributes/state`), package version, Node version, OS + arch, and a random install UUID. Plus one liveness ping per day. |
+| **Never sent** | Apple's error `detail` text, request URLs or paths, app IDs, bundle IDs, app names, prices, subscription names, any request or response body, your issuer ID, key ID, or any credential. Geolocation is explicitly disabled (`$geoip_disable`), so no IP-derived city, postal code or coordinates are recorded either. |
+
+The scrubber is an **allow-list**, not a blocklist: a field Apple adds tomorrow is absent by construction rather than by review. It is enforced by tests in `tests/telemetry-scrubbing.test.ts`, which assert on what is absent as hard as on what is present.
+
+### Why
+
+So a bug like *"Apple started rejecting every `asc_patch_subscription_localization` with a 409"* shows up as a signal instead of waiting for someone to file an issue. That is a real example — it was found by hand, and this is the automated version of it.
+
+### Turning it off everywhere
+
+- `DO_NOT_TRACK=1` is honoured and beats an explicit opt-in.
+- `ASC_MCP_TELEMETRY=0` hard-disables; `=1` enables for that run without recording consent on disk.
+- `ASC_MCP_TELEMETRY_HOST` / `ASC_MCP_TELEMETRY_KEY` point a fork at its own collector.
+
+Transport is fire-and-forget behind a 3s timeout: it never blocks a tool call, never throws, and never writes to stdout (that stream is the MCP protocol channel).
+
 ## PPP rebalancing skill
 
 The `examples/ppp-rebalance/` directory contains a [Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) that wraps these tools into a Purchasing Power Parity workflow (dry-run → schedule → rollback) with the gotchas baked in.

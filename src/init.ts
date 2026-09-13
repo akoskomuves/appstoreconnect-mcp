@@ -21,6 +21,7 @@ import {
   resolveServerInvocation,
   upsertServer,
 } from './clients.js';
+import { setTelemetryEnabled, telemetryStatus } from './telemetry.js';
 
 const HOME = homedir();
 const KEY_DIR = join(HOME, '.appstore');
@@ -327,6 +328,28 @@ async function runInit(deps: InitDeps): Promise<void> {
     }
     upsertServer(client, SERVER_NAME, { ...invocation, env });
     console.log(`  ✓ Registered "${SERVER_NAME}" in ${client.label} (${client.configPath})`);
+  }
+
+  // Consent, asked once, defaulting to NO. The prompt spells out exactly what
+  // would leave the machine, because "anonymous telemetry" means nothing to
+  // someone handing a tool their App Store Connect credentials.
+  const telemetry = telemetryStatus();
+  if (telemetry.installId === undefined) {
+    console.log('\nOptional — anonymous error reports');
+    console.log(
+      '  Helps fix bugs like "Apple started rejecting X" without waiting for someone to file an issue.',
+    );
+    console.log('  Sent:     tool name, HTTP status, Apple error code, package/node version, OS,');
+    console.log('            and a random install ID. Plus one liveness ping a day.');
+    console.log("  NEVER:    Apple's error detail text, request URLs or paths, app or bundle IDs,");
+    console.log('            app names, prices, any request/response body, any credential.');
+    console.log('  Change it any time with `appstoreconnect-mcp telemetry on|off`.');
+    const optIn = await confirm({
+      message: 'Send anonymous error reports?',
+      default: false,
+    });
+    setTelemetryEnabled(optIn);
+    console.log(optIn ? '  ✓ Telemetry on. Thank you.' : '  ✓ Telemetry off.');
   }
 
   console.log('\nDone.');

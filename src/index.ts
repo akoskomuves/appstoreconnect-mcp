@@ -61,6 +61,7 @@ import { registerVersionExperiments } from './domains/version-experiments.js';
 import { registerWebhooks } from './domains/webhooks.js';
 import { registerWinBackOffers } from './domains/win-back-offers.js';
 import { registerXcodeCloud } from './domains/xcode-cloud.js';
+import { initTelemetry, runWithToolContext } from './telemetry.js';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
@@ -89,6 +90,7 @@ Usage:
   appstoreconnect-mcp                Run the MCP server over stdio (default; this is what your MCP client invokes).
   appstoreconnect-mcp init           Interactive setup wizard: place .p8, verify auth, register with installed clients.
   appstoreconnect-mcp doctor         Read-only diagnostic of keys, client integrations, and live auth.
+  appstoreconnect-mcp telemetry      Show anonymous-error-report status; \`telemetry on|off\` to change it.
   appstoreconnect-mcp --version      Print the package version.
   appstoreconnect-mcp --help         Show this help.
 
@@ -109,6 +111,12 @@ Optional — default for the sales/finance report tools:
                             asc_get_sales_report / asc_get_finance_report
                             need vendorNumber passed per call.
 
+Optional — anonymous error reports (OFF unless you opt in during \`init\`):
+  ASC_MCP_TELEMETRY         0/off to hard-disable, 1/on to enable without the
+                            wizard. DO_NOT_TRACK=1 is honoured and always wins.
+  ASC_MCP_TELEMETRY_HOST    Override the collector endpoint.
+  ASC_MCP_TELEMETRY_KEY     Override the project key (point a fork at its own).
+
 Documentation: https://github.com/akoskomuves/appstoreconnect-mcp
 `;
 
@@ -120,6 +128,24 @@ Documentation: https://github.com/akoskomuves/appstoreconnect-mcp
 // That makes a long TTL honest and `public` scope accurate.
 const TOOLS_LIST_CACHE_HINT = { ttlMs: 3_600_000, cacheScope: 'public' } as const;
 
+// Wraps server.registerTool so each handler runs inside a tool-name async
+// context. Deliberately a wrapper rather than a change to ~400 call sites.
+type RegisterTool = McpServer['registerTool'];
+
+function instrumentToolRegistration(server: McpServer): void {
+  const original = server.registerTool.bind(server) as RegisterTool;
+  const wrapped = ((name: string, definition: unknown, handler: unknown) => {
+    const traced = (...args: unknown[]) =>
+      runWithToolContext(name, () => (handler as (...a: unknown[]) => unknown)(...args));
+    return (original as unknown as (n: string, d: unknown, h: unknown) => unknown)(
+      name,
+      definition,
+      traced,
+    );
+  }) as unknown as RegisterTool;
+  server.registerTool = wrapped;
+}
+
 // Factory — `serveStdio` calls this once per connection and pins the instance
 // for that connection's lifetime, which is how the SDK serves the 2026-07-28
 // and 2025-era openings from the same registration code.
@@ -128,6 +154,13 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
     { name: meta.name, version: meta.version },
     { cacheHints: { 'tools/list': TOOLS_LIST_CACHE_HINT } },
   );
+
+  // Tag every handler with its tool name so a failed ASC call can be reported
+  // as "asc_patch_subscription_localization -> 409" rather than a bare status.
+  // AsyncLocalStorage rather than a module-level variable because handlers run
+  // concurrently — a plain variable would misattribute one tool's failure to
+  // whichever call happened to start last. No-op unless telemetry is opted in.
+  instrumentToolRegistration(server);
 
   registerApps(server, client);
   registerSubscriptions(server, client);
@@ -194,6 +227,12 @@ function runServer(): void {
   const config = loadConfig();
   const client = createASCClient(config);
 
+  // Resolve telemetry consent once, before serving. Opt-in only: with no
+  // choice recorded this is a no-op, and DO_NOT_TRACK / ASC_MCP_TELEMETRY=0
+  // hard-disable it. Never writes to stdout — that stream is the MCP
+  // protocol channel.
+  initTelemetry(meta.version);
+
   // `legacy: 'serve'` (the default) keeps 2025-era clients working: the
   // opening exchange picks the era and the same handlers serve both. Switch to
   // 'reject' only once every client we care about speaks 2026-07-28.
@@ -220,6 +259,32 @@ async function main(): Promise<void> {
     case 'doctor': {
       const { main: runDoctor } = await import('./doctor.js');
       await runDoctor();
+      return;
+    }
+    case 'telemetry': {
+      const { setTelemetryEnabled, telemetryStatus } = await import('./telemetry.js');
+      const arg = process.argv[3];
+      if (arg === 'on' || arg === 'off') {
+        const config = setTelemetryEnabled(arg === 'on');
+        process.stdout.write(
+          `Telemetry ${arg}. Install ID ${config.installId}.\n` +
+            (arg === 'on'
+              ? 'Sends tool name, HTTP status, Apple error code, versions and OS. Never error detail text, URLs, app IDs, names, prices, bodies or credentials.\n'
+              : 'Nothing will be sent.\n'),
+        );
+        return;
+      }
+      if (arg === undefined || arg === 'status') {
+        const s = telemetryStatus();
+        process.stdout.write(
+          `Telemetry: ${s.enabled ? 'on' : 'off'} (${s.reason})\n` +
+            (s.installId ? `Install ID: ${s.installId}\n` : '') +
+            `Config: ${s.configPath}\n`,
+        );
+        return;
+      }
+      process.stderr.write(`Usage: appstoreconnect-mcp telemetry [on|off|status]\n`);
+      process.exit(1);
       return;
     }
     case '-v':

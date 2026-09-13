@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { importPKCS8 } from 'jose';
 import { TokenProvider } from './auth.js';
 import { detectClients, listClients, readServer } from './clients.js';
+import { telemetryStatus } from './telemetry.js';
 
 const HOME = homedir();
 const KEY_DIR = join(HOME, '.appstore');
@@ -175,6 +176,12 @@ export async function main(): Promise<void> {
 
   console.log('\nMCP client integrations:');
   for (const r of checkClients()) console.log(fmt(r));
+
+  const telemetry = telemetryStatus();
+  console.log('\nAnonymous error reports:');
+  console.log(info(telemetry.enabled ? 'on' : 'off', telemetry.reason));
+  if (telemetry.installId) console.log(info('install ID', telemetry.installId));
+  console.log(info('change with', 'appstoreconnect-mcp telemetry on|off'));
 
   const liveAuth = await checkAuth();
   console.log('\nLive auth:');
