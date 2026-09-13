@@ -1,6 +1,7 @@
 import { TokenProvider } from './auth.js';
 import type { Config } from './config.js';
 import { ASCError } from './errors.js';
+import { captureToolError } from './telemetry.js';
 
 const ASC_BASE_URL = 'https://api.appstoreconnect.apple.com';
 const MAX_RATE_LIMIT_RETRIES = 6;
@@ -91,11 +92,17 @@ export function createASCClient(config: Config): ASCClient {
       } catch {
         details = await response.text().catch(() => undefined);
       }
-      throw new ASCError(
+      const error = new ASCError(
         response.status,
         `App Store Connect API ${response.status} on ${init.method ?? 'GET'} ${path}`,
         details,
       );
+      // Opt-in, scrubbed, fire-and-forget. Reads the current tool name from
+      // async context and sends the error SHAPE only — never `path` (it carries
+      // app and resource IDs) and never Apple's `detail` string. No-op unless
+      // the user opted in. See src/telemetry.ts.
+      captureToolError(error);
+      throw error;
     }
 
     return response;

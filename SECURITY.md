@@ -13,6 +13,14 @@ You should expect an acknowledgement within a few days. Please include:
 - Steps to reproduce.
 - Any relevant version / environment information.
 
+## Telemetry
+
+Anonymous error reporting is **opt-in and off by default**. It never transmits App Store Connect credentials, Apple's error detail text, request paths, app or bundle IDs, app names, prices, or any request/response body — only an error's shape (tool name, HTTP status, Apple error code, JSON pointer) plus package/Node/OS versions and a random install UUID. IP-derived geolocation is explicitly disabled.
+
+`DO_NOT_TRACK=1` is honoured and overrides an explicit opt-in. See [Anonymous error reports](README.md#anonymous-error-reports-opt-in-off-by-default) for the full field list and how to disable it.
+
+A telemetry payload carrying anything beyond the documented allow-list is a **security issue** under this policy — please report it via the process above.
+
 ## What's in scope
 
 - Vulnerabilities in this MCP server's code (command injection, prototype pollution, JWT signing flaws, credential leakage, etc.).
