@@ -101,11 +101,11 @@ Without it the two report tools still work — they just need `vendorNumber` pas
 ### Subscriptions
 - `asc_list_subscription_groups` — groups for an app
 - `asc_list_subscriptions` — auto-renewable subscriptions in a group
-- `asc_list_subscription_prices` — current price schedule per subscription
+- `asc_list_subscription_prices` — current price schedule per subscription. One row per territory (~175 unfiltered) — pass `territoryId` to narrow to one market
 - `asc_list_subscription_price_points` — valid price points for a subscription in a territory. Pass `nearAmount` to narrow the response to the nearest tiers around a target price.
 
 ### Subscription pricing (writes)
-- `asc_post_subscription_price` — schedule a price change for one territory
+- `asc_post_subscription_price` — schedule a price change for one territory. The created row reads `preserved: false` until a newer price supersedes it; that is expected, not a grandfathering failure
 - `asc_delete_subscription_price` — cancel a pending scheduled change
 
 ### App pricing (paid non-subscription apps)
@@ -123,7 +123,7 @@ Without it the two report tools still work — they just need `vendorNumber` pas
 ### Subscription introductory offers
 Introductory offers target **new** subscribers — the discounted "first window" before the regular price kicks in.
 
-- `asc_list_subscription_introductory_offers` — list intro offers (free trial / pay-as-you-go / pay-up-front) configured for a subscription, across territories. Apple's "all territories" wildcard (a single offer with no `territory`) surfaces as `TERR=(all)` in the table.
+- `asc_list_subscription_introductory_offers` — list intro offers (free trial / pay-as-you-go / pay-up-front) configured for a subscription, across territories. Apple's "all territories" wildcard (a single offer with no `territory`) surfaces as `TERR=(all)` in the table. Pass `territoryId` to narrow to one market — wildcard offers are always kept, since they are live everywhere.
 - `asc_get_subscription_introductory_offer` — fetch one offer by ID.
 - `asc_post_subscription_introductory_offer` — create an offer. Three `offerMode`s: `FREE_TRIAL` (no price; omit `pricePointId`), `PAY_AS_YOU_GO` (charge the offer price each period for `numberOfPeriods` periods), `PAY_UP_FRONT` (single charge for the whole duration; Apple still requires `numberOfPeriods` — defaults to 1 when omitted). Pass `territoryId` to target one market, or omit it for Apple's "all territories" wildcard (uses the literal price point in every market — no auto-FX). Server-side validation refuses `PAY_*` without `pricePointId`, `PAY_AS_YOU_GO` without `numberOfPeriods`, and `endDate ≤ startDate` — Apple's error is surfaced inline otherwise.
 - `asc_patch_subscription_introductory_offer` — narrow update path: only `startDate`, `endDate`, and `pricePointId` can change after creation. To change mode / duration / periods, delete and re-create.
@@ -194,7 +194,7 @@ Apple **merges** on write: omitted keys keep their current value, so a partial u
 ### Xcode Cloud (CI/CD)
 The build side of the ship loop: watch runs, read failures, kick builds. Hierarchy: products → workflows → build runs → actions (build/test/archive/analyze) → issues / test results / artifacts. A finished run links the TestFlight builds it produced, handing off to the TestFlight tools.
 
-- **Reads**: `asc_list_ci_products` · `asc_list_ci_workflows` / `asc_get_ci_workflow` (full config) · `asc_list_ci_build_runs` (by workflow or product) / `asc_get_ci_build_run` · `asc_list_ci_build_actions` · `asc_list_ci_issues` · `asc_list_ci_test_results` · `asc_list_ci_artifacts` / `asc_get_ci_artifact` (pre-signed, time-limited `downloadUrl` — fetch it without the ASC bearer) · `asc_list_ci_build_run_builds` (the TestFlight handoff) · `asc_list_ci_environment_versions` (Xcode/macOS catalogs).
+- **Reads**: `asc_list_ci_products` · `asc_list_ci_workflows` / `asc_get_ci_workflow` (compact config summary: flags, start-condition patterns, actions, resolved Xcode/macOS — `raw:true` for Apple's full ~90k-char document) · `asc_list_ci_build_runs` (by workflow or product) / `asc_get_ci_build_run` · `asc_list_ci_build_actions` · `asc_list_ci_issues` · `asc_list_ci_test_results` · `asc_list_ci_artifacts` / `asc_get_ci_artifact` (pre-signed, time-limited `downloadUrl` — fetch it without the ASC bearer) · `asc_list_ci_build_run_builds` (the TestFlight handoff) · `asc_list_ci_environment_versions` (Xcode/macOS catalogs).
 - **SCM reads**: `asc_list_scm_providers` · `asc_list_scm_repositories` · `asc_list_scm_git_references` (branch/tag *reference ids* — what build-start takes) · `asc_list_scm_pull_requests`.
 - **Triggers**: `asc_post_ci_build_run` (start a build — optional branch/tag override + `clean`; uses the team's compute hours) · `asc_patch_ci_workflow` (pause/resume via `isEnabled`, `clean`, name, description — start conditions and actions stay Xcode-owned by design).
 

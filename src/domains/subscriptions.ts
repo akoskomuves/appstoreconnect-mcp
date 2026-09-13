@@ -7,7 +7,7 @@ import {
   digestSubscriptionPrices,
   digestSubscriptions,
 } from '../digest.js';
-import { filterPagesByNearAmount, paginate } from '../jsonapi.js';
+import { filterPagesByNearAmount, filterPagesByTerritory, paginate } from '../jsonapi.js';
 import {
   AppIdSchema,
   SubscriptionGroupIdSchema,
@@ -79,14 +79,17 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
     {
       title: 'List subscription prices',
       description:
-        'List the current price schedule for a subscription across territories. Auto-paginates to capture all 175 territories. Returns a compact table by default; pass raw:true for the full JSON:API payload.',
+        'List the current price schedule for a subscription. Apple returns one row PER TERRITORY, so an unfiltered call on a worldwide subscription is ~175 rows — pass territoryId (e.g. "USA") whenever you care about a single market, or the response will be large enough to blow a tool-result token cap. Returns a compact table by default; pass raw:true for the full JSON:API payload.',
       inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
+        territoryId: TerritoryIdSchema.optional().describe(
+          'Narrow the response to one territory (ISO-3 code, e.g. "USA"). Omit for every territory.',
+        ),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
       }),
     },
-    async ({ subscriptionId, maxItems, raw }) => {
+    async ({ subscriptionId, territoryId, maxItems, raw }) => {
       // Apple's /v1/subscriptions/{id}/prices is picky about extra query params:
       // adding fields[subscriptionPricePoints], fields[territories], or limit=200
       // produces a 400 with no detail. Stick to the include and let paginate()
@@ -94,8 +97,17 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
       const path = `/v1/subscriptions/${encodeURIComponent(
         subscriptionId,
       )}/prices?include=subscriptionPricePoint,territory`;
-      const pages = await paginate(client, path, maxItems);
-      const text = raw ? JSON.stringify(pages, null, 2) : digestSubscriptionPrices(pages);
+      const fetched = await paginate(client, path, maxItems);
+      // Price rows always carry a concrete territory — no wildcard to preserve.
+      const pages =
+        territoryId === undefined ? fetched : filterPagesByTerritory(fetched, territoryId);
+      const note =
+        territoryId === undefined
+          ? ''
+          : `Filtered to territory ${territoryId} — ${pages.data.length} of ${fetched.data.length} rows.\n\n`;
+      const text = raw
+        ? JSON.stringify(pages, null, 2)
+        : `${note}${digestSubscriptionPrices(pages)}`;
       return { content: [{ type: 'text', text }] };
     },
   );

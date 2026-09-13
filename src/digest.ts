@@ -111,7 +111,17 @@ export function digestSubscriptionPrices(pages: CollectedPages): string {
 
   const pending = rows.filter((r) => r[3] === 'pending').length;
   const summary = `${summaryFooter(pages, 'prices')} — ${pending} pending`;
-  return `${summary}\n\n${formatTable(columns, rows)}`;
+  // `preserved` is the single most misread field on this resource: it means
+  // "this row's price is held for the cohort that subscribed under it", so it
+  // only flips true once a NEWER row supersedes it. The newest row therefore
+  // always reads false — which looks exactly like a grandfathering failure
+  // and has sent at least one caller down a delete-and-recreate rabbit hole.
+  const legend =
+    rows.length > 0
+      ? '\n\nPRESERVE reads false on the NEWEST row and flips true only once a newer price supersedes it. ' +
+        'A false on the most recent row does NOT mean grandfathering failed — it means nothing has superseded that row yet.'
+      : '';
+  return `${summary}\n\n${formatTable(columns, rows)}${legend}`;
 }
 
 export function digestSubscriptionPricePoints(pages: CollectedPages): string {
@@ -1909,6 +1919,172 @@ export function digestCiWorkflows(pages: CollectedPages): string {
     w.id,
   ]);
   return `${summaryFooter(pages, 'workflows')}\n\n${formatTable(columns, rows)}`;
+}
+
+// A CiWorkflow GET is the single most token-expensive read in this server:
+// with `include=xcodeVersion` Apple attaches every test destination × runtime
+// it knows about, and the raw payload runs to ~90k characters — enough to blow
+// a tool-result cap on its own. Almost none of that is what a caller wants.
+// This digest answers the four questions the payload is actually read for:
+// is it on, what starts it, what does it run, and which Xcode does it resolve
+// to. `raw:true` still returns Apple's full document.
+
+interface CiPattern {
+  pattern?: string;
+  isPrefix?: boolean;
+}
+
+interface CiPatterns {
+  isAllMatch?: boolean;
+  patterns?: CiPattern[];
+}
+
+// CiBranchPatterns / CiTagPatterns share one shape: an isAllMatch escape hatch
+// or an explicit pattern list. `isPrefix` marks a prefix match — rendered with
+// a trailing * so "release" + isPrefix reads as "release*".
+function ciPatternSummary(source: CiPatterns | undefined): string {
+  if (!source) return '—';
+  if (source.isAllMatch) return 'any';
+  const patterns = source.patterns ?? [];
+  if (patterns.length === 0) return '(none)';
+  return patterns.map((p) => `${p.pattern ?? ''}${p.isPrefix ? '*' : ''}`).join(', ');
+}
+
+function ciScheduleSummary(schedule: Record<string, unknown> | undefined): string {
+  if (!schedule) return '';
+  const frequency = s(schedule.frequency);
+  const days = Array.isArray(schedule.days) ? (schedule.days as string[]).join('/') : '';
+  const hour = schedule.hour;
+  const minute = schedule.minute;
+  const time =
+    hour === undefined
+      ? ''
+      : `${String(hour).padStart(2, '0')}:${String(minute ?? 0).padStart(2, '0')}`;
+  return [frequency, days, time, s(schedule.timezone)].filter(Boolean).join(' ');
+}
+
+export function digestCiWorkflow(doc: {
+  data?: JSONAPIResource;
+  included?: JSONAPIResource[];
+}): string {
+  const w = doc?.data;
+  if (!w) return 'No workflow returned.';
+  const index = buildIncludedIndex(doc.included ?? []);
+
+  const xcodeRel = rel(w, 'xcodeVersion');
+  const macRel = rel(w, 'macOsVersion');
+  const repoRel = rel(w, 'repository');
+  const xcode = lookupIncluded(index, 'ciXcodeVersions', xcodeRel?.id);
+  const mac = lookupIncluded(index, 'ciMacOsVersions', macRel?.id);
+  const repo = lookupIncluded(index, 'scmRepositories', repoRel?.id);
+
+  // Apple splits the resolved toolchain across name + version: name is the
+  // selection rule ("Latest Beta or Release"), version the build it resolved
+  // to ("27A266a"). Callers checking "which Xcode will this actually use"
+  // need both, so render them together.
+  const versionLabel = (r: JSONAPIResource | undefined): string => {
+    if (!r) return '—';
+    const name = s(attr(r, 'name'));
+    const version = s(attr(r, 'version'));
+    if (name && version && name !== version) return `${name} (${version})`;
+    return name || version || '—';
+  };
+
+  const lines: string[] = [];
+  lines.push(`Workflow "${s(attr(w, 'name'))}" (${w.id})`);
+  const description = s(attr(w, 'description'));
+  if (description) lines.push(description);
+  lines.push('');
+
+  const metaRows: string[][] = [
+    ['enabled', s(attr(w, 'isEnabled'))],
+    ['lockedForEditing', s(attr(w, 'isLockedForEditing'))],
+    ['clean', s(attr(w, 'clean'))],
+    ['containerFilePath', s(attr(w, 'containerFilePath')) || '—'],
+    ['xcode', versionLabel(xcode)],
+    ['macOS', versionLabel(mac)],
+    [
+      'repository',
+      repo
+        ? `${s(attr(repo, 'ownerName'))}/${s(attr(repo, 'repositoryName'))}`.replace(
+            /^\/|\/$/g,
+            '',
+          ) || '—'
+        : '—',
+    ],
+    ['lastModified', s(attr<string>(w, 'lastModifiedDate')?.slice(0, 10) ?? '')],
+  ];
+  lines.push(formatTable([{ header: 'FIELD' }, { header: 'VALUE' }], metaRows));
+  lines.push('');
+
+  // Start conditions: Apple models seven mutually-optional structs. Only the
+  // ones actually configured are rendered — an unconfigured trigger is absent
+  // from the payload, not present-and-empty.
+  const conditionRows: string[][] = [];
+  const pushCondition = (label: string, key: string, hasDestination = false): void => {
+    const c = attr<Record<string, unknown>>(w, key);
+    if (!c) return;
+    const source = ciPatternSummary(c.source as CiPatterns | undefined);
+    const detail: string[] = [];
+    if (hasDestination) {
+      detail.push(`-> ${ciPatternSummary(c.destination as CiPatterns | undefined)}`);
+    }
+    const schedule = ciScheduleSummary(c.schedule as Record<string, unknown> | undefined);
+    if (schedule) detail.push(schedule);
+    if (c.autoCancel) detail.push('auto-cancel');
+    const rule = c.filesAndFoldersRule as { mode?: string; matchers?: unknown[] } | undefined;
+    if (rule?.mode) detail.push(`${rule.mode} (${rule.matchers?.length ?? 0} matchers)`);
+    conditionRows.push([label, source, detail.join(' · ')]);
+  };
+  pushCondition('branch', 'branchStartCondition');
+  pushCondition('tag', 'tagStartCondition');
+  pushCondition('pullRequest', 'pullRequestStartCondition', true);
+  pushCondition('scheduled', 'scheduledStartCondition');
+  pushCondition('manual:branch', 'manualBranchStartCondition');
+  pushCondition('manual:tag', 'manualTagStartCondition');
+  pushCondition('manual:pullRequest', 'manualPullRequestStartCondition', true);
+
+  if (conditionRows.length === 0) {
+    lines.push('Start conditions: (none configured — manual start only)');
+  } else {
+    lines.push(`Start conditions (${conditionRows.length}):`);
+    lines.push(
+      formatTable(
+        [{ header: 'TRIGGER' }, { header: 'PATTERNS' }, { header: 'DETAIL' }],
+        conditionRows,
+      ),
+    );
+  }
+  lines.push('');
+
+  const actions = attr<Array<Record<string, unknown>>>(w, 'actions') ?? [];
+  if (actions.length === 0) {
+    lines.push('Actions: (none)');
+  } else {
+    lines.push(`Actions (${actions.length}):`);
+    lines.push(
+      formatTable(
+        [
+          { header: 'NAME' },
+          { header: 'TYPE' },
+          { header: 'PLATFORM' },
+          { header: 'SCHEME' },
+          { header: 'DESTINATION' },
+          { header: 'REQUIRED' },
+        ],
+        actions.map((act) => [
+          s(act.name),
+          s(act.actionType),
+          s(act.platform),
+          s(act.scheme),
+          s(act.destination),
+          s(act.isRequiredToPass ?? ''),
+        ]),
+      ),
+    );
+  }
+
+  return lines.join('\n');
 }
 
 export function digestCiBuildRuns(pages: CollectedPages): string {

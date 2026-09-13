@@ -199,7 +199,7 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
       title: 'Patch an IAP localization',
       description:
         'Update name and/or description on an existing InAppPurchaseLocalization. Both optional (encodeIfPresent). Locale immutable; state server-managed. Tool refuses empty PATCH. ' +
-        '** PARENT-STATE GATE (likely): ** Same structural pattern as SubscriptionLocalization — Apple likely locks name/description while the parent IAP is WAITING_FOR_REVIEW or APPROVED. If Apple returns STATE_ERROR "cannot be edited at this time", that\'s the cause. Constraint not yet pre-checked client-side (deferred to a future patch once verified live).',
+        '** PARENT-STATE GATE (likely): ** Same structural pattern as SubscriptionLocalization, where the gate is now CONFIRMED (409 ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE, "Cannot edit ... when it is in ACTIVE state", observed live 2026-09-13 on APPROVED copy under a live parent). Expect Apple to lock name/description here the same way once the IAP is live or in review. Not yet observed on this resource, so it is not pre-checked client-side — Apple\'s error is the authoritative gate. If it fires, the App Store Connect web UI can still make the edit.',
       inputSchema: z.object({
         iapLocalizationId: InAppPurchaseLocalizationIdSchema,
         name: IapLocalizationNameSchema.optional(),

@@ -17,7 +17,8 @@ export function registerPricing(server: McpServer, client: ASCClient): void {
       description:
         'Schedule a price change for a single (subscription, territory) on a future date. ' +
         'Always pass preserveCurrentPrice=true unless you intend to re-price existing subscribers. ' +
-        'Apple requires startDate ≥ today + 24h; this server defaults to ≥7 days for safety.',
+        'Apple requires startDate ≥ today + 24h; this server defaults to ≥7 days for safety. ' +
+        'READING THE RESULT: the created row comes back with `preserved: false`, and keeps reading false in the price schedule for as long as it is the newest row. That is correct and expected — it does NOT mean preserveCurrentPrice was ignored. `preserved` means "this row is held for the cohort that subscribed under it", so it only flips true once a NEWER price supersedes it.',
       inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         territoryId: TerritoryIdSchema,
@@ -52,7 +53,15 @@ export function registerPricing(server: McpServer, client: ASCClient): void {
         method: 'POST',
         body: JSON.stringify(body),
       });
-      return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+      // Apple echoes `preserved: false` on every freshly-created row (it is the
+      // newest one, so nothing supersedes it yet). Without this note the
+      // response reads as a silent grandfathering failure — a caller has
+      // already deleted and re-created a row through the raw API chasing it.
+      const note = preserveCurrentPrice
+        ? 'Scheduled with preserveCurrentPrice=true — existing subscribers are grandfathered.\n\n' +
+          'NOTE: the row below reads `preserved: false`, and will keep reading false for as long as it is the newest price. That is expected, not a failure — `preserved` flips true only once a NEWER price supersedes this row.\n\n'
+        : 'Scheduled with preserveCurrentPrice=false — EXISTING SUBSCRIBERS WILL BE RE-PRICED at the next renewal on or after the start date.\n\n';
+      return { content: [{ type: 'text', text: `${note}${JSON.stringify(data, null, 2)}` }] };
     },
   );
 

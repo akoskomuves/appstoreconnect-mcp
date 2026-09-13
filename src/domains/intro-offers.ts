@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ASCClient } from '../client.js';
 import { digestIntroOffers } from '../digest.js';
 import { ASCError } from '../errors.js';
-import { paginate } from '../jsonapi.js';
+import { filterPagesByTerritory, paginate } from '../jsonapi.js';
 import {
   NumberOfPeriodsSchema,
   OfferModeSchema,
@@ -134,15 +134,19 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
     {
       title: 'List subscription introductory offers',
       description:
-        'List introductory offers (free trial / pay-as-you-go / pay-up-front) configured for a subscription, across territories. ' +
-        'Auto-paginates; pass raw:true for the full JSON:API payload. Wildcard offers (Apple\'s "all territories") show TERR as "(all)".',
+        'List introductory offers (free trial / pay-as-you-go / pay-up-front) configured for a subscription. ' +
+        'A PPP-aware offer is created one-per-territory, so an unfiltered call can return ~175 rows — pass territoryId (e.g. "USA") when you care about a single market, or the response can blow a tool-result token cap. ' +
+        'Auto-paginates; pass raw:true for the full JSON:API payload. Wildcard offers (Apple\'s "all territories") show TERR as "(all)" and are ALWAYS kept when territoryId is set — a wildcard offer is live in every market, so hiding it would misreport the territory.',
       inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
+        territoryId: TerritoryIdSchema.optional().describe(
+          'Narrow the response to one territory (ISO-3 code, e.g. "USA"), plus any all-territories wildcard offers. Omit for every territory.',
+        ),
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
       }),
     },
-    async ({ subscriptionId, maxItems, raw }) => {
+    async ({ subscriptionId, territoryId, maxItems, raw }) => {
       const params = new URLSearchParams();
       params.set('include', 'territory,subscriptionPricePoint');
       params.set('limit', '200');
@@ -150,8 +154,16 @@ export function registerIntroOffers(server: McpServer, client: ASCClient): void 
         subscriptionId,
       )}/introductoryOffers?${params.toString()}`;
       try {
-        const pages = await paginate(client, path, maxItems);
-        const text = raw ? JSON.stringify(pages, null, 2) : digestIntroOffers(pages);
+        const fetched = await paginate(client, path, maxItems);
+        // keepWildcard: an offer created without a territory applies to EVERY
+        // market, so it belongs in a single-territory view.
+        const pages =
+          territoryId === undefined ? fetched : filterPagesByTerritory(fetched, territoryId, true);
+        const note =
+          territoryId === undefined
+            ? ''
+            : `Filtered to territory ${territoryId} (plus all-territories wildcards) — ${pages.data.length} of ${fetched.data.length} rows.\n\n`;
+        const text = raw ? JSON.stringify(pages, null, 2) : `${note}${digestIntroOffers(pages)}`;
         return { content: [{ type: 'text', text }] };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };

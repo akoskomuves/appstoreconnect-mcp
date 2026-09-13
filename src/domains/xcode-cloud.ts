@@ -9,13 +9,14 @@ import {
   digestCiIssues,
   digestCiProducts,
   digestCiTestResults,
+  digestCiWorkflow,
   digestCiWorkflows,
   digestScmGitReferences,
   digestScmPullRequests,
   digestScmRepositories,
 } from '../digest.js';
 import { ASCError } from '../errors.js';
-import { paginate } from '../jsonapi.js';
+import { type JSONAPIResource, paginate } from '../jsonapi.js';
 import {
   CiArtifactIdSchema,
   CiBuildActionIdSchema,
@@ -52,6 +53,12 @@ import {
 
 const CI_PRODUCT_FIELDS = 'name,createdDate,productType';
 const CI_WORKFLOW_FIELDS = 'name,isEnabled,isLockedForEditing,clean,lastModifiedDate';
+// Summary-mode fieldsets for asc_get_ci_workflow's included[] resources.
+// Omitting ciXcodeVersions.testDestinations is the whole point — that one
+// field is the bulk of the ~90k-character raw workflow payload.
+const CI_XCODE_VERSION_SUMMARY_FIELDS = 'name,version';
+const CI_MACOS_VERSION_SUMMARY_FIELDS = 'name,version';
+const CI_REPOSITORY_SUMMARY_FIELDS = 'ownerName,repositoryName,defaultBranch';
 const CI_BUILD_RUN_FIELDS =
   'number,createdDate,startedDate,finishedDate,isPullRequestBuild,issueCounts,executionProgress,completionStatus,startReason';
 const CI_BUILD_ACTION_FIELDS =
@@ -196,17 +203,32 @@ export function registerXcodeCloud(server: McpServer, client: ASCClient): void {
     {
       title: 'Get an Xcode Cloud workflow (full configuration)',
       description:
-        'Fetch a workflow with its complete configuration: start conditions (branch/tag/PR/scheduled/manual), actions[] (build/test/archive/analyze steps with platform + destination), container file path, Xcode + macOS version relationships. Raw JSON — the config is deeply nested.',
+        'Fetch a workflow with its complete configuration: enabled/locked flags, start conditions (branch/tag/PR/scheduled/manual) with their branch patterns, actions[] (build/test/archive/analyze steps with platform + scheme + destination), container file path, and the RESOLVED Xcode + macOS versions. Returns a compact summary by default. ' +
+        'Pass raw:true only when you need the full JSON:API document — Apple attaches every test destination × runtime to the included ciXcodeVersion there, which runs to ~90k characters and can blow a tool-result token cap on its own.',
       inputSchema: z.object({
         workflowId: CiWorkflowIdSchema,
+        raw: z.boolean().default(false),
       }),
     },
-    async ({ workflowId }) => {
+    async ({ workflowId, raw }) => {
+      // Sparse fieldsets on the included resources are what keep summary mode
+      // small: fields[ciXcodeVersions] without `testDestinations` drops the
+      // device × runtime matrix that dominates the raw payload. raw:true asks
+      // for the unrestricted document so nothing is hidden behind the flag.
+      const params = new URLSearchParams();
+      params.set('include', 'repository,xcodeVersion,macOsVersion');
+      if (!raw) {
+        params.set('fields[ciXcodeVersions]', CI_XCODE_VERSION_SUMMARY_FIELDS);
+        params.set('fields[ciMacOsVersions]', CI_MACOS_VERSION_SUMMARY_FIELDS);
+        params.set('fields[scmRepositories]', CI_REPOSITORY_SUMMARY_FIELDS);
+      }
       try {
-        const data = await client.request<unknown>(
-          `/v1/ciWorkflows/${encodeURIComponent(workflowId)}?include=repository,xcodeVersion,macOsVersion`,
-        );
-        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+        const data = await client.request<{
+          data?: JSONAPIResource;
+          included?: JSONAPIResource[];
+        }>(`/v1/ciWorkflows/${encodeURIComponent(workflowId)}?${params.toString()}`);
+        const text = raw ? JSON.stringify(data, null, 2) : digestCiWorkflow(data);
+        return { content: [{ type: 'text', text }] };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
       }

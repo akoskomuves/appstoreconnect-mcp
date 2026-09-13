@@ -107,6 +107,39 @@ export function filterPagesByNearAmount(
   };
 }
 
+/**
+ * Narrow a paginated response to the rows belonging to one territory.
+ *
+ * Apple documents `filter[territory]` on both `/prices` and
+ * `/introductoryOffers`, but the narrowing is done client-side here for two
+ * reasons. The prices endpoint is provably picky about extra query params
+ * (adding `fields[]` or `limit=` returns a bare 400 with no detail — see the
+ * comment in domains/subscriptions.ts), and a server-side filter would also
+ * decide on Apple's terms what happens to rows carrying NO territory — the
+ * "all territories" wildcard an introductory offer can be created with.
+ * Dropping a wildcard row would hide an offer that IS live in the requested
+ * territory, so the rule is made explicit here instead: `keepWildcard`
+ * retains rows whose `territory` relationship is absent.
+ *
+ * `total` is restated to the filtered count so the digest footer doesn't
+ * report the pre-filter page total.
+ */
+export function filterPagesByTerritory(
+  pages: CollectedPages,
+  territoryId: string,
+  keepWildcard = false,
+): CollectedPages {
+  const want = territoryId.toUpperCase();
+  const data = pages.data.filter((r) => {
+    const relationship = r.relationships?.['territory'];
+    const linked = relationship?.data;
+    const id = linked && !Array.isArray(linked) ? linked.id : undefined;
+    if (id === undefined) return keepWildcard;
+    return id.toUpperCase() === want;
+  });
+  return { ...pages, data, total: data.length };
+}
+
 export function buildIncludedIndex(included: JSONAPIResource[]): Map<string, JSONAPIResource> {
   const map = new Map<string, JSONAPIResource>();
   for (const r of included) {
