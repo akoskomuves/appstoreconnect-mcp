@@ -54,6 +54,7 @@ import { registerReviewSubmissions } from './domains/review-submissions.js';
 import { registerSalesReports } from './domains/sales-reports.js';
 import { registerSandboxTesters } from './domains/sandbox-testers.js';
 import { registerScreenshots } from './domains/screenshots.js';
+import { registerSubscriptionGroupLocalizations } from './domains/subscription-group-localizations.js';
 import { registerSubscriptionLocalizations } from './domains/subscription-localizations.js';
 import { registerSubscriptions } from './domains/subscriptions.js';
 import { registerTerritories } from './domains/territories.js';
@@ -184,6 +185,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerReviewSubmissions(server, client);
   registerReviewDetails(server, client);
   registerSubscriptionLocalizations(server, client);
+  registerSubscriptionGroupLocalizations(server, client);
   registerIapLocalizations(server, client);
   registerAppInfo(server, client);
   registerAsoCatalog(server, client);

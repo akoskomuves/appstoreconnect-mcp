@@ -54,6 +54,27 @@ export function digestSubscriptionGroups(pages: CollectedPages): string {
   return `${summaryFooter(pages, 'groups')}\n\n${formatTable(columns, rows)}`;
 }
 
+export function digestSubscriptionGroupLocalizations(pages: CollectedPages): string {
+  // The customer-facing heading for a subscription group, per locale.
+  // CUSTOM_APP_NAME is usually empty — it only differs when the developer
+  // overrides how the app name reads inside the subscription sheet.
+  const columns: Column[] = [
+    { header: 'LOCALE' },
+    { header: 'NAME' },
+    { header: 'CUSTOM_APP_NAME' },
+    { header: 'STATE' },
+    { header: 'ID' },
+  ];
+  const rows = pages.data.map((loc) => [
+    s(attr(loc, 'locale')),
+    s(attr(loc, 'name')),
+    s(attr(loc, 'customAppName')),
+    s(attr(loc, 'state')),
+    loc.id,
+  ]);
+  return `${summaryFooter(pages, 'group localizations')}\n\n${formatTable(columns, rows)}`;
+}
+
 export function digestSubscriptions(pages: CollectedPages): string {
   const columns: Column[] = [
     { header: 'NAME' },
