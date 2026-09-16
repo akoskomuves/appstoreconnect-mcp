@@ -43,6 +43,7 @@ import {
 } from '../schemas.js';
 import { buildIntroOfferBody } from './intro-offers.js';
 import { buildOfferCodeBody } from './offer-codes.js';
+import { buildSubscriptionPriceCreateBody } from './pricing.js';
 import { buildPromoOfferBody } from './promo-offers.js';
 
 type ResourceType =
@@ -783,22 +784,17 @@ async function postSubscriptionPrice(
     preserveCurrentPrice: boolean;
   },
 ): Promise<{ ok: true; id?: string } | { ok: false; error: string }> {
-  const body = {
-    data: {
-      type: 'subscriptionPrices',
-      attributes: {
-        startDate: args.startDate,
-        preserveCurrentPrice: args.preserveCurrentPrice,
-      },
-      relationships: {
-        subscription: { data: { type: 'subscriptions', id: args.subscriptionId } },
-        subscriptionPricePoint: {
-          data: { type: 'subscriptionPricePoints', id: args.pricePointId },
-        },
-        territory: { data: { type: 'territories', id: args.territoryId } },
-      },
-    },
-  };
+  // Shares buildSubscriptionPriceCreateBody with asc_post_subscription_price so
+  // the two cannot drift. A PPP rebalance is always a dated change to an
+  // existing price, so startDate is required on this path by construction and
+  // the builder's baseline branch is unreachable from here.
+  const body = buildSubscriptionPriceCreateBody({
+    subscriptionId: args.subscriptionId,
+    territoryId: args.territoryId,
+    pricePointId: args.pricePointId,
+    startDate: args.startDate,
+    preserveCurrentPrice: args.preserveCurrentPrice,
+  });
   try {
     const res = await client.request<{ data?: { id?: string } }>('/v1/subscriptionPrices', {
       method: 'POST',

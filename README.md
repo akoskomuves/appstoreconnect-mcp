@@ -132,7 +132,10 @@ The customer-facing **group heading** — what the App Store renders above the p
 - `asc_delete_subscription_group_localization`
 
 ### Subscription pricing (writes)
-- `asc_post_subscription_price` — schedule a price change for one territory. The created row reads `preserved: false` until a newer price supersedes it; that is expected, not a grandfathering failure
+- `asc_post_subscription_price` — set the price for one territory, either the opening price or a scheduled change. **Order matters, and both steps are confirmed live:** territory availability → undated baseline → dated changes.
+  - **Omit `startDate` for a subscription's first price in a territory.** The opening row is the undated baseline; a dated first price is a price *change* with nothing to change from. Apple says so outright — *"Invalid startDate. Create a starting price before creating future prices."* — and distance doesn't help (1, 8 and 29 days out all 409).
+  - **Availability must exist first.** Without it even a correctly shaped undated POST fails, with a 409 that blames the price point (`ENTITY_ERROR.RELATIONSHIP.INVALID` → `/data/relationships/subscriptionPricePoint/id`). The price point is fine; Apple just can't price a territory the product isn't sold in. The tool translates both of these rather than passing the raw 409 through.
+  - `preserveCurrentPrice` defaults to true on a dated change and is omitted on a baseline, where there's no existing cohort to grandfather. The created row reads `preserved: false` until a newer price supersedes it; that is expected, not a grandfathering failure
 - `asc_delete_subscription_price` — cancel a pending scheduled change
 
 ### App pricing (paid non-subscription apps)
