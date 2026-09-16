@@ -18,6 +18,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js",
+    "check:dist": "node scripts/check-dist-fresh.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
