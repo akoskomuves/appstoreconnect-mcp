@@ -29,6 +29,7 @@
 import { createASCClient } from '../src/client.js';
 import { loadConfig } from '../src/config.js';
 import { digestSubscriptionGroupLocalizations, digestSubscriptionGroups } from '../src/digest.js';
+import { buildSubscriptionPriceCreateBody } from '../src/domains/pricing.js';
 import {
   buildSubscriptionGroupLocalizationCreateBody,
   buildSubscriptionGroupLocalizationPatchBody,
@@ -41,6 +42,7 @@ import {
   evaluateSubscriptionDeleteGate,
   evaluateSubscriptionGroupDeleteGate,
 } from '../src/domains/subscriptions.js';
+import { ascErrorText } from '../src/errors.js';
 import { paginate } from '../src/jsonapi.js';
 
 const client = createASCClient(loadConfig());
@@ -190,6 +192,122 @@ async function main(): Promise<void> {
         console.log(
           `groupLevel=${patchedSub.data?.attributes?.groupLevel} familySharable=${patchedSub.data?.attributes?.familySharable}`,
         );
+
+        // ---- Price-creation diagnostic matrix ----
+        // Round 1 of this smoke disproved the first hypothesis: the UNDATED
+        // baseline 409s too, so "omit startDate" is not on its own the fix.
+        // Neither experiment so far has tested undated + territory
+        // availability, so walk the matrix and print Apple's actual `detail`
+        // (which lives in ASCError.details, NOT in .message).
+        const territory = process.env.SMOKE_TERRITORY ?? 'USA';
+        const future = new Date(Date.now() + 8 * 864e5).toISOString().slice(0, 10);
+
+        async function tryPrice(label: string, body: unknown): Promise<boolean> {
+          console.log(`\n--- ${label} ---`);
+          console.log(`body: ${JSON.stringify(body)}`);
+          try {
+            const res = await client.request<SingleDoc>('/v1/subscriptionPrices', {
+              method: 'POST',
+              body: JSON.stringify(body),
+            });
+            console.log(`OK -> ${res.data?.id}`);
+            return true;
+          } catch (err) {
+            console.log(`FAILED: ${ascErrorText(err)}`);
+            return false;
+          }
+        }
+
+        section('price diagnostic matrix');
+        const pricePoints = await client.request<ListDoc>(
+          `/v1/subscriptions/${subscriptionId}/pricePoints` +
+            `?filter[territory]=${territory}&limit=200`,
+        );
+        const pp = pricePoints.data?.[0]?.id;
+        console.log(`price point for ${territory}: ${pp}`);
+
+        if (pp) {
+          // 1. undated, NO availability yet (the round-1 case, now with detail)
+          await tryPrice(
+            '1. undated baseline, no availability',
+            buildSubscriptionPriceCreateBody({
+              subscriptionId,
+              territoryId: territory,
+              pricePointId: pp,
+            }),
+          );
+
+          // 2. dated, no availability — the user's original failing shape
+          await tryPrice(
+            '2. dated, no availability',
+            buildSubscriptionPriceCreateBody({
+              subscriptionId,
+              territoryId: territory,
+              pricePointId: pp,
+              startDate: future,
+            }),
+          );
+
+          // 3. create territory availability, then retry both
+          section('creating subscriptionAvailability');
+          try {
+            const avail = await client.request<SingleDoc>('/v1/subscriptionAvailabilities', {
+              method: 'POST',
+              body: JSON.stringify({
+                data: {
+                  type: 'subscriptionAvailabilities',
+                  attributes: { availableInNewTerritories: true },
+                  relationships: {
+                    subscription: { data: { type: 'subscriptions', id: subscriptionId } },
+                    availableTerritories: {
+                      data: [{ type: 'territories', id: territory }],
+                    },
+                  },
+                },
+              }),
+            });
+            console.log(`availability created: ${avail.data?.id}`);
+          } catch (err) {
+            console.log(`availability POST failed: ${ascErrorText(err)}`);
+          }
+
+          const okUndated = await tryPrice(
+            '3. undated baseline, WITH availability',
+            buildSubscriptionPriceCreateBody({
+              subscriptionId,
+              territoryId: territory,
+              pricePointId: pp,
+            }),
+          );
+
+          if (!okUndated) {
+            // 4. last hypothesis: planType is an attribute on the create
+            // request (spec 4.4.1) that this server never sends.
+            await tryPrice('4. undated + planType MONTHLY, WITH availability', {
+              data: {
+                type: 'subscriptionPrices',
+                attributes: { planType: 'MONTHLY' },
+                relationships: {
+                  subscription: { data: { type: 'subscriptions', id: subscriptionId } },
+                  subscriptionPricePoint: {
+                    data: { type: 'subscriptionPricePoints', id: pp },
+                  },
+                  territory: { data: { type: 'territories', id: territory } },
+                },
+              },
+            });
+
+            await tryPrice(
+              '5. dated, WITH availability',
+              buildSubscriptionPriceCreateBody({
+                subscriptionId,
+                territoryId: territory,
+                pricePointId: pp,
+                startDate: future,
+              }),
+            );
+          }
+        }
 
         section('delete gate against the real state');
         const state = patchedSub.data?.attributes?.state as string | undefined;
