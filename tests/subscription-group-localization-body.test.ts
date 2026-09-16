@@ -110,6 +110,17 @@ describe('buildSubscriptionGroupLocalizationPatchBody', () => {
     expect(attrs).toEqual({ name: 'N' });
   });
 
+  it('emits an explicit null to clear customAppName (Apple marks it nullable)', () => {
+    // Clearing the override is how a locale goes back to inheriting the real
+    // app name; omitting the key leaves the current value in place instead.
+    const body = buildSubscriptionGroupLocalizationPatchBody({
+      subscriptionGroupLocalizationId: 'LOC-1',
+      customAppName: null,
+    }) as Body;
+    const attrs = body.data.attributes as Record<string, unknown>;
+    expect(attrs).toEqual({ customAppName: null });
+  });
+
   it('never sends relationships on patch', () => {
     const body = buildSubscriptionGroupLocalizationPatchBody({
       subscriptionGroupLocalizationId: 'LOC-1',

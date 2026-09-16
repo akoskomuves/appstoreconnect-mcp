@@ -77,7 +77,10 @@ export function buildSubscriptionGroupLocalizationCreateBody(
 export interface SubscriptionGroupLocalizationPatchInput {
   subscriptionGroupLocalizationId: string;
   name?: string | undefined;
-  customAppName?: string | undefined;
+  // null is meaningful here, not an absence: Apple marks customAppName
+  // nullable, so an explicit null is how an override gets CLEARED and the
+  // locale goes back to inheriting the real app name. Omitted leaves it alone.
+  customAppName?: string | null | undefined;
 }
 
 export function buildSubscriptionGroupLocalizationPatchBody(
@@ -209,12 +212,16 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
     {
       title: 'Patch a subscription group localization',
       description:
-        'Update name and/or customAppName on an existing SubscriptionGroupLocalization. Both optional; the tool refuses an empty PATCH. Locale is immutable and state is server-managed. ' +
+        'Update name and/or customAppName on an existing SubscriptionGroupLocalization. Both optional; the tool refuses an empty PATCH. Pass customAppName: null to CLEAR an existing override (Apple marks the attribute nullable) — omitting it leaves the current value alone. Locale is immutable and state is server-managed. ' +
         'Apple locks this copy once it is live, the same way it locks SubscriptionLocalization: expect 409 ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE on an approved group whose app is shipping. Unlike the subscription-localization tool there is NO client-side pre-check here, because the constraint has not been confirmed live for this resource — Apple is the authority and its refusal is surfaced with the recovery path.',
       inputSchema: z.object({
         subscriptionGroupLocalizationId: SubscriptionGroupLocalizationIdSchema,
         name: SubscriptionGroupLocalizationNameSchema.optional(),
-        customAppName: SubscriptionCustomAppNameSchema.optional(),
+        customAppName: SubscriptionCustomAppNameSchema.nullable()
+          .optional()
+          .describe(
+            'Per-locale app-name override. Pass null to clear it and go back to inheriting the real App Store app name.',
+          ),
       }),
     },
     async (input) => {

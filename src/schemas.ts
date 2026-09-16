@@ -611,7 +611,7 @@ export const SubscriptionCustomAppNameSchema = z
   .string()
   .min(1)
   .describe(
-    "Optional per-locale override for the APP name as it appears in the subscription sheet and in the customer's Manage Subscriptions list. Use only when the App Store app name reads badly in that context; omit to inherit the real app name.",
+    "Optional per-locale override for the APP name as it appears in the subscription sheet and in the customer's Manage Subscriptions list. Use only when the App Store app name reads badly in that context; omit to inherit the real app name. Apple marks this nullable: pass null on PATCH to clear an override and go back to inheriting the real app name.",
   );
 
 export const SubscriptionPeriodSchema = z
@@ -624,7 +624,7 @@ export const SubscriptionReviewNoteSchema = z
   .string()
   .min(1)
   .describe(
-    'Notes for the App Review reviewer about this specific subscription — how to reach the paywall, what the subscription unlocks, any demo account caveats. Distinct from ReviewNotesSchema, which is the per-app beta-review note.',
+    'Notes for the App Review reviewer about this specific subscription — how to reach the paywall, what the subscription unlocks, any demo account caveats. Distinct from ReviewNotesSchema, which is the per-app beta-review note. Apple marks this nullable: pass null on PATCH to clear it.',
   );
 
 export const SubscriptionGroupLevelSchema = z

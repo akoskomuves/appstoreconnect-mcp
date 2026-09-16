@@ -143,7 +143,9 @@ export interface SubscriptionPatchInput {
   name?: string | undefined;
   subscriptionPeriod?: string | undefined;
   familySharable?: boolean | undefined;
-  reviewNote?: string | undefined;
+  // null is meaningful here, not an absence: Apple marks reviewNote nullable,
+  // so an explicit null is how a note gets CLEARED. Omitted leaves it alone.
+  reviewNote?: string | null | undefined;
   groupLevel?: number | undefined;
 }
 
@@ -154,10 +156,14 @@ export function buildSubscriptionPatchBody(input: SubscriptionPatchInput): JSONA
   // There is no codepath here that can send it.
   //
   // DELIBERATELY UNSUPPORTED: SubscriptionUpdateRequest also accepts nested
-  // `subscriptionIntroductoryOffers` / `subscriptionPromotionalOffers` /
-  // `prices` relationship arrays, letting one PATCH rewrite a subscription's
-  // offers inline. scripts/audit-required-attributes.py reports those nested
-  // required attributes as MISSING here; that is expected, not drift. Offers
+  // relationship arrays -- the wire keys are `introductoryOffers`,
+  // `promotionalOffers` and `prices` -- letting one PATCH rewrite a
+  // subscription's offers inline. scripts/audit-required-attributes.py reports
+  // these as MISSING here, labelled by the INCLUDED SCHEMA name rather than the
+  // relationship key, i.e. `SubscriptionUpdateRequest[subscriptionIntroductoryOffers]`
+  // and `[subscriptionPromotionalOffers]`. Both spellings are written out so the
+  // next reader can match this comment against either. That report is expected,
+  // not drift. Offers
   // and prices have dedicated, validated tools (asc_post_subscription_*_offer,
   // asc_post_subscription_price) that pre-flight Apple's caps, offer-code
   // collisions and price-point lookups. Accepting a second, unvalidated path
@@ -540,30 +546,47 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
       title: 'Delete a subscription group',
       description:
         "DELETE a SubscriptionGroup. Only possible while every subscription inside it is still a draft. The tool lists the group's subscriptions first and refuses client-side, naming the specific products that block the delete, rather than letting Apple return a bare 409. " +
-        'A group that has ever held an approved subscription can never be deleted — leave it; an unused group is invisible to customers and costs nothing.',
+        'A group that has ever held an approved subscription can never be deleted — leave it; an unused group is invisible to customers and costs nothing. ' +
+        'Pass force:true to skip the pre-check and let Apple judge — this gate is inferred from how Apple treats the child products, not observed directly.',
       inputSchema: z.object({
         groupId: SubscriptionGroupIdSchema,
+        force: z
+          .boolean()
+          .default(false)
+          .describe(
+            'Skip the client-side child pre-check and send the DELETE anyway, letting Apple be the judge. ' +
+              'Use when the pre-check refuses a delete you believe Apple would accept.',
+          ),
       }),
     },
-    async ({ groupId }) => {
+    async ({ groupId, force }) => {
       let children: Array<{ id: string; name?: string; state?: string }> = [];
-      try {
-        const res = await client.request<{
-          data?: Array<{ id: string; attributes?: { name?: string; state?: string } }>;
-        }>(
-          `/v1/subscriptionGroups/${encodeURIComponent(groupId)}/subscriptions?fields[subscriptions]=name,state&limit=200`,
-        );
-        children = (res.data ?? []).map((sub) => ({
-          id: sub.id,
-          ...(sub.attributes?.name !== undefined ? { name: sub.attributes.name } : {}),
-          ...(sub.attributes?.state !== undefined ? { state: sub.attributes.state } : {}),
-        }));
-      } catch {
-        // Non-fatal: if the child listing fails the gate can't run, so fall
-        // through and let Apple answer. Never block on a failed pre-check.
-        children = [];
+      let precheckFailed = false;
+      if (!force) {
+        try {
+          // One page is enough: a group holding more than 200 subscriptions is
+          // not a real configuration, and Apple caps limit at 200 here anyway.
+          const res = await client.request<{
+            data?: Array<{ id: string; attributes?: { name?: string; state?: string } }>;
+          }>(
+            `/v1/subscriptionGroups/${encodeURIComponent(groupId)}/subscriptions?fields[subscriptions]=name,state&limit=200`,
+          );
+          children = (res.data ?? []).map((sub) => ({
+            id: sub.id,
+            ...(sub.attributes?.name !== undefined ? { name: sub.attributes.name } : {}),
+            ...(sub.attributes?.state !== undefined ? { state: sub.attributes.state } : {}),
+          }));
+        } catch {
+          // Non-fatal: if the child listing fails the gate can't run, so fall
+          // through and let Apple answer. Never block on a failed pre-check —
+          // but say so in the result rather than implying a guard ran.
+          precheckFailed = true;
+          children = [];
+        }
       }
-      const gate = evaluateSubscriptionGroupDeleteGate(children);
+      const gate = force
+        ? { allow: true as const, blockingSubscriptions: [] }
+        : evaluateSubscriptionGroupDeleteGate(children);
       if (!gate.allow) {
         const rows = gate.blockingSubscriptions
           .map((sub) => `  - ${sub.name ?? '(unnamed)'} [${sub.state ?? '?'}] id=${sub.id}`)
@@ -581,21 +604,29 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
                 rows,
                 '',
                 `Next:   ${gate.next ?? ''}`,
+                '',
+                'If you believe Apple would accept this delete, retry with force:true — the pre-check is skipped and Apple decides.',
               ].join('\n'),
             },
           ],
           isError: true,
         };
       }
+      const note = precheckFailed
+        ? 'Note: the child pre-check could not run (the listing failed), so this DELETE went out unguarded — Apple was the only gate.\n\n'
+        : '';
       try {
         await client.request<unknown>(`/v1/subscriptionGroups/${encodeURIComponent(groupId)}`, {
           method: 'DELETE',
         });
         return {
-          content: [{ type: 'text', text: `Deleted SubscriptionGroup ${groupId}.` }],
+          content: [{ type: 'text', text: `${note}Deleted SubscriptionGroup ${groupId}.` }],
         };
       } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+        return {
+          content: [{ type: 'text', text: `${note}${formatASCError(err)}` }],
+          isError: true,
+        };
       }
     },
   );
@@ -692,7 +723,9 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
         name: SubscriptionNameSchema.optional(),
         subscriptionPeriod: SubscriptionPeriodSchema.optional(),
         familySharable: SubscriptionFamilySharableSchema.optional(),
-        reviewNote: SubscriptionReviewNoteSchema.optional(),
+        reviewNote: SubscriptionReviewNoteSchema.nullable()
+          .optional()
+          .describe('Reviewer notes for this subscription. Pass null to clear an existing note.'),
         groupLevel: SubscriptionGroupLevelSchema.optional(),
       }),
     },
@@ -750,23 +783,37 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
       description:
         'DELETE an auto-renewable Subscription. Only draft products can be deleted (MISSING_METADATA / READY_TO_SUBMIT / DEVELOPER_ACTION_NEEDED / REJECTED). The tool pre-checks the state with one GET and refuses client-side for products under review or already approved. ' +
         '** Deleting does not free the productId ** — Apple never allows a product identifier to be reused on an account, even for a deleted draft. ' +
-        'To stop selling an APPROVED subscription, reduce its territories with asc_post_subscription_availability instead; existing subscribers continue to renew regardless.',
+        'To stop selling an APPROVED subscription, reduce its territories with asc_post_subscription_availability instead; existing subscribers continue to renew regardless. ' +
+        "Pass force:true to skip the pre-check and let Apple judge — the shipped-state half of the gate is inferred from Apple's documented states, not observed, so it can be wrong.",
       inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
+        force: z
+          .boolean()
+          .default(false)
+          .describe(
+            'Skip the client-side state pre-check and send the DELETE anyway, letting Apple be the judge. ' +
+              'Use when the pre-check refuses a delete you believe Apple would accept — e.g. a product removed from sale that never had a purchaser.',
+          ),
       }),
     },
-    async ({ subscriptionId }) => {
+    async ({ subscriptionId, force }) => {
       let state: string | undefined;
-      try {
-        const res = await client.request<{ data?: { attributes?: { state?: string } } }>(
-          `/v1/subscriptions/${encodeURIComponent(subscriptionId)}?fields[subscriptions]=state`,
-        );
-        state = res.data?.attributes?.state;
-      } catch {
-        // Non-fatal: unknown state falls through to Apple's own judgement.
-        state = undefined;
+      let precheckFailed = false;
+      if (!force) {
+        try {
+          const res = await client.request<{ data?: { attributes?: { state?: string } } }>(
+            `/v1/subscriptions/${encodeURIComponent(subscriptionId)}?fields[subscriptions]=state`,
+          );
+          state = res.data?.attributes?.state;
+        } catch {
+          // Non-fatal: unknown state falls through to Apple's own judgement.
+          // Reported in the result so the caller knows no guard actually ran.
+          precheckFailed = true;
+        }
       }
-      const gate = evaluateSubscriptionDeleteGate(state);
+      const gate = force
+        ? { allow: true as const, state: undefined }
+        : evaluateSubscriptionDeleteGate(state);
       if (!gate.allow) {
         return {
           content: [
@@ -779,12 +826,17 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
                 `Reason: ${gate.reason ?? ''}`,
                 '',
                 `Next:   ${gate.next ?? ''}`,
+                '',
+                'If you believe Apple would accept this delete, retry with force:true — the pre-check is skipped and Apple decides.',
               ].join('\n'),
             },
           ],
           isError: true,
         };
       }
+      const note = precheckFailed
+        ? 'Note: the state pre-check could not run (the GET failed), so this DELETE went out unguarded — Apple was the only gate.\n\n'
+        : '';
       try {
         await client.request<unknown>(`/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
           method: 'DELETE',
@@ -793,12 +845,15 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
           content: [
             {
               type: 'text',
-              text: `Deleted Subscription ${subscriptionId}. Note: its productId remains permanently reserved on this account and cannot be reused.`,
+              text: `${note}Deleted Subscription ${subscriptionId}. Note: its productId remains permanently reserved on this account and cannot be reused.`,
             },
           ],
         };
       } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+        return {
+          content: [{ type: 'text', text: `${note}${formatASCError(err)}` }],
+          isError: true,
+        };
       }
     },
   );

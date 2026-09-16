@@ -164,6 +164,18 @@ describe('buildSubscriptionPatchBody', () => {
     });
   });
 
+  it('emits an explicit null to clear reviewNote (Apple marks it nullable)', () => {
+    // null is a value, not an absence: it is the documented way to clear the
+    // note. A builder keyed on truthiness would drop it and silently no-op.
+    const body = buildSubscriptionPatchBody({
+      subscriptionId: 'SUB-1',
+      reviewNote: null,
+    }) as Body;
+    const attrs = body.data.attributes as Record<string, unknown>;
+    expect(attrs).toEqual({ reviewNote: null });
+    expect('reviewNote' in attrs).toBe(true);
+  });
+
   it('never sends relationships (group reassignment is not a PATCH operation)', () => {
     const body = buildSubscriptionPatchBody({ subscriptionId: 'SUB-1', groupLevel: 3 }) as Body;
     expect(body.data.relationships).toBeUndefined();
