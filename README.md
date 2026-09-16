@@ -100,9 +100,36 @@ Without it the two report tools still work — they just need `vendorNumber` pas
 
 ### Subscriptions
 - `asc_list_subscription_groups` — groups for an app
+- `asc_get_subscription_group` — fetch one group by ID
 - `asc_list_subscriptions` — auto-renewable subscriptions in a group
+- `asc_get_subscription` — fetch one subscription by ID
 - `asc_list_subscription_prices` — current price schedule per subscription. One row per territory (~175 unfiltered) — pass `territoryId` to narrow to one market
 - `asc_list_subscription_price_points` — valid price points for a subscription in a territory. Pass `nearAmount` to narrow the response to the nearest tiers around a target price.
+
+### Subscription products (writes)
+Creating the hierarchy itself — the step that used to send you to the App Store Connect web UI. Four names, only two of which customers ever see:
+
+| Resource | Attribute | Who sees it |
+|---|---|---|
+| `SubscriptionGroup` | `referenceName` | internal only |
+| `SubscriptionGroupLocalization` | `name` | **customer** — heading above the plan choices |
+| `Subscription` | `name` | internal only |
+| `SubscriptionLocalization` | `name` | **customer** — the individual plan |
+
+- `asc_post_subscription_group` — create the container every subscription must live in. A customer can hold only **one active subscription per group**, so mutually exclusive plans (Monthly vs Yearly) belong in the *same* group
+- `asc_patch_subscription_group` — rename (`referenceName` is the only mutable attribute; groups cannot move between apps)
+- `asc_delete_subscription_group` — lists the group's subscriptions first and refuses client-side naming the specific products that block the delete, instead of letting Apple return a bare 409
+- `asc_post_subscription` — create an auto-renewable subscription. **`productId` is permanent**: it cannot be changed, and Apple never lets it be reused on the account — not even after the subscription is deleted. `subscriptionPeriod` is optional at create but required before submission; the new product starts in `MISSING_METADATA` and the success message lists the remaining steps
+- `asc_patch_subscription` — `name`, `subscriptionPeriod`, `familySharable`, `reviewNote`, `groupLevel`. `productId` has no codepath here by construction. Nested offer/price arrays are deliberately unsupported — their wire semantic is *replace*, so a caller passing one offer would silently delete the rest; use the dedicated offer and price tools
+- `asc_delete_subscription` — pre-checks state and refuses for products under review or ever approved, pointing at `asc_post_subscription_availability` as the way to stop selling a live product
+
+### Subscription group localizations
+The customer-facing **group heading** — what the App Store renders above the plan choices, and what shows in Settings → Subscriptions. A group with no localizations cannot be submitted.
+
+- `asc_list_subscription_group_localizations` / `asc_get_subscription_group_localization`
+- `asc_post_subscription_group_localization` — `name` + `locale`, plus optional `customAppName` (overrides how the *app* name reads inside the subscription sheet; usually omit). Wire gotcha handled: the parent relationship key is `subscriptionGroup`, while `Subscription` calls the same parent `group`
+- `asc_patch_subscription_group_localization` — `name` / `customAppName`; locale is the immutable lookup key
+- `asc_delete_subscription_group_localization`
 
 ### Subscription pricing (writes)
 - `asc_post_subscription_price` — schedule a price change for one territory. The created row reads `preserved: false` until a newer price supersedes it; that is expected, not a grandfathering failure
