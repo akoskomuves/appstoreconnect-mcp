@@ -569,6 +569,78 @@ export const SubscriptionLocalizationDescriptionSchema = z
     "Customer-facing subscription description shown beneath the name in the App Store, per locale. Apple's public docs document a 45-character cap, but the live API accepts values ≥50 characters (confirmed against APPROVED localizations). No client-side max enforced — Apple's API is the authoritative source; surface validation errors verbatim. Optional at create time (Apple permits localizations with only name set), but recommended for review compliance.",
   );
 
+// ---------- Subscription product creation (v1.12.0) ----------
+//
+// The resources that have to EXIST before any of the surfaces above apply.
+// Apple's create contract puts no length/pattern constraints on any of these
+// free-text attributes (verified against OpenAPI spec 4.4.1), and App Store
+// Connect's web UI caps are stricter than the API's. Nothing below enforces a
+// client-side max: a wrong guess would refuse a write Apple accepts. The UI
+// limits are documented in the descriptions so an agent can respect them
+// without the schema hard-failing.
+
+export const SubscriptionGroupLocalizationIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'SubscriptionGroupLocalization ID from /v1/subscriptionGroupLocalizations. Per (subscriptionGroup, locale). Carries the customer-facing GROUP display name — the heading Apple shows above the individual subscription options in the App Store subscription sheet. Distinct from SubscriptionLocalization, which names one product inside the group.',
+  );
+
+export const SubscriptionGroupReferenceNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Internal reference name for a subscription group. NEVER shown to customers — it is the label used in App Store Connect, sales reports, and the API. The customer-facing group heading lives on SubscriptionGroupLocalization.name instead. App Store Connect's UI caps this at 64 characters; the API documents no limit.",
+  );
+
+export const SubscriptionNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Internal reference name for a subscription product. NEVER shown to customers — the customer-facing name is SubscriptionLocalization.name, per locale. Shows up in App Store Connect and in sales/finance reports, so make it greppable (e.g. "MeritValue Analyst Monthly"). App Store Connect\'s UI caps this at 64 characters; the API documents no limit.',
+  );
+
+export const SubscriptionGroupLocalizationNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Customer-facing subscription GROUP display name, per locale — the heading above the plan choices in the App Store subscription sheet (e.g. "MeritValue Premium"). Required at create. Apple\'s UI guidance is ~30 characters; no client-side max is enforced here.',
+  );
+
+export const SubscriptionCustomAppNameSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Optional per-locale override for the APP name as it appears in the subscription sheet and in the customer's Manage Subscriptions list. Use only when the App Store app name reads badly in that context; omit to inherit the real app name. Apple marks this nullable: pass null on PATCH to clear an override and go back to inheriting the real app name.",
+  );
+
+export const SubscriptionPeriodSchema = z
+  .enum(['ONE_WEEK', 'ONE_MONTH', 'TWO_MONTHS', 'THREE_MONTHS', 'SIX_MONTHS', 'ONE_YEAR'])
+  .describe(
+    "Billing period of an auto-renewable subscription. Optional in Apple's create contract — a subscription can be created without one and the period set later — but a subscription cannot be submitted for review until it has one. Mutable via PATCH only while the product has never been approved; changing the period of a live product is not possible (create a new product in the same group instead).",
+  );
+
+export const SubscriptionReviewNoteSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Notes for the App Review reviewer about this specific subscription — how to reach the paywall, what the subscription unlocks, any demo account caveats. Distinct from ReviewNotesSchema, which is the per-app beta-review note. Apple marks this nullable: pass null on PATCH to clear it.',
+  );
+
+export const SubscriptionGroupLevelSchema = z
+  .number()
+  .int()
+  .positive()
+  .describe(
+    'Service tier rank within the subscription group. 1 is the HIGHEST tier; larger numbers are lower tiers. Apple uses this to classify a switch between two products in the same group as an upgrade, a downgrade, or a crossgrade, which in turn decides whether the change takes effect immediately or at the next renewal. Two products may share a level (crossgrade — e.g. monthly vs yearly of the same tier).',
+  );
+
+export const SubscriptionFamilySharableSchema = z
+  .boolean()
+  .describe(
+    "Whether a purchase of this subscription is shared with the buyer's Family Sharing group. Off by default. Turning it ON later is permitted; turning it OFF after release is NOT — Apple treats that as removing a purchased entitlement.",
+  );
+
 export const IapLocalizationNameSchema = z
   .string()
   .min(1)
