@@ -132,7 +132,7 @@ The customer-facing **group heading** — what the App Store renders above the p
 - `asc_delete_subscription_group_localization`
 
 ### Subscription pricing (writes)
-- `asc_post_subscription_price` — schedule a price change for one territory. The created row reads `preserved: false` until a newer price supersedes it; that is expected, not a grandfathering failure
+- `asc_post_subscription_price` — set the price for one territory, either the opening price or a scheduled change. **Omit `startDate` for a subscription's first price**: the opening row of a schedule is the undated baseline, and a dated first price is a price *change* with nothing to change from — Apple 409s it regardless of how far out the date is. `preserveCurrentPrice` defaults to true on a dated change and is omitted on a baseline, where there is no existing cohort to grandfather. The created row reads `preserved: false` until a newer price supersedes it; that is expected, not a grandfathering failure
 - `asc_delete_subscription_price` — cancel a pending scheduled change
 
 ### App pricing (paid non-subscription apps)
