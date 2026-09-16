@@ -26,6 +26,7 @@
 //
 // Every ID is discovered, never hardcoded.
 
+import { execFileSync } from 'node:child_process';
 import { createASCClient } from '../src/client.js';
 import { loadConfig } from '../src/config.js';
 import { digestSubscriptionGroupLocalizations, digestSubscriptionGroups } from '../src/digest.js';
@@ -75,6 +76,18 @@ async function resolveAppId(): Promise<string> {
 }
 
 async function main(): Promise<void> {
+  // This script exercises src/ via tsx. A locally-registered MCP server runs
+  // dist/. On 2026-09-16 that gap let a fix pass every check here while the
+  // user's server still ran the old code, so warn loudly rather than let a
+  // green smoke imply the server is fixed.
+  try {
+    execFileSync('node', ['scripts/check-dist-fresh.mjs'], { stdio: 'pipe' });
+  } catch (err) {
+    const e = err as { stderr?: Buffer };
+    console.log(`\n!! ${e.stderr?.toString().trim() ?? 'dist/ is stale'}`);
+    console.log('!! This smoke tests src/ and will pass regardless. Build before trusting it.\n');
+  }
+
   const appId = await resolveAppId();
   console.log(`smoke target app: ${appId}`);
 
