@@ -635,6 +635,20 @@ export const SubscriptionGroupLevelSchema = z
     'Service tier rank within the subscription group. 1 is the HIGHEST tier; larger numbers are lower tiers. Apple uses this to classify a switch between two products in the same group as an upgrade, a downgrade, or a crossgrade, which in turn decides whether the change takes effect immediately or at the next renewal. Two products may share a level (crossgrade — e.g. monthly vs yearly of the same tier).',
   );
 
+export const SubscriptionMultiSeatStatusSchema = z
+  .enum(['ENABLED', 'DISABLED'])
+  .describe(
+    'Whether one purchase of this subscription can cover multiple seats, for organizations buying through Apple School Manager or Apple Business Manager (API 4.5). Settable on PATCH only; create does not accept it.',
+  );
+
+export const SubscriptionMarketSettingsSchema = z
+  .array(z.enum(['APP_STORE', 'APPLE_SCHOOL', 'APPLE_BUSINESS']))
+  .min(1)
+  .refine((v) => new Set(v).size === v.length, 'List each market once.')
+  .describe(
+    'Markets the subscription is offered in (API 4.5): APP_STORE (consumers), APPLE_SCHOOL (Apple School Manager), APPLE_BUSINESS (Apple Business Manager). The list REPLACES the current one, so pass every market you want to keep. Settable on PATCH only; create does not accept it.',
+  );
+
 export const SubscriptionFamilySharableSchema = z
   .boolean()
   .describe(
@@ -857,6 +871,7 @@ export const ScreenshotDisplayTypeSchema = z
     'APP_IPHONE_47',
     'APP_IPHONE_40',
     'APP_IPHONE_35',
+    'APP_IPHONE_DUO',
     'APP_IPAD_PRO_3GEN_129',
     'APP_IPAD_PRO_3GEN_11',
     'APP_IPAD_PRO_129',
@@ -877,6 +892,7 @@ export const ScreenshotDisplayTypeSchema = z
     'IMESSAGE_APP_IPHONE_55',
     'IMESSAGE_APP_IPHONE_47',
     'IMESSAGE_APP_IPHONE_40',
+    'IMESSAGE_APP_IPHONE_DUO',
     'IMESSAGE_APP_IPAD_PRO_3GEN_129',
     'IMESSAGE_APP_IPAD_PRO_3GEN_11',
     'IMESSAGE_APP_IPAD_PRO_129',
@@ -884,7 +900,7 @@ export const ScreenshotDisplayTypeSchema = z
     'IMESSAGE_APP_IPAD_97',
   ])
   .describe(
-    'Screenshot display category — the device-class enum scoping a set. APP_IPHONE_67 = 6.7" iPhone Pro Max. APP_IPAD_PRO_3GEN_129 = 12.9" iPad Pro 3rd gen+. IMESSAGE_* variants are for iMessage extension screenshots. Each (parent localization, display type) gets exactly one AppScreenshotSet — uniqueness enforced server-side.',
+    'Screenshot display category — the device-class enum scoping a set. APP_IPHONE_67 = 6.7" iPhone Pro Max. APP_IPHONE_DUO = iPhone Duo (foldable). One set holds both displays: outer 1398x2034 and inner 2853x2007 (portrait or landscape) share its 10 slots; there is no separate inner/outer value. APP_IPAD_PRO_3GEN_129 = 12.9" iPad Pro 3rd gen+. IMESSAGE_* variants are for iMessage extension screenshots. Each (parent localization, display type) gets exactly one AppScreenshotSet — uniqueness enforced server-side.',
   );
 
 export const PreviewTypeSchema = z
@@ -897,6 +913,7 @@ export const PreviewTypeSchema = z
     'IPHONE_47',
     'IPHONE_40',
     'IPHONE_35',
+    'IPHONE_DUO',
     'IPAD_PRO_3GEN_129',
     'IPAD_PRO_3GEN_11',
     'IPAD_PRO_129',
@@ -907,7 +924,7 @@ export const PreviewTypeSchema = z
     'APPLE_VISION_PRO',
   ])
   .describe(
-    'App preview (video) display category. SAME device classes as ScreenshotDisplayType but WITHOUT the `APP_` prefix — e.g. IPHONE_67 (not APP_IPHONE_67). The enums are distinct; values are NOT interchangeable. No iMessage variants (no preview videos for iMessage extensions).',
+    'App preview (video) display category. SAME device classes as ScreenshotDisplayType but WITHOUT the `APP_` prefix — e.g. IPHONE_67 (not APP_IPHONE_67), IPHONE_DUO (not APP_IPHONE_DUO). The enums are distinct; values are NOT interchangeable. No iMessage variants (no preview videos for iMessage extensions).',
   );
 
 export const ScreenshotSetParentTypeSchema = z
@@ -1637,9 +1654,9 @@ export const AgeRatingOverrideV2Schema = z
   );
 
 export const KoreaAgeRatingOverrideSchema = z
-  .enum(['NONE', 'FIFTEEN_PLUS', 'NINETEEN_PLUS'])
+  .enum(['NONE', 'ALL', 'TWELVE_PLUS', 'FIFTEEN_PLUS', 'NINETEEN_PLUS'])
   .describe(
-    'Korea-specific rating override, applied only in the Korean storefront. NONE = use the computed rating.',
+    "Korea-specific rating override, applied only in the Korean storefront, using Korea's own classes: ALL (all ages), TWELVE_PLUS, FIFTEEN_PLUS, NINETEEN_PLUS. NONE = use the computed rating. ALL and TWELVE_PLUS arrived in API 4.5.",
   );
 
 export const KidsAgeBandSchema = z

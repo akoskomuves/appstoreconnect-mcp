@@ -90,6 +90,9 @@ describe('age-rating vocabularies', () => {
   it('korea override is its own short vocabulary', () => {
     expect(KoreaAgeRatingOverrideSchema.safeParse('FIFTEEN_PLUS').success).toBe(true);
     expect(KoreaAgeRatingOverrideSchema.safeParse('NINETEEN_PLUS').success).toBe(true);
+    // API 4.5 added ALL and TWELVE_PLUS.
+    expect(KoreaAgeRatingOverrideSchema.safeParse('ALL').success).toBe(true);
+    expect(KoreaAgeRatingOverrideSchema.safeParse('TWELVE_PLUS').success).toBe(true);
     expect(KoreaAgeRatingOverrideSchema.safeParse('NINE_PLUS').success).toBe(false);
   });
 
