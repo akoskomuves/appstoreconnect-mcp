@@ -886,7 +886,7 @@ export const ScreenshotDisplayTypeSchema = z
     'IMESSAGE_APP_IPAD_97',
   ])
   .describe(
-    'Screenshot display category — the device-class enum scoping a set. APP_IPHONE_67 = 6.7" iPhone Pro Max. APP_IPHONE_DUO = iPhone Duo (foldable); the API has a single Duo type, with no separate inner/outer display value. APP_IPAD_PRO_3GEN_129 = 12.9" iPad Pro 3rd gen+. IMESSAGE_* variants are for iMessage extension screenshots. Each (parent localization, display type) gets exactly one AppScreenshotSet — uniqueness enforced server-side.',
+    'Screenshot display category — the device-class enum scoping a set. APP_IPHONE_67 = 6.7" iPhone Pro Max. APP_IPHONE_DUO = iPhone Duo (foldable). One set holds both displays: outer 1398x2034 and inner 2853x2007 (portrait or landscape) share its 10 slots; there is no separate inner/outer value. APP_IPAD_PRO_3GEN_129 = 12.9" iPad Pro 3rd gen+. IMESSAGE_* variants are for iMessage extension screenshots. Each (parent localization, display type) gets exactly one AppScreenshotSet — uniqueness enforced server-side.',
   );
 
 export const PreviewTypeSchema = z
