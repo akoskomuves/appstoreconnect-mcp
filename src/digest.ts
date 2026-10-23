@@ -82,16 +82,23 @@ export function digestSubscriptions(pages: CollectedPages): string {
     { header: 'PERIOD' },
     { header: 'STATE' },
     { header: 'GROUP_LEVEL', align: 'right' },
+    { header: 'MULTI_SEAT' },
+    { header: 'MARKETS' },
     { header: 'ID' },
   ];
-  const rows = pages.data.map((sub) => [
-    s(attr(sub, 'name')),
-    s(attr(sub, 'productId')),
-    s(attr(sub, 'subscriptionPeriod')),
-    s(attr(sub, 'state')),
-    s(attr(sub, 'groupLevel')),
-    sub.id,
-  ]);
+  const rows = pages.data.map((sub) => {
+    const markets = attr(sub, 'marketSettings');
+    return [
+      s(attr(sub, 'name')),
+      s(attr(sub, 'productId')),
+      s(attr(sub, 'subscriptionPeriod')),
+      s(attr(sub, 'state')),
+      s(attr(sub, 'groupLevel')),
+      s(attr(sub, 'multiSeatStatus')),
+      Array.isArray(markets) ? markets.join(',') : s(markets),
+      sub.id,
+    ];
+  });
   return `${summaryFooter(pages, 'subscriptions')}\n\n${formatTable(columns, rows)}`;
 }
 
