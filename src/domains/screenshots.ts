@@ -166,9 +166,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_list_app_screenshot_sets',
     {
-      title: 'List screenshot sets under a parent localization',
+      title: 'List screenshot sets under a parent localization (deprecated)',
       description:
-        'List AppScreenshotSet records under a parent localization (an AppStoreVersionLocalization, an AppCustomProductPageLocalization, or an AppStoreVersionExperimentTreatmentLocalization). Each row carries the screenshotDisplayType (APP_IPHONE_67, APP_IPAD_PRO_129, …) and the set ID. Use to find the set for a given (locale, device-class) pair before listing or uploading screenshots.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. List AppScreenshotSet records under a parent localization (an AppStoreVersionLocalization, an AppCustomProductPageLocalization, or an AppStoreVersionExperimentTreatmentLocalization). Each row carries the screenshotDisplayType (APP_IPHONE_67, APP_IPAD_PRO_129, …) and the set ID. Use to find the set for a given (locale, device-class) pair before listing or uploading screenshots.',
       inputSchema: z.object({
         parentType: ScreenshotSetParentTypeSchema,
         parentLocalizationId: z.string().min(1),
@@ -194,9 +194,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_get_app_screenshot_set',
     {
-      title: 'Get an AppScreenshotSet',
+      title: 'Get an AppScreenshotSet (deprecated)',
       description:
-        'Fetch a single AppScreenshotSet by ID with its screenshots expanded. The included AppScreenshot resources carry fileName, fileSize, assetDeliveryState, and sourceFileChecksum for each captured screenshot.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. Fetch a single AppScreenshotSet by ID with its screenshots expanded. The included AppScreenshot resources carry fileName, fileSize, assetDeliveryState, and sourceFileChecksum for each captured screenshot.',
       inputSchema: z.object({
         appScreenshotSetId: AppScreenshotSetIdSchema,
       }),
@@ -215,9 +215,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_post_app_screenshot_set',
     {
-      title: 'Create an AppScreenshotSet',
+      title: 'Create an AppScreenshotSet (deprecated)',
       description:
-        'Create an AppScreenshotSet for ONE (parent localization, screenshotDisplayType) pair. Required: parentType + parentLocalizationId + screenshotDisplayType. The parent must be one of appStoreVersionLocalizations / appCustomProductPageLocalizations / appStoreVersionExperimentTreatmentLocalizations. Apple enforces uniqueness — a duplicate (parent, displayType) is rejected.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. Create an AppScreenshotSet for ONE (parent localization, screenshotDisplayType) pair. Required: parentType + parentLocalizationId + screenshotDisplayType. The parent must be one of appStoreVersionLocalizations / appCustomProductPageLocalizations / appStoreVersionExperimentTreatmentLocalizations. Apple enforces uniqueness — a duplicate (parent, displayType) is rejected.',
       inputSchema: z.object({
         parentType: ScreenshotSetParentTypeSchema,
         parentLocalizationId: z.string().min(1),
@@ -252,9 +252,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_delete_app_screenshot_set',
     {
-      title: 'Delete an AppScreenshotSet',
+      title: 'Delete an AppScreenshotSet (deprecated)',
       description:
-        'DELETE an AppScreenshotSet. All AppScreenshot resources under the set are removed as well. Use when retiring a device class for a locale or rebuilding a set from scratch.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. DELETE an AppScreenshotSet. All AppScreenshot resources under the set are removed as well. Use when retiring a device class for a locale or rebuilding a set from scratch.',
       inputSchema: z.object({
         appScreenshotSetId: AppScreenshotSetIdSchema,
       }),
@@ -279,9 +279,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_list_app_screenshots',
     {
-      title: 'List screenshots under a set',
+      title: 'List screenshots under a set (deprecated)',
       description:
-        'List AppScreenshot records under an AppScreenshotSet. Each row carries fileName + fileSize + assetDeliveryState (UPLOAD_COMPLETE / PROCESSING / COMPLETE / FAILED) + a short marker showing whether sourceFileChecksum has been committed. Use to inspect upload progress or to enumerate IDs for deletion.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. List AppScreenshot records under an AppScreenshotSet. Each row carries fileName + fileSize + assetDeliveryState (UPLOAD_COMPLETE / PROCESSING / COMPLETE / FAILED) + a short marker showing whether sourceFileChecksum has been committed. Use to inspect upload progress or to enumerate IDs for deletion.',
       inputSchema: z.object({
         appScreenshotSetId: AppScreenshotSetIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
@@ -306,9 +306,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_get_app_screenshot',
     {
-      title: 'Get an AppScreenshot',
+      title: 'Get an AppScreenshot (deprecated)',
       description:
-        'Fetch a single AppScreenshot by ID. Returns the upload metadata (fileName, fileSize, sourceFileChecksum), assetDeliveryState, the imageAsset URLs once processed, and — if the reservation has not been committed yet — the uploadOperations[] needed to PUT chunks to Apple storage.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. Fetch a single AppScreenshot by ID. Returns the upload metadata (fileName, fileSize, sourceFileChecksum), assetDeliveryState, the imageAsset URLs once processed, and — if the reservation has not been committed yet — the uploadOperations[] needed to PUT chunks to Apple storage.',
       inputSchema: z.object({
         appScreenshotId: AppScreenshotIdSchema,
       }),
@@ -327,9 +327,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_post_app_screenshot',
     {
-      title: 'Reserve an AppScreenshot upload (raw step 1)',
+      title: 'Reserve an AppScreenshot upload (raw step 1) (deprecated)',
       description:
-        'RAW step 1 of the three-step upload flow. Reserves an AppScreenshot under a set with fileName + fileSize, and returns the created resource with uploadOperations[] populated. Each uploadOperation has method=PUT + url + length + offset + requestHeaders for one chunk of the file. Use asc_upload_asset_chunk to PUT each, then asc_patch_app_screenshot to commit. Most callers should use the composite asc_upload_screenshot instead — this tool exists as an escape hatch for manual control.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. RAW step 1 of the three-step upload flow. Reserves an AppScreenshot under a set with fileName + fileSize, and returns the created resource with uploadOperations[] populated. Each uploadOperation has method=PUT + url + length + offset + requestHeaders for one chunk of the file. Use asc_upload_asset_chunk to PUT each, then asc_patch_app_screenshot to commit. Most callers should use the composite asc_upload_screenshot instead — this tool exists as an escape hatch for manual control.',
       inputSchema: z.object({
         appScreenshotSetId: AppScreenshotSetIdSchema,
         fileName: FileNameSchema,
@@ -364,9 +364,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_patch_app_screenshot',
     {
-      title: 'Commit an AppScreenshot upload (raw step 3)',
+      title: 'Commit an AppScreenshot upload (raw step 3) (deprecated)',
       description:
-        'RAW step 3 of the three-step upload flow. PATCH the AppScreenshot with sourceFileChecksum (lowercase hex MD5 of the full file) + uploaded=true to commit the reservation. Wire-key gotcha: Swift `isUploaded` → wire `uploaded`. Pass at least one of the two — empty PATCH is refused. The composite asc_upload_screenshot handles this automatically.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. RAW step 3 of the three-step upload flow. PATCH the AppScreenshot with sourceFileChecksum (lowercase hex MD5 of the full file) + uploaded=true to commit the reservation. Wire-key gotcha: Swift `isUploaded` → wire `uploaded`. Pass at least one of the two — empty PATCH is refused. The composite asc_upload_screenshot handles this automatically.',
       inputSchema: z.object({
         appScreenshotId: AppScreenshotIdSchema,
         sourceFileChecksum: SourceFileChecksumSchema.optional(),
@@ -414,9 +414,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_delete_app_screenshot',
     {
-      title: 'Delete an AppScreenshot',
+      title: 'Delete an AppScreenshot (deprecated)',
       description:
-        'DELETE an AppScreenshot. Removes the asset + its slot in the set; if the set goes empty the parent localization will need a new upload before the App Store version can be submitted.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. DELETE an AppScreenshot. Removes the asset + its slot in the set; if the set goes empty the parent localization will need a new upload before the App Store version can be submitted.',
       inputSchema: z.object({
         appScreenshotId: AppScreenshotIdSchema,
       }),
@@ -436,9 +436,9 @@ export function registerScreenshots(server: McpServer, client: ASCClient): void 
   server.registerTool(
     'asc_upload_screenshot',
     {
-      title: 'Upload a screenshot from a local file (composite)',
+      title: 'Upload a screenshot from a local file (composite) (deprecated)',
       description:
-        'Composite tool. Reads localFilePath from disk, reserves an AppScreenshot under the given set with fileName + fileSize derived from the file, PUTs every uploadOperation chunk to Apple storage in sequence, then commits with sourceFileChecksum (md5 hex) + uploaded=true. Returns the final committed resource + a per-chunk summary. Tilde paths (~/...) are expanded. For manual control over each step, use the raw asc_post_app_screenshot + asc_upload_asset_chunk + asc_patch_app_screenshot tools instead.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced screenshot sets with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement instead; asc_list_localization_placements lists what a localization shows. Composite tool. Reads localFilePath from disk, reserves an AppScreenshot under the given set with fileName + fileSize derived from the file, PUTs every uploadOperation chunk to Apple storage in sequence, then commits with sourceFileChecksum (md5 hex) + uploaded=true. Returns the final committed resource + a per-chunk summary. Tilde paths (~/...) are expanded. For manual control over each step, use the raw asc_post_app_screenshot + asc_upload_asset_chunk + asc_patch_app_screenshot tools instead.',
       inputSchema: z.object({
         appScreenshotSetId: AppScreenshotSetIdSchema,
         localFilePath: LocalFilePathSchema,

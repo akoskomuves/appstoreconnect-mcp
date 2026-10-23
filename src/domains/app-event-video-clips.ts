@@ -119,9 +119,9 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
   server.registerTool(
     'asc_list_app_event_video_clips',
     {
-      title: 'List event video clips under a localization',
+      title: 'List event video clips under a localization (deprecated)',
       description:
-        'List AppEventVideoClip records under an AppEventLocalization. Each row carries fileName + fileSize + previewFrameTimeCode + asset slot (EVENT_CARD / EVENT_DETAILS_PAGE) + the two delivery states (assetDeliveryState for the source file, videoDeliveryState for Apple-side transcode).',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event video clips with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. List AppEventVideoClip records under an AppEventLocalization. Each row carries fileName + fileSize + previewFrameTimeCode + asset slot (EVENT_CARD / EVENT_DETAILS_PAGE) + the two delivery states (assetDeliveryState for the source file, videoDeliveryState for Apple-side transcode).',
       inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
@@ -146,9 +146,9 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
   server.registerTool(
     'asc_get_app_event_video_clip',
     {
-      title: 'Get an AppEventVideoClip',
+      title: 'Get an AppEventVideoClip (deprecated)',
       description:
-        'Fetch a single AppEventVideoClip by ID. Returns the upload metadata + previewFrameTimeCode + (post-ingest) videoUrl + previewImage. Wire-key gotcha: Apple emits `videoUrl` (camelCase) where Swift names it `videoURL`.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event video clips with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. Fetch a single AppEventVideoClip by ID. Returns the upload metadata + previewFrameTimeCode + (post-ingest) videoUrl + previewImage. Wire-key gotcha: Apple emits `videoUrl` (camelCase) where Swift names it `videoURL`.',
       inputSchema: z.object({
         appEventVideoClipId: AppEventVideoClipIdSchema,
       }),
@@ -167,9 +167,9 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
   server.registerTool(
     'asc_post_app_event_video_clip',
     {
-      title: 'Reserve an AppEventVideoClip upload (raw step 1)',
+      title: 'Reserve an AppEventVideoClip upload (raw step 1) (deprecated)',
       description:
-        'RAW step 1 of the three-step upload flow (same shape as v0.13 AppPreview). Reserves an AppEventVideoClip under an event localization with fileName + fileSize + appEventAssetType (+ optional previewFrameTimeCode for the poster frame). Returns the resource with uploadOperations[] populated. Most callers should use the composite asc_upload_app_event_video_clip instead.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event video clips with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. RAW step 1 of the three-step upload flow (same shape as v0.13 AppPreview). Reserves an AppEventVideoClip under an event localization with fileName + fileSize + appEventAssetType (+ optional previewFrameTimeCode for the poster frame). Returns the resource with uploadOperations[] populated. Most callers should use the composite asc_upload_app_event_video_clip instead.',
       inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         fileName: FileNameSchema,
@@ -210,9 +210,9 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
   server.registerTool(
     'asc_patch_app_event_video_clip',
     {
-      title: 'Patch / commit an AppEventVideoClip (raw step 3)',
+      title: 'Patch / commit an AppEventVideoClip (raw step 3) (deprecated)',
       description:
-        'RAW step 3 of the three-step upload flow + the only way to tweak previewFrameTimeCode on an existing clip. PATCH with uploaded=true to commit a reservation, or with previewFrameTimeCode alone to change the poster frame without re-uploading. Wire-key gotcha: Swift `isUploaded` → wire `uploaded`. Refuses empty PATCH.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event video clips with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. RAW step 3 of the three-step upload flow + the only way to tweak previewFrameTimeCode on an existing clip. PATCH with uploaded=true to commit a reservation, or with previewFrameTimeCode alone to change the poster frame without re-uploading. Wire-key gotcha: Swift `isUploaded` → wire `uploaded`. Refuses empty PATCH.',
       inputSchema: z.object({
         appEventVideoClipId: AppEventVideoClipIdSchema,
         previewFrameTimeCode: PreviewFrameTimeCodeSchema.optional(),
@@ -260,9 +260,9 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
   server.registerTool(
     'asc_delete_app_event_video_clip',
     {
-      title: 'Delete an AppEventVideoClip',
+      title: 'Delete an AppEventVideoClip (deprecated)',
       description:
-        'DELETE an AppEventVideoClip. Removes the video asset; if both screenshot + video slot are emptied, Apple may reject the event for review with an asset-missing error.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event video clips with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. DELETE an AppEventVideoClip. Removes the video asset; if both screenshot + video slot are emptied, Apple may reject the event for review with an asset-missing error.',
       inputSchema: z.object({
         appEventVideoClipId: AppEventVideoClipIdSchema,
       }),
@@ -285,9 +285,9 @@ export function registerAppEventVideoClips(server: McpServer, client: ASCClient)
   server.registerTool(
     'asc_upload_app_event_video_clip',
     {
-      title: 'Upload an event video clip from a local file (composite)',
+      title: 'Upload an event video clip from a local file (composite) (deprecated)',
       description:
-        'Composite tool. Reads localFilePath from disk (.mov H.264/HEVC recommended), reserves an AppEventVideoClip under the given event localization for the given asset slot (EVENT_CARD / EVENT_DETAILS_PAGE), PUTs every uploadOperation chunk to Apple storage in sequence, then commits with uploaded=true. Optionally sets previewFrameTimeCode (poster frame) at reserve. Returns the committed resource + per-chunk summary. Tilde paths (~/...) are expanded.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event video clips with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. Composite tool. Reads localFilePath from disk (.mov H.264/HEVC recommended), reserves an AppEventVideoClip under the given event localization for the given asset slot (EVENT_CARD / EVENT_DETAILS_PAGE), PUTs every uploadOperation chunk to Apple storage in sequence, then commits with uploaded=true. Optionally sets previewFrameTimeCode (poster frame) at reserve. Returns the committed resource + per-chunk summary. Tilde paths (~/...) are expanded.',
       inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         localFilePath: LocalFilePathSchema,

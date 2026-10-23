@@ -176,9 +176,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_list_app_preview_sets',
     {
-      title: 'List preview sets under a parent localization',
+      title: 'List preview sets under a parent localization (deprecated)',
       description:
-        'List AppPreviewSet records under a parent localization (an AppStoreVersionLocalization, an AppCustomProductPageLocalization, or an AppStoreVersionExperimentTreatmentLocalization). Each row carries the previewType (IPHONE_67, IPAD_PRO_129, …) and the set ID. Note: PreviewType values are distinct from ScreenshotDisplayType — no `APP_` prefix.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. List AppPreviewSet records under a parent localization (an AppStoreVersionLocalization, an AppCustomProductPageLocalization, or an AppStoreVersionExperimentTreatmentLocalization). Each row carries the previewType (IPHONE_67, IPAD_PRO_129, …) and the set ID. Note: PreviewType values are distinct from ScreenshotDisplayType — no `APP_` prefix.',
       inputSchema: z.object({
         parentType: ScreenshotSetParentTypeSchema,
         parentLocalizationId: z.string().min(1),
@@ -204,9 +204,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_get_app_preview_set',
     {
-      title: 'Get an AppPreviewSet',
+      title: 'Get an AppPreviewSet (deprecated)',
       description:
-        'Fetch a single AppPreviewSet by ID with its previews expanded. The included AppPreview resources carry fileName, fileSize, previewFrameTimeCode, mimeType, and the video delivery state.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. Fetch a single AppPreviewSet by ID with its previews expanded. The included AppPreview resources carry fileName, fileSize, previewFrameTimeCode, mimeType, and the video delivery state.',
       inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
       }),
@@ -225,9 +225,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_post_app_preview_set',
     {
-      title: 'Create an AppPreviewSet',
+      title: 'Create an AppPreviewSet (deprecated)',
       description:
-        'Create an AppPreviewSet for ONE (parent localization, previewType) pair. Required: parentType + parentLocalizationId + previewType. Apple enforces uniqueness — a duplicate (parent, previewType) is rejected.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. Create an AppPreviewSet for ONE (parent localization, previewType) pair. Required: parentType + parentLocalizationId + previewType. Apple enforces uniqueness — a duplicate (parent, previewType) is rejected.',
       inputSchema: z.object({
         parentType: ScreenshotSetParentTypeSchema,
         parentLocalizationId: z.string().min(1),
@@ -262,9 +262,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_delete_app_preview_set',
     {
-      title: 'Delete an AppPreviewSet',
+      title: 'Delete an AppPreviewSet (deprecated)',
       description:
-        'DELETE an AppPreviewSet. All AppPreview resources under the set are removed as well.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. DELETE an AppPreviewSet. All AppPreview resources under the set are removed as well.',
       inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
       }),
@@ -288,9 +288,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_list_app_previews',
     {
-      title: 'List previews under a set',
+      title: 'List previews under a set (deprecated)',
       description:
-        'List AppPreview records under an AppPreviewSet. Each row carries fileName + fileSize + previewFrameTimeCode + the two delivery states (assetDeliveryState for the source file, videoDeliveryState for Apple-side transcode).',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. List AppPreview records under an AppPreviewSet. Each row carries fileName + fileSize + previewFrameTimeCode + the two delivery states (assetDeliveryState for the source file, videoDeliveryState for Apple-side transcode).',
       inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
@@ -315,9 +315,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_get_app_preview',
     {
-      title: 'Get an AppPreview',
+      title: 'Get an AppPreview (deprecated)',
       description:
-        'Fetch a single AppPreview by ID. Returns the upload metadata + previewFrameTimeCode + (post-ingest) videoUrl and previewImage. Wire-key gotcha: Apple emits `videoUrl` (camelCase) where Swift names it `videoURL`.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. Fetch a single AppPreview by ID. Returns the upload metadata + previewFrameTimeCode + (post-ingest) videoUrl and previewImage. Wire-key gotcha: Apple emits `videoUrl` (camelCase) where Swift names it `videoURL`.',
       inputSchema: z.object({
         appPreviewId: AppPreviewIdSchema,
       }),
@@ -336,9 +336,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_post_app_preview',
     {
-      title: 'Reserve an AppPreview upload (raw step 1)',
+      title: 'Reserve an AppPreview upload (raw step 1) (deprecated)',
       description:
-        'RAW step 1 of the three-step upload flow for previews. Reserves an AppPreview under a set with fileName + fileSize (+ optional previewFrameTimeCode + mimeType), and returns the resource with uploadOperations[] populated. Most callers should use the composite asc_upload_app_preview instead — this exists for manual control.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. RAW step 1 of the three-step upload flow for previews. Reserves an AppPreview under a set with fileName + fileSize (+ optional previewFrameTimeCode + mimeType), and returns the resource with uploadOperations[] populated. Most callers should use the composite asc_upload_app_preview instead — this exists for manual control.',
       inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
         fileName: FileNameSchema,
@@ -379,9 +379,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_patch_app_preview',
     {
-      title: 'Patch / commit an AppPreview (raw step 3)',
+      title: 'Patch / commit an AppPreview (raw step 3) (deprecated)',
       description:
-        'RAW step 3 of the three-step upload flow + the only way to tweak previewFrameTimeCode on an existing preview. PATCH with sourceFileChecksum + uploaded=true to commit a reservation, or with previewFrameTimeCode alone to change the poster frame without re-uploading the video. Wire-key gotcha: Swift `isUploaded` → wire `uploaded`. Tool refuses empty PATCHes.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. RAW step 3 of the three-step upload flow + the only way to tweak previewFrameTimeCode on an existing preview. PATCH with sourceFileChecksum + uploaded=true to commit a reservation, or with previewFrameTimeCode alone to change the poster frame without re-uploading the video. Wire-key gotcha: Swift `isUploaded` → wire `uploaded`. Tool refuses empty PATCHes.',
       inputSchema: z.object({
         appPreviewId: AppPreviewIdSchema,
         sourceFileChecksum: SourceFileChecksumSchema.optional(),
@@ -437,9 +437,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_delete_app_preview',
     {
-      title: 'Delete an AppPreview',
+      title: 'Delete an AppPreview (deprecated)',
       description:
-        'DELETE an AppPreview. Removes the video asset + its slot in the set; if all previews are removed the parent localization may need a new upload before submission.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. DELETE an AppPreview. Removes the video asset + its slot in the set; if all previews are removed the parent localization may need a new upload before submission.',
       inputSchema: z.object({
         appPreviewId: AppPreviewIdSchema,
       }),
@@ -459,9 +459,9 @@ export function registerPreviews(server: McpServer, client: ASCClient): void {
   server.registerTool(
     'asc_upload_app_preview',
     {
-      title: 'Upload an app preview video from a local file (composite)',
+      title: 'Upload an app preview video from a local file (composite) (deprecated)',
       description:
-        "Composite tool. Reads localFilePath from disk (Apple's recommended: .mov H.264/HEVC, ≤500 MB, 15–30s), reserves an AppPreview under the given set, PUTs every uploadOperation chunk to Apple storage in sequence, then commits with sourceFileChecksum + uploaded=true. Optionally sets previewFrameTimeCode (poster frame) at reserve. Returns the committed resource + per-chunk summary. Tilde paths (~/...) are expanded.",
+        "DEPRECATED in App Store Connect API 4.5.1, which replaced app preview sets with the App Asset Library. Use asc_upload_asset_library_video + asc_post_asset_library_placement (placementType APP_PREVIEW) instead; asc_list_localization_placements lists what a localization shows. Composite tool. Reads localFilePath from disk (Apple's recommended: .mov H.264/HEVC, ≤500 MB, 15–30s), reserves an AppPreview under the given set, PUTs every uploadOperation chunk to Apple storage in sequence, then commits with sourceFileChecksum + uploaded=true. Optionally sets previewFrameTimeCode (poster frame) at reserve. Returns the committed resource + per-chunk summary. Tilde paths (~/...) are expanded.",
       inputSchema: z.object({
         appPreviewSetId: AppPreviewSetIdSchema,
         localFilePath: LocalFilePathSchema,
