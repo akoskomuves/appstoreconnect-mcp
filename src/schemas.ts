@@ -857,6 +857,7 @@ export const ScreenshotDisplayTypeSchema = z
     'APP_IPHONE_47',
     'APP_IPHONE_40',
     'APP_IPHONE_35',
+    'APP_IPHONE_DUO',
     'APP_IPAD_PRO_3GEN_129',
     'APP_IPAD_PRO_3GEN_11',
     'APP_IPAD_PRO_129',
@@ -877,6 +878,7 @@ export const ScreenshotDisplayTypeSchema = z
     'IMESSAGE_APP_IPHONE_55',
     'IMESSAGE_APP_IPHONE_47',
     'IMESSAGE_APP_IPHONE_40',
+    'IMESSAGE_APP_IPHONE_DUO',
     'IMESSAGE_APP_IPAD_PRO_3GEN_129',
     'IMESSAGE_APP_IPAD_PRO_3GEN_11',
     'IMESSAGE_APP_IPAD_PRO_129',
@@ -884,7 +886,7 @@ export const ScreenshotDisplayTypeSchema = z
     'IMESSAGE_APP_IPAD_97',
   ])
   .describe(
-    'Screenshot display category — the device-class enum scoping a set. APP_IPHONE_67 = 6.7" iPhone Pro Max. APP_IPAD_PRO_3GEN_129 = 12.9" iPad Pro 3rd gen+. IMESSAGE_* variants are for iMessage extension screenshots. Each (parent localization, display type) gets exactly one AppScreenshotSet — uniqueness enforced server-side.',
+    'Screenshot display category — the device-class enum scoping a set. APP_IPHONE_67 = 6.7" iPhone Pro Max. APP_IPHONE_DUO = iPhone Duo (foldable); the API has a single Duo type, with no separate inner/outer display value. APP_IPAD_PRO_3GEN_129 = 12.9" iPad Pro 3rd gen+. IMESSAGE_* variants are for iMessage extension screenshots. Each (parent localization, display type) gets exactly one AppScreenshotSet — uniqueness enforced server-side.',
   );
 
 export const PreviewTypeSchema = z
@@ -897,6 +899,7 @@ export const PreviewTypeSchema = z
     'IPHONE_47',
     'IPHONE_40',
     'IPHONE_35',
+    'IPHONE_DUO',
     'IPAD_PRO_3GEN_129',
     'IPAD_PRO_3GEN_11',
     'IPAD_PRO_129',
@@ -907,7 +910,7 @@ export const PreviewTypeSchema = z
     'APPLE_VISION_PRO',
   ])
   .describe(
-    'App preview (video) display category. SAME device classes as ScreenshotDisplayType but WITHOUT the `APP_` prefix — e.g. IPHONE_67 (not APP_IPHONE_67). The enums are distinct; values are NOT interchangeable. No iMessage variants (no preview videos for iMessage extensions).',
+    'App preview (video) display category. SAME device classes as ScreenshotDisplayType but WITHOUT the `APP_` prefix — e.g. IPHONE_67 (not APP_IPHONE_67), IPHONE_DUO (not APP_IPHONE_DUO). The enums are distinct; values are NOT interchangeable. No iMessage variants (no preview videos for iMessage extensions).',
   );
 
 export const ScreenshotSetParentTypeSchema = z
