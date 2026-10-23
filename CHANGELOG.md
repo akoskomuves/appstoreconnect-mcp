@@ -1,5 +1,25 @@
 # appstoreconnect-mcp
 
+## 1.14.0
+
+### Minor Changes
+
+- aefbc0c: Catch up with App Store Connect API 4.5: Korean age ratings and organization subscriptions.
+
+  - `asc_patch_age_rating_declaration`: `koreaAgeRatingOverride` now accepts `ALL` and `TWELVE_PLUS`, alongside `NONE`, `FIFTEEN_PLUS` and `NINETEEN_PLUS`.
+  - `asc_patch_subscription` accepts `multiSeatStatus` (`ENABLED` / `DISABLED`) and `marketSettings`, the markets a subscription is sold in: `APP_STORE`, `APPLE_SCHOOL`, `APPLE_BUSINESS`. `marketSettings` replaces the whole list, so pass every market you want to keep. Apple accepts both fields on update only, not on create.
+  - `asc_list_subscriptions` requests both fields and shows them as `MULTI_SEAT` and `MARKETS` columns.
+
+- 26d0c6c: Add the App Asset Library (App Store Connect API 4.5.1), which replaces screenshot sets, preview sets and in-app event screenshots / video clips. 21 new tools: reference data (device groups, per-group limits, image and video specs), library image and video reads, composite and raw uploads, archive / rename / delete, placements on version, Custom Product Page, experiment-treatment and in-app event localizations, and placement reordering. The old set-based screenshot, preview, event-screenshot and event-video tools are marked deprecated in their descriptions and point to the new ones.
+
+  Live-checked on 2026-10-23: the library id equals the app id; `appAssetLibraryRefData` rejects `limit`, so the tool never sends it; live placements report `ACTIVE` / `INACTIVE` states that the spec does not list, so the placement state filter takes free strings.
+
+- aefbc0c: Add iPhone Duo screenshot and preview display types.
+
+  `asc_post_app_screenshot_set` now accepts `APP_IPHONE_DUO` and `IMESSAGE_APP_IPHONE_DUO`, and `asc_post_app_preview_set` accepts `IPHONE_DUO`. Before this, a Duo set could only be created in the App Store Connect web UI. Uploading into an existing Duo set already worked, because `asc_upload_screenshot` takes a set ID.
+
+  Apple's published OpenAPI spec (4.5.1) and docs don't list these values yet. The live API does: a create with an unknown display type is rejected with a 409 whose `detail` lists every accepted value, and the Duo values are in that list. The API has one Duo type, with no separate value for the inner and outer displays.
+
 ## 1.13.0
 
 ### Minor Changes
