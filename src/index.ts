@@ -21,6 +21,7 @@ import { registerApps } from './domains/apps.js';
 import { registerAppStoreVersionLocalizations } from './domains/appstore-version-localizations.js';
 import { registerAppStoreVersions } from './domains/appstore-versions.js';
 import { registerAsoCatalog } from './domains/aso-catalog.js';
+import { registerAssetLibrary } from './domains/asset-library.js';
 import { registerAssetUpload } from './domains/asset-upload.js';
 import { registerAvailabilities } from './domains/availabilities.js';
 import { registerBetaFeedback } from './domains/beta-feedback.js';
@@ -191,6 +192,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerAsoCatalog(server, client);
   registerScreenshots(server, client);
   registerPreviews(server, client);
+  registerAssetLibrary(server, client);
   registerAssetUpload(server);
   registerCustomProductPages(server, client);
   registerAppEvents(server, client);

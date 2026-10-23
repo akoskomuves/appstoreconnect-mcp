@@ -2382,3 +2382,305 @@ export function digestNominations(pages: CollectedPages): string {
   });
   return `${summaryFooter(pages, 'nominations')}\n\n${formatTable(columns, rows)}`;
 }
+
+// ----- API 4.5.1: App Asset Library -----
+
+// Placement counts come from the to-many `placements` relationship, which
+// carries meta.paging.total when the list was fetched with include=placements.
+function placementCount(resource: JSONAPIResource): string {
+  const r = resource.relationships?.['placements'] as
+    | { data?: unknown; meta?: { paging?: { total?: number } } }
+    | undefined;
+  if (!r) return '';
+  const total = r.meta?.paging?.total;
+  if (typeof total === 'number') return String(total);
+  return Array.isArray(r.data) ? String(r.data.length) : '';
+}
+
+function imageDims(raw: unknown): string {
+  if (raw && typeof raw === 'object' && 'width' in raw && 'height' in raw) {
+    const a = raw as { width?: unknown; height?: unknown };
+    return `${s(a.width)}x${s(a.height)}`;
+  }
+  return '';
+}
+
+export function digestAssetLibraryImages(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'REFERENCE_NAME' },
+    { header: 'CATEGORY' },
+    { header: 'SIZE_PX' },
+    { header: 'STATE' },
+    { header: 'PLACED', align: 'right' },
+    { header: 'IMAGE_ID' },
+  ];
+  const rows = pages.data.map((img) => [
+    s(attr(img, 'referenceName') ?? attr(img, 'fileName') ?? ''),
+    s(attr(img, 'category') ?? ''),
+    imageDims(attr(img, 'imageAsset')),
+    s(attr(img, 'state') ?? ''),
+    placementCount(img),
+    img.id,
+  ]);
+  return `${summaryFooter(pages, 'library images')}\n\n${formatTable(columns, rows)}`;
+}
+
+export function digestAssetLibraryVideos(pages: CollectedPages): string {
+  const columns: Column[] = [
+    { header: 'REFERENCE_NAME' },
+    { header: 'CATEGORY' },
+    { header: 'FRAME' },
+    { header: 'POSTER_PX' },
+    { header: 'STATE' },
+    { header: 'PLACED', align: 'right' },
+    { header: 'VIDEO_ID' },
+  ];
+  const rows = pages.data.map((video) => {
+    const poster = attr<{ image?: unknown }>(video, 'previewFrameImage');
+    return [
+      s(attr(video, 'referenceName') ?? attr(video, 'fileName') ?? ''),
+      s(attr(video, 'category') ?? ''),
+      s(attr(video, 'previewFrameTimeCode') ?? ''),
+      imageDims(poster?.image),
+      s(attr(video, 'state') ?? ''),
+      placementCount(video),
+      video.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'library videos')}\n\n${formatTable(columns, rows)}`;
+}
+
+// Rows keep Apple's order inside a group (the localization lists ask for
+// sort=placementGroupPosition, so that order is the storefront order) and
+// are grouped by placementType + placementGroup for reading.
+export function digestAssetLibraryPlacements(pages: CollectedPages): string {
+  const index = buildIncludedIndex(pages.included);
+  const columns: Column[] = [
+    { header: 'TYPE' },
+    { header: 'GROUP' },
+    { header: '#', align: 'right' },
+    { header: 'MEDIA' },
+    { header: 'ASSET' },
+    { header: 'STATE' },
+    { header: 'PLACEMENT_ID' },
+  ];
+  const groupKey = (p: JSONAPIResource) =>
+    `${s(attr(p, 'placementType') ?? '')}|${s(attr(p, 'placementGroup') ?? '')}`;
+  const order = new Map<string, number>();
+  for (const p of pages.data) if (!order.has(groupKey(p))) order.set(groupKey(p), order.size);
+  const sorted = pages.data
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => (order.get(groupKey(a.p)) ?? 0) - (order.get(groupKey(b.p)) ?? 0) || a.i - b.i);
+  const position = new Map<string, number>();
+  const rows = sorted.map(({ p }) => {
+    const key = groupKey(p);
+    const n = (position.get(key) ?? 0) + 1;
+    position.set(key, n);
+    const asset = rel(p, 'image') ?? rel(p, 'video');
+    const included = asset ? lookupIncluded(index, asset.type, asset.id) : undefined;
+    const assetLabel = included
+      ? s(attr(included, 'referenceName') ?? attr(included, 'fileName') ?? asset?.id)
+      : (asset?.id ?? '');
+    return [
+      s(attr(p, 'placementType') ?? ''),
+      s(attr(p, 'placementGroup') ?? ''),
+      String(n),
+      s(attr(p, 'mediaType') ?? ''),
+      assetLabel,
+      s(attr(p, 'state') ?? ''),
+      p.id,
+    ];
+  });
+  return `${summaryFooter(pages, 'placements')}\n\n${formatTable(columns, rows)}`;
+}
+
+type RefDims = { minWidth?: number; maxWidth?: number; minHeight?: number; maxHeight?: number };
+
+function refDims(d: RefDims | undefined): string {
+  if (!d) return '';
+  const w = d.minWidth === d.maxWidth ? s(d.minWidth) : `${s(d.minWidth)}-${s(d.maxWidth)}`;
+  const h = d.minHeight === d.maxHeight ? s(d.minHeight) : `${s(d.minHeight)}-${s(d.maxHeight)}`;
+  return `${w}x${h}`;
+}
+
+function list(v: unknown): string {
+  return Array.isArray(v) ? v.map((x) => s(x)).join(',') : '';
+}
+
+/**
+ * The ref data is ONE row (~130 KB raw) describing what the library accepts:
+ * placement groups per device, the max count per (feature, placementType,
+ * group), and the pixel/format specs. This renders each section that came
+ * back as a compact table; sections left out by `fields[...]` are skipped.
+ */
+export function digestAssetLibraryRefData(resource: JSONAPIResource): string {
+  const a = resource.attributes ?? {};
+  const out: string[] = [`App Asset Library ref data ${resource.id}`];
+
+  const groups = a['placementProfileGroups'] as
+    | Array<{ placementProfileGroupId?: string; platform?: string; displayClassId?: string }>
+    | undefined;
+  if (groups) {
+    out.push(
+      `\nPlacement groups (${groups.length})\n${formatTable(
+        [{ header: 'GROUP' }, { header: 'PLATFORM' }, { header: 'DISPLAY_CLASS' }],
+        groups.map((g) => [s(g.placementProfileGroupId), s(g.platform), s(g.displayClassId)]),
+      )}`,
+    );
+  }
+
+  const features = a['features'] as
+    | Array<{
+        featureId?: string;
+        placementPolicies?: Array<{
+          placementType?: string;
+          groupLimits?: Array<{ groupIds?: string[]; maxCount?: number }>;
+        }>;
+      }>
+    | undefined;
+  if (features) {
+    const rows: string[][] = [];
+    for (const f of features) {
+      for (const policy of f.placementPolicies ?? []) {
+        for (const limit of policy.groupLimits ?? []) {
+          const ids = limit.groupIds ?? [];
+          rows.push([
+            s(f.featureId),
+            s(policy.placementType),
+            s(limit.maxCount),
+            ids.length > 4 ? `${ids.slice(0, 4).join(',')} +${ids.length - 4}` : ids.join(','),
+          ]);
+        }
+      }
+    }
+    out.push(
+      `\nLimits per localization (max assets per group)\n${formatTable(
+        [
+          { header: 'FEATURE' },
+          { header: 'PLACEMENT_TYPE' },
+          { header: 'MAX', align: 'right' },
+          { header: 'GROUPS' },
+        ],
+        rows,
+      )}`,
+    );
+  }
+
+  const types = a['placementTypes'] as
+    | Array<{
+        placementTypeId?: string;
+        acceptsAssetCategories?: string[];
+        specMappings?: Array<{ placementGroupId?: string; specs?: string[] }>;
+      }>
+    | undefined;
+  if (types) {
+    const rows: string[][] = [];
+    for (const t of types) {
+      for (const m of t.specMappings ?? []) {
+        rows.push([
+          s(t.placementTypeId),
+          list(t.acceptsAssetCategories),
+          s(m.placementGroupId),
+          list(m.specs),
+        ]);
+      }
+    }
+    out.push(
+      `\nSpecs per placement group\n${formatTable(
+        [
+          { header: 'PLACEMENT_TYPE' },
+          { header: 'CATEGORIES' },
+          { header: 'GROUP' },
+          { header: 'SPEC_IDS' },
+        ],
+        rows,
+      )}`,
+    );
+  }
+
+  const imageSpecs = a['imageSpecs'] as
+    | Array<{
+        specId?: string;
+        dimensions?: RefDims;
+        aspectRatio?: string;
+        compatiblePlacementTypes?: string[];
+        alphaAllowed?: boolean;
+        fileExtensions?: string[];
+      }>
+    | undefined;
+  if (imageSpecs) {
+    out.push(
+      `\nImage specs (${imageSpecs.length})\n${formatTable(
+        [
+          { header: 'SPEC_ID' },
+          { header: 'PIXELS' },
+          { header: 'ASPECT' },
+          { header: 'ALPHA' },
+          { header: 'FORMATS' },
+          { header: 'PLACEMENT_TYPES' },
+        ],
+        imageSpecs.map((sp) => [
+          s(sp.specId),
+          refDims(sp.dimensions),
+          s(sp.aspectRatio),
+          sp.alphaAllowed ? 'yes' : 'no',
+          list(sp.fileExtensions),
+          list(sp.compatiblePlacementTypes),
+        ]),
+      )}`,
+    );
+  }
+
+  const videoSpecs = a['videoSpecs'] as
+    | Array<{
+        specId?: string;
+        dimensions?: RefDims;
+        aspectRatio?: string;
+        compatiblePlacementTypes?: string[];
+        frameRates?: Array<{ minFps?: number; maxFps?: number }>;
+        duration?: { min?: string; max?: string };
+      }>
+    | undefined;
+  if (videoSpecs) {
+    out.push(
+      `\nVideo specs (${videoSpecs.length})\n${formatTable(
+        [
+          { header: 'SPEC_ID' },
+          { header: 'PIXELS' },
+          { header: 'ASPECT' },
+          { header: 'FPS' },
+          { header: 'DURATION' },
+          { header: 'PLACEMENT_TYPES' },
+        ],
+        videoSpecs.map((sp) => [
+          s(sp.specId),
+          refDims(sp.dimensions),
+          s(sp.aspectRatio),
+          (sp.frameRates ?? [])
+            .map((r) => (r.minFps === r.maxFps ? s(r.minFps) : `${s(r.minFps)}-${s(r.maxFps)}`))
+            .join(','),
+          sp.duration ? `${s(sp.duration.min)}–${s(sp.duration.max)}` : '',
+          list(sp.compatiblePlacementTypes),
+        ]),
+      )}`,
+    );
+  }
+
+  const displayClasses = a['displayClasses'] as
+    | Array<{ displayClassId?: string; deviceFamily?: string | null; screenDimensions?: string[] }>
+    | undefined;
+  if (displayClasses) {
+    out.push(
+      `\nDisplay classes (${displayClasses.length})\n${formatTable(
+        [{ header: 'DISPLAY_CLASS' }, { header: 'DEVICE_FAMILY' }, { header: 'SCREENS' }],
+        displayClasses.map((d) => [
+          s(d.displayClassId),
+          s(d.deviceFamily),
+          list(d.screenDimensions),
+        ]),
+      )}`,
+    );
+  }
+
+  return out.join('\n');
+}

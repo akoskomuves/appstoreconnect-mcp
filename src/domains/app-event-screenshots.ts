@@ -110,9 +110,9 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
   server.registerTool(
     'asc_list_app_event_screenshots',
     {
-      title: 'List event screenshots under a localization',
+      title: 'List event screenshots under a localization (deprecated)',
       description:
-        'List AppEventScreenshot records under an AppEventLocalization. Each row carries fileName + fileSize + the asset slot (EVENT_CARD / EVENT_DETAILS_PAGE) + assetDeliveryState (UPLOAD_COMPLETE / PROCESSING / COMPLETE / FAILED). Use to inspect upload progress or to enumerate IDs.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event screenshots with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. List AppEventScreenshot records under an AppEventLocalization. Each row carries fileName + fileSize + the asset slot (EVENT_CARD / EVENT_DETAILS_PAGE) + assetDeliveryState (UPLOAD_COMPLETE / PROCESSING / COMPLETE / FAILED). Use to inspect upload progress or to enumerate IDs.',
       inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
@@ -137,9 +137,9 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
   server.registerTool(
     'asc_get_app_event_screenshot',
     {
-      title: 'Get an AppEventScreenshot',
+      title: 'Get an AppEventScreenshot (deprecated)',
       description:
-        'Fetch a single AppEventScreenshot by ID. Returns fileName / fileSize / appEventAssetType / assetDeliveryState / the imageAsset URLs once processed / the uploadOperations[] before commit.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event screenshots with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. Fetch a single AppEventScreenshot by ID. Returns fileName / fileSize / appEventAssetType / assetDeliveryState / the imageAsset URLs once processed / the uploadOperations[] before commit.',
       inputSchema: z.object({
         appEventScreenshotId: AppEventScreenshotIdSchema,
       }),
@@ -158,9 +158,9 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
   server.registerTool(
     'asc_post_app_event_screenshot',
     {
-      title: 'Reserve an AppEventScreenshot upload (raw step 1)',
+      title: 'Reserve an AppEventScreenshot upload (raw step 1) (deprecated)',
       description:
-        'RAW step 1 of the three-step upload flow (same shape as v0.13 AppScreenshot). Reserves an AppEventScreenshot under an event localization with fileName + fileSize + appEventAssetType (EVENT_CARD / EVENT_DETAILS_PAGE). Returns the resource with uploadOperations[] populated. Use asc_upload_asset_chunk to PUT each, then asc_patch_app_event_screenshot to commit. Most callers should use the composite asc_upload_app_event_screenshot instead.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event screenshots with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. RAW step 1 of the three-step upload flow (same shape as v0.13 AppScreenshot). Reserves an AppEventScreenshot under an event localization with fileName + fileSize + appEventAssetType (EVENT_CARD / EVENT_DETAILS_PAGE). Returns the resource with uploadOperations[] populated. Use asc_upload_asset_chunk to PUT each, then asc_patch_app_event_screenshot to commit. Most callers should use the composite asc_upload_app_event_screenshot instead.',
       inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         fileName: FileNameSchema,
@@ -197,9 +197,9 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
   server.registerTool(
     'asc_patch_app_event_screenshot',
     {
-      title: 'Commit an AppEventScreenshot upload (raw step 3)',
+      title: 'Commit an AppEventScreenshot upload (raw step 3) (deprecated)',
       description:
-        'RAW step 3 of the three-step upload flow. PATCH with uploaded=true to commit the reservation. Wire-key gotcha: Swift `isUploaded` → wire `uploaded` (same strip as v0.13 AppScreenshot). The composite asc_upload_app_event_screenshot handles this automatically.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event screenshots with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. RAW step 3 of the three-step upload flow. PATCH with uploaded=true to commit the reservation. Wire-key gotcha: Swift `isUploaded` → wire `uploaded` (same strip as v0.13 AppScreenshot). The composite asc_upload_app_event_screenshot handles this automatically.',
       inputSchema: z.object({
         appEventScreenshotId: AppEventScreenshotIdSchema,
         uploaded: z.boolean(),
@@ -232,9 +232,9 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
   server.registerTool(
     'asc_delete_app_event_screenshot',
     {
-      title: 'Delete an AppEventScreenshot',
+      title: 'Delete an AppEventScreenshot (deprecated)',
       description:
-        'DELETE an AppEventScreenshot. Removes the asset under its slot; if the slot goes empty Apple may reject the event for review with an asset-missing error.',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event screenshots with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. DELETE an AppEventScreenshot. Removes the asset under its slot; if the slot goes empty Apple may reject the event for review with an asset-missing error.',
       inputSchema: z.object({
         appEventScreenshotId: AppEventScreenshotIdSchema,
       }),
@@ -257,9 +257,9 @@ export function registerAppEventScreenshots(server: McpServer, client: ASCClient
   server.registerTool(
     'asc_upload_app_event_screenshot',
     {
-      title: 'Upload an event screenshot from a local file (composite)',
+      title: 'Upload an event screenshot from a local file (composite) (deprecated)',
       description:
-        'Composite tool. Reads localFilePath from disk, reserves an AppEventScreenshot under the given event localization for the given asset slot (EVENT_CARD / EVENT_DETAILS_PAGE), PUTs every uploadOperation chunk to Apple storage in sequence, then commits with uploaded=true. Returns the committed resource + per-chunk summary. Tilde paths (~/...) are expanded. Note: this resource has NO sourceFileChecksum on the commit step — Apple does not require an MD5 here (unlike v0.13 AppScreenshot).',
+        'DEPRECATED in App Store Connect API 4.5.1, which replaced in-app event screenshots with the App Asset Library. Use asc_upload_asset_library_image + asc_post_asset_library_placement (parentType appEventLocalizations, placementType EVENT_CARD_ASSET or EVENT_DETAILS_PAGE_ASSET) instead; asc_list_localization_placements lists what a localization shows. Composite tool. Reads localFilePath from disk, reserves an AppEventScreenshot under the given event localization for the given asset slot (EVENT_CARD / EVENT_DETAILS_PAGE), PUTs every uploadOperation chunk to Apple storage in sequence, then commits with uploaded=true. Returns the committed resource + per-chunk summary. Tilde paths (~/...) are expanded. Note: this resource has NO sourceFileChecksum on the commit step — Apple does not require an MD5 here (unlike v0.13 AppScreenshot).',
       inputSchema: z.object({
         appEventLocalizationId: AppEventLocalizationIdSchema,
         localFilePath: LocalFilePathSchema,

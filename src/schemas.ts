@@ -1870,3 +1870,99 @@ export const NominationTypeSchema = z
 export const NominationDeviceFamilySchema = z
   .enum(['IPHONE', 'IPAD', 'APPLE_TV', 'APPLE_WATCH', 'MAC', 'VISION'])
   .describe('Device families the nominated experience shines on.');
+
+// ---------- App Asset Library (API 4.5.1) ----------
+
+export const AssetLibraryIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "App Asset Library ID. Apple uses the app's own ID for it (GET /v1/apps/{id}/assetLibrary returns id == app id), so pass the app ID. One library per app.",
+  );
+
+export const AssetLibraryImageIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppAssetLibraryImage ID from /v1/appAssetLibraries/{id}/images. An image uploaded once to the library; it reaches the store only through placements.',
+  );
+
+export const AssetLibraryVideoIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppAssetLibraryVideo ID from /v1/appAssetLibraries/{id}/videos. A video uploaded once to the library; it reaches the store only through placements.',
+  );
+
+export const AssetLibraryPlacementIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'AppAssetLibraryPlacement ID. One placement puts one library image or video on one localization (version, Custom Product Page, in-app event or experiment treatment) in one placementType + placementGroup slot.',
+  );
+
+export const AssetLibraryAssetCategorySchema = z
+  .enum(['APP_SCREENSHOTS_AND_PREVIEWS', 'CREATIVE_ASSETS'])
+  .describe(
+    'Library category. APP_SCREENSHOTS_AND_PREVIEWS: screenshots and app previews (APP_SCREENSHOT, IMESSAGE_APP_SCREENSHOT, APP_PREVIEW placements). CREATIVE_ASSETS: everything else (event cards, product-page header, search-results assets). The ref data says which categories each placementType accepts.',
+  );
+
+export const AssetLibraryAssetStateSchema = z.enum([
+  'AWAITING_UPLOAD',
+  'UPLOAD_COMPLETE',
+  'FAILED',
+  'COMPLETE',
+  'PREPARE_FOR_SUBMISSION',
+  'READY_FOR_REVIEW',
+  'WAITING_FOR_REVIEW',
+  'IN_REVIEW',
+  'ACCEPTED',
+  'APPROVED',
+  'REJECTED',
+  'ARCHIVED',
+]);
+
+export const AssetLibraryPlacementTypeSchema = z
+  .enum([
+    'APP_SCREENSHOT',
+    'IMESSAGE_APP_SCREENSHOT',
+    'APP_PREVIEW',
+    'PRODUCT_PAGE_HEADER_ASSET',
+    'APP_STORE_SEARCH_RESULTS_ASSET',
+    'SEARCH_RESULTS_ADS_ASSET',
+    'TODAY_TAB_ADS_ASSET',
+    'EVENT_CARD_ASSET',
+    'EVENT_DETAILS_PAGE_ASSET',
+    'RETENTION_MESSAGE_ASSET',
+  ])
+  .describe(
+    'Where on the store the asset shows. APP_SCREENSHOT / IMESSAGE_APP_SCREENSHOT / APP_PREVIEW replace the legacy screenshot and preview sets; EVENT_CARD_ASSET / EVENT_DETAILS_PAGE_ASSET replace the legacy in-app event screenshots and video clips.',
+  );
+
+export const AssetLibraryPlacementGroupSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Placement group — the device profile the slot belongs to, e.g. IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE (6.9"/6.7" iPhone), IPAD_13_PROFILE, IPHONE_DUO_PROFILE, IMESSAGE_IPHONE_DUO_PROFILE, or DEFAULT_PROFILE for event assets. The list and each group\'s max count come from asc_get_asset_library_ref_data (placementProfileGroups + features).',
+  );
+
+export const AssetPlacementParentTypeSchema = z
+  .enum([
+    'appStoreVersionLocalizations',
+    'appCustomProductPageLocalizations',
+    'appStoreVersionExperimentTreatmentLocalizations',
+    'appEventLocalizations',
+  ])
+  .describe(
+    'The localization a placement belongs to: a version localization, a Custom Product Page localization, an experiment treatment localization, or an in-app event localization. Pass its ID as parentLocalizationId.',
+  );
+
+export const AssetPlacementOrderingParentTypeSchema = z
+  .enum([
+    'appStoreVersionLocalizations',
+    'appCustomProductPageLocalizations',
+    'appStoreVersionExperimentTreatmentLocalizations',
+  ])
+  .describe(
+    'The localization whose placements are being reordered. In-app event localizations have no ordering request in the API.',
+  );

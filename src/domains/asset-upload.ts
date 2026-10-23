@@ -175,7 +175,7 @@ export function registerAssetUpload(server: McpServer): void {
     {
       title: 'Upload one asset chunk to Apple storage (raw step 2)',
       description:
-        "RAW step 2 of the three-step screenshot / preview upload flow. Apple's reserve response returns uploadOperations[] — one per chunk, each with method (always PUT), url (Apple's pre-signed storage URL), length, offset, and requestHeaders. This tool executes ONE operation: reads localFilePath at [offset, offset+length), PUTs the bytes to url with all requestHeaders, and returns the HTTP status. Apple's storage URLs are pre-signed — no ASC bearer auth is applied. Tilde paths (~/...) are expanded.",
+        "RAW step 2 of the three-step upload flow (App Asset Library images/videos, and the legacy screenshots / previews). Apple's reserve response returns uploadOperations[] — one per chunk, each with method (always PUT), url (Apple's pre-signed storage URL), length, offset, and requestHeaders. This tool executes ONE operation: reads localFilePath at [offset, offset+length), PUTs the bytes to url with all requestHeaders, and returns the HTTP status. Apple's storage URLs are pre-signed — no ASC bearer auth is applied. Tilde paths (~/...) are expanded.",
       inputSchema: z.object({
         method: z.string().default('PUT'),
         url: z.string().url(),
