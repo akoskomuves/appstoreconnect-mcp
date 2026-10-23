@@ -782,7 +782,7 @@ export function registerAssetLibrary(server: McpServer, client: ASCClient): void
     {
       title: 'Upload an image to the App Asset Library (composite)',
       description:
-        "Composite tool. Reads localFilePath, reserves a library image in the app's App Asset Library, PUTs every chunk to Apple storage, then commits with uploaded=true. Returns the committed image (UPLOAD_COMPLETE, then COMPLETE once Apple processes it and matches it to a spec). Uploading does not show it anywhere: follow with asc_post_asset_library_placement. Replaces asc_upload_screenshot / asc_upload_app_event_screenshot from the deprecated set-based API.",
+        "Composite tool. Reads localFilePath, reserves a library image in the app's App Asset Library, PUTs every chunk to Apple storage, then commits with uploaded=true. Returns the committed image (UPLOAD_COMPLETE, then COMPLETE once Apple processes it and matches it to a spec). Uploading does not show it anywhere: follow with asc_post_asset_library_placement. Replaces asc_upload_screenshot / asc_upload_app_event_screenshot from the deprecated set-based API. category defaults to APP_SCREENSHOTS_AND_PREVIEWS; pass CREATIVE_ASSETS for a product-page header image (PRODUCT_PAGE_HEADER_ASSET), a search-results asset or an event card, or the placement will be refused.",
       inputSchema: z.object(uploadBase),
     },
     async (input) => uploadAsset('image', input),
@@ -793,7 +793,7 @@ export function registerAssetLibrary(server: McpServer, client: ASCClient): void
     {
       title: 'Upload a video to the App Asset Library (composite)',
       description:
-        "Composite tool. Reads localFilePath, reserves a library video (app preview or event video) in the app's App Asset Library, PUTs every chunk to Apple storage, then commits with uploaded=true. Optional previewFrameTimeCode sets the poster frame. Uploading does not show it anywhere: follow with asc_post_asset_library_placement. Replaces asc_upload_app_preview / asc_upload_app_event_video_clip from the deprecated set-based API.",
+        "Composite tool. Reads localFilePath, reserves a library video (app preview or event video) in the app's App Asset Library, PUTs every chunk to Apple storage, then commits with uploaded=true. Optional previewFrameTimeCode sets the poster frame. Uploading does not show it anywhere: follow with asc_post_asset_library_placement. Replaces asc_upload_app_preview / asc_upload_app_event_video_clip from the deprecated set-based API. category defaults to APP_SCREENSHOTS_AND_PREVIEWS; pass CREATIVE_ASSETS for a product-page header video (PRODUCT_PAGE_HEADER_ASSET), a search-results asset or an event video, or the placement will be refused.",
       inputSchema: z.object({
         ...uploadBase,
         previewFrameTimeCode: z
@@ -869,7 +869,7 @@ export function registerAssetLibrary(server: McpServer, client: ASCClient): void
     {
       title: 'Place a library asset on a localization',
       description:
-        'Put one App Asset Library image or video on one localization in a placementType + placementGroup slot — the replacement for creating a screenshot/preview set and uploading into it. Pass exactly one of imageId / videoId and the parent localization. The group is the device profile (IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE, IPAD_13_PROFILE, IPHONE_DUO_PROFILE, DEFAULT_PROFILE for event assets); asc_get_asset_library_ref_data lists the groups, their size specs and max counts. The asset must match a spec the group accepts. The new placement goes last in its group; reorder with asc_post_asset_library_placement_ordering_request. ⚠️ Changes what the store shows for that localization once its parent ships — only an editable (PREPARE_FOR_SUBMISSION-type) version, CPP version, treatment or event takes new placements.',
+        'Put one App Asset Library image or video on one localization in a placementType + placementGroup slot — the replacement for creating a screenshot/preview set and uploading into it. Pass exactly one of imageId / videoId and the parent localization. The group is the device profile (IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE, IPAD_13_PROFILE, IPHONE_DUO_PROFILE, DEFAULT_PROFILE for event assets); asc_get_asset_library_ref_data lists the groups, their size specs and max counts. The asset must match a spec the group accepts. Product-page header image or video: placementType PRODUCT_PAGE_HEADER_ASSET, placementGroup DEFAULT_PROFILE, max 1 per version / CPP / product-page-optimization localization; the asset must be uploaded with category CREATIVE_ASSETS (image: PNG 5244x2950 16:9 or 3840x1646 21:9, no alpha; video: 3840x1646 21:9, 30 or 60 fps, .mp4/.m4v/.mov, up to 30 s). APP_STORE_SEARCH_RESULTS_ASSET works the same way (max 1, DEFAULT_PROFILE, CREATIVE_ASSETS). The new placement goes last in its group; reorder with asc_post_asset_library_placement_ordering_request. ⚠️ Changes what the store shows for that localization once its parent ships — only an editable (PREPARE_FOR_SUBMISSION-type) version, CPP version, treatment or event takes new placements.',
       inputSchema: z.object({
         placementType: AssetLibraryPlacementTypeSchema,
         placementGroup: AssetLibraryPlacementGroupSchema.optional(),

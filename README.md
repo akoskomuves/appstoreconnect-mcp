@@ -187,6 +187,8 @@ App Store Connect API 4.5.1 replaced screenshot sets, preview sets and in-app ev
 - **Upload**: `asc_upload_asset_library_{image,video}` (composite: reserve → PUT chunks → commit) · raw `asc_post_*` / `asc_patch_*` (`uploaded`, `archived`, `referenceName`, video `previewFrameTimeCode`) · `asc_delete_*`. The commit is `uploaded: true` alone — this API takes no checksum.
 - **Placements**: `asc_list_localization_placements` (what a localization shows, per group, in store order) · `asc_get_asset_library_placement` · `asc_post_asset_library_placement` (image **or** video × parent localization) · `asc_delete_asset_library_placement` (the asset stays in the library) · `asc_post_asset_library_placement_ordering_request` (reorder one group).
 
+**Product-page header** (the wide image or video at the top of the product page): upload with `category: "CREATIVE_ASSETS"`, then place it with `placementType: "PRODUCT_PAGE_HEADER_ASSET"`, `placementGroup: "DEFAULT_PROFILE"` on a version, Custom Product Page or experiment-treatment localization. One per localization. Live specs (2026-10-23): PNG 5244x2950 (16:9) or 3840x1646 (21:9), no alpha; or video 3840x1646 (21:9), 30/60 fps, up to 30 s, .mp4/.m4v/.mov. `APP_STORE_SEARCH_RESULTS_ASSET` works the same way. `asc_get_asset_library_ref_data` with `placementTypes: ["PRODUCT_PAGE_HEADER_ASSET"]` shows the current specs.
+
 The old set-based tools (`asc_*_app_screenshot*`, `asc_*_app_preview*`, `asc_*_app_event_screenshot*`, `asc_*_app_event_video_clip*`, `asc_upload_screenshot`, `asc_upload_app_preview`) still work against Apple's deprecated endpoints and now say so in their descriptions.
 
 ### IAP & subscription review assets
