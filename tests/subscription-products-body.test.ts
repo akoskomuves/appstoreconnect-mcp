@@ -176,6 +176,18 @@ describe('buildSubscriptionPatchBody', () => {
     expect('reviewNote' in attrs).toBe(true);
   });
 
+  it('sends multiSeatStatus and marketSettings (API 4.5 organization fields)', () => {
+    const body = buildSubscriptionPatchBody({
+      subscriptionId: 'SUB-1',
+      multiSeatStatus: 'ENABLED',
+      marketSettings: ['APP_STORE', 'APPLE_BUSINESS'],
+    }) as Body;
+    expect(body.data.attributes).toEqual({
+      multiSeatStatus: 'ENABLED',
+      marketSettings: ['APP_STORE', 'APPLE_BUSINESS'],
+    });
+  });
+
   it('never sends relationships (group reassignment is not a PATCH operation)', () => {
     const body = buildSubscriptionPatchBody({ subscriptionId: 'SUB-1', groupLevel: 3 }) as Body;
     expect(body.data.relationships).toBeUndefined();

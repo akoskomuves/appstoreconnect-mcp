@@ -23,6 +23,8 @@ import {
   SubscriptionGroupLevelSchema,
   SubscriptionGroupReferenceNameSchema,
   SubscriptionIdSchema,
+  SubscriptionMarketSettingsSchema,
+  SubscriptionMultiSeatStatusSchema,
   SubscriptionNameSchema,
   SubscriptionPeriodSchema,
   SubscriptionReviewNoteSchema,
@@ -30,7 +32,8 @@ import {
 } from '../schemas.js';
 
 const GROUP_FIELDS = 'referenceName';
-const SUB_FIELDS = 'name,productId,subscriptionPeriod,state,groupLevel';
+const SUB_FIELDS =
+  'name,productId,subscriptionPeriod,state,groupLevel,multiSeatStatus,marketSettings';
 // SubscriptionPrice has only `startDate` as an attribute; `preserveCurrentPrice`
 // is a write-only field on the POST body, not a queryable resource attribute.
 // We don't apply fields[subscriptionPrices] at all — Apple rejects unknown names.
@@ -147,6 +150,8 @@ export interface SubscriptionPatchInput {
   // so an explicit null is how a note gets CLEARED. Omitted leaves it alone.
   reviewNote?: string | null | undefined;
   groupLevel?: number | undefined;
+  multiSeatStatus?: 'ENABLED' | 'DISABLED' | undefined;
+  marketSettings?: Array<'APP_STORE' | 'APPLE_SCHOOL' | 'APPLE_BUSINESS'> | undefined;
 }
 
 export function buildSubscriptionPatchBody(input: SubscriptionPatchInput): JSONAPIBody {
@@ -178,6 +183,8 @@ export function buildSubscriptionPatchBody(input: SubscriptionPatchInput): JSONA
   if (input.familySharable !== undefined) attributes.familySharable = input.familySharable;
   if (input.reviewNote !== undefined) attributes.reviewNote = input.reviewNote;
   if (input.groupLevel !== undefined) attributes.groupLevel = input.groupLevel;
+  if (input.multiSeatStatus !== undefined) attributes.multiSeatStatus = input.multiSeatStatus;
+  if (input.marketSettings !== undefined) attributes.marketSettings = input.marketSettings;
   return {
     data: {
       type: 'subscriptions',
@@ -638,7 +645,7 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
     {
       title: 'Get a subscription',
       description:
-        'Fetch a single auto-renewable Subscription by ID. Returns name (internal), productId, subscriptionPeriod, state, groupLevel, familySharable. The customer-facing name and description live on the subscription localizations (asc_list_subscription_localizations).',
+        'Fetch a single auto-renewable Subscription by ID. Returns name (internal), productId, subscriptionPeriod, state, groupLevel, familySharable, multiSeatStatus, marketSettings. The customer-facing name and description live on the subscription localizations (asc_list_subscription_localizations).',
       inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
       }),
@@ -715,7 +722,8 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
     {
       title: 'Patch a subscription',
       description:
-        'Update the mutable attributes of a Subscription: name (internal), subscriptionPeriod, familySharable, reviewNote, groupLevel. Pass only what changes; the tool refuses an empty PATCH. ' +
+        'Update the mutable attributes of a Subscription: name (internal), subscriptionPeriod, familySharable, reviewNote, groupLevel, multiSeatStatus, marketSettings. Pass only what changes; the tool refuses an empty PATCH. ' +
+        'marketSettings REPLACES the list of markets (App Store / Apple School Manager / Apple Business Manager): pass every market to keep. ' +
         '** productId is NOT patchable ** and the tool has no codepath that sends it — the identifier is fixed for the life of the product. ' +
         'Apple locks most of these once the subscription has been approved: expect a 409 when changing the period or turning familySharable OFF on a live product (turning it ON is allowed). Errors surface verbatim.',
       inputSchema: z.object({
@@ -727,6 +735,8 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
           .optional()
           .describe('Reviewer notes for this subscription. Pass null to clear an existing note.'),
         groupLevel: SubscriptionGroupLevelSchema.optional(),
+        multiSeatStatus: SubscriptionMultiSeatStatusSchema.optional(),
+        marketSettings: SubscriptionMarketSettingsSchema.optional(),
       }),
     },
     async (input) => {
@@ -735,13 +745,15 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
         input.subscriptionPeriod === undefined &&
         input.familySharable === undefined &&
         input.reviewNote === undefined &&
-        input.groupLevel === undefined
+        input.groupLevel === undefined &&
+        input.multiSeatStatus === undefined &&
+        input.marketSettings === undefined
       ) {
         return {
           content: [
             {
               type: 'text',
-              text: 'Refused: pass at least one of name / subscriptionPeriod / familySharable / reviewNote / groupLevel. Empty PATCH would no-op.',
+              text: 'Refused: pass at least one of name / subscriptionPeriod / familySharable / reviewNote / groupLevel / multiSeatStatus / marketSettings. Empty PATCH would no-op.',
             },
           ],
           isError: true,
@@ -756,6 +768,8 @@ export function registerSubscriptions(server: McpServer, client: ASCClient): voi
         ...(input.familySharable !== undefined ? { familySharable: input.familySharable } : {}),
         ...(input.reviewNote !== undefined ? { reviewNote: input.reviewNote } : {}),
         ...(input.groupLevel !== undefined ? { groupLevel: input.groupLevel } : {}),
+        ...(input.multiSeatStatus !== undefined ? { multiSeatStatus: input.multiSeatStatus } : {}),
+        ...(input.marketSettings !== undefined ? { marketSettings: input.marketSettings } : {}),
       });
       try {
         const data = await client.request<unknown>(

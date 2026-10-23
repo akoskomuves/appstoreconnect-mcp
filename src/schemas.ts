@@ -635,6 +635,20 @@ export const SubscriptionGroupLevelSchema = z
     'Service tier rank within the subscription group. 1 is the HIGHEST tier; larger numbers are lower tiers. Apple uses this to classify a switch between two products in the same group as an upgrade, a downgrade, or a crossgrade, which in turn decides whether the change takes effect immediately or at the next renewal. Two products may share a level (crossgrade — e.g. monthly vs yearly of the same tier).',
   );
 
+export const SubscriptionMultiSeatStatusSchema = z
+  .enum(['ENABLED', 'DISABLED'])
+  .describe(
+    'Whether one purchase of this subscription can cover multiple seats, for organizations buying through Apple School Manager or Apple Business Manager (API 4.5). Settable on PATCH only; create does not accept it.',
+  );
+
+export const SubscriptionMarketSettingsSchema = z
+  .array(z.enum(['APP_STORE', 'APPLE_SCHOOL', 'APPLE_BUSINESS']))
+  .min(1)
+  .refine((v) => new Set(v).size === v.length, 'List each market once.')
+  .describe(
+    'Markets the subscription is offered in (API 4.5): APP_STORE (consumers), APPLE_SCHOOL (Apple School Manager), APPLE_BUSINESS (Apple Business Manager). The list REPLACES the current one, so pass every market you want to keep. Settable on PATCH only; create does not accept it.',
+  );
+
 export const SubscriptionFamilySharableSchema = z
   .boolean()
   .describe(
@@ -1640,9 +1654,9 @@ export const AgeRatingOverrideV2Schema = z
   );
 
 export const KoreaAgeRatingOverrideSchema = z
-  .enum(['NONE', 'FIFTEEN_PLUS', 'NINETEEN_PLUS'])
+  .enum(['NONE', 'ALL', 'TWELVE_PLUS', 'FIFTEEN_PLUS', 'NINETEEN_PLUS'])
   .describe(
-    'Korea-specific rating override, applied only in the Korean storefront. NONE = use the computed rating.',
+    "Korea-specific rating override, applied only in the Korean storefront, using Korea's own classes: ALL (all ages), TWELVE_PLUS, FIFTEEN_PLUS, NINETEEN_PLUS. NONE = use the computed rating. ALL and TWELVE_PLUS arrived in API 4.5.",
   );
 
 export const KidsAgeBandSchema = z
