@@ -31,6 +31,7 @@ import { registerBetaRecruitment } from './domains/beta-recruitment.js';
 import { registerBetaReview } from './domains/beta-review.js';
 import { registerBetaTesters } from './domains/beta-testers.js';
 import { registerBuildBetaNotifications } from './domains/build-beta-notifications.js';
+import { registerBuildUploads } from './domains/build-uploads.js';
 import { registerBuilds } from './domains/builds.js';
 import { registerCustomProductPages } from './domains/custom-product-pages.js';
 import { registerCustomerReviews } from './domains/customer-reviews.js';
@@ -38,6 +39,7 @@ import { registerDiagnostics } from './domains/diagnostics.js';
 import { registerEncryptionDeclarations } from './domains/encryption-declarations.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIapLocalizations } from './domains/iap-localizations.js';
+import { registerIapOfferCodes } from './domains/iap-offer-codes.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
 import { registerNominations } from './domains/nominations.js';
 import { registerOfferCodes } from './domains/offer-codes.js';
@@ -46,6 +48,7 @@ import { registerPhasedRelease } from './domains/phased-release.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPreviews } from './domains/previews.js';
 import { registerPricing } from './domains/pricing.js';
+import { registerProductVersions } from './domains/product-versions.js';
 import { registerPromoOffers } from './domains/promo-offers.js';
 import { registerPromotedPurchases } from './domains/promoted-purchases.js';
 import { registerProvisioning } from './domains/provisioning.js';
@@ -220,6 +223,9 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerAlternativeDistribution(server, client);
   registerAgeRating(server, client);
   registerPpp(server, client);
+  registerProductVersions(server, client);
+  registerIapOfferCodes(server, client);
+  registerBuildUploads(server, client);
 
   return server;
 }
