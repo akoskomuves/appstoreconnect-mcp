@@ -41,6 +41,18 @@ import {
 //     the subscription id (the AppAvailability.id == app id pattern again),
 //     but SubscriptionPlanAvailability.id is an Apple-OPAQUE base64 composite
 //     — never construct it, always read it from the planAvailabilities list.
+//
+//   * MIGRATION (API 4.4 deprecated SubscriptionAvailability for
+//     SubscriptionPlanAvailability): the three subscription-availability
+//     tools keep their names and inputs but no longer call
+//     /v1/subscriptionAvailabilities or /v1/subscriptions/{id}/subscriptionAvailability.
+//     Verified live 2026-10-24 on two shipping subscriptions (monthly + annual):
+//     every subscription already has an UPFRONT plan availability (opaque id
+//     decodes to {"a":"<subscription id>","p":"0"}) whose territory set is
+//     IDENTICAL to the legacy record's. UPFRONT is the standard "pay the full
+//     period price up front" plan; MONTHLY is the newer "monthly billing with a
+//     12-month commitment" plan. So the legacy record == the UPFRONT plan, and
+//     the tools read/write that plan instead.
 
 interface JSONAPIBody {
   data: {
@@ -57,25 +69,35 @@ function territoryLinkage(territoryIds: string[]) {
 
 // ----- Body builders -----
 
-export interface SubscriptionAvailabilityCreateInput {
-  subscriptionId: string;
-  availableInNewTerritories: boolean;
-  territoryIds: string[];
+// The plan type the deprecated SubscriptionAvailability resource maps onto.
+export const STANDARD_PLAN_TYPE = 'UPFRONT';
+
+interface PlanAvailabilityRecord {
+  id: string;
+  attributes?: { planType?: string; availableInNewTerritories?: boolean };
 }
 
-export function buildSubscriptionAvailabilityCreateBody(
-  input: SubscriptionAvailabilityCreateInput,
-): JSONAPIBody {
-  return {
-    data: {
-      type: 'subscriptionAvailabilities',
-      attributes: { availableInNewTerritories: input.availableInNewTerritories },
-      relationships: {
-        subscription: { data: { type: 'subscriptions', id: input.subscriptionId } },
-        availableTerritories: territoryLinkage(input.territoryIds),
-      },
-    },
-  };
+// Pick the standard (UPFRONT) plan availability out of a subscription's
+// planAvailabilities list — the record the deprecated SubscriptionAvailability
+// mirrored. Returns undefined when the subscription has none yet.
+export function pickStandardPlanAvailability<T extends PlanAvailabilityRecord>(
+  records: readonly T[],
+): T | undefined {
+  return records.find((r) => r.attributes?.planType === STANDARD_PLAN_TYPE);
+}
+
+// SubscriptionPlanAvailability ids are base64 of {"a":"<subscription id>","p":"<n>"}.
+// Callers of asc_list_subscription_available_territories may still pass the
+// legacy id (== the subscription id), so tell the two apart without trusting
+// the composite for anything else.
+export function isPlanAvailabilityId(id: string): boolean {
+  if (/^\d+$/.test(id)) return false;
+  try {
+    const decoded = JSON.parse(Buffer.from(id, 'base64').toString('utf8')) as unknown;
+    return typeof decoded === 'object' && decoded !== null && 'a' in decoded;
+  } catch {
+    return false;
+  }
 }
 
 export interface IapAvailabilityCreateInput {
@@ -155,6 +177,16 @@ function formatASCError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+async function findStandardPlanAvailability(
+  client: ASCClient,
+  subscriptionId: string,
+): Promise<PlanAvailabilityRecord | undefined> {
+  const res = await client.request<{ data?: PlanAvailabilityRecord[] }>(
+    `/v1/subscriptions/${encodeURIComponent(subscriptionId)}/planAvailabilities?limit=200`,
+  );
+  return pickStandardPlanAvailability(res.data ?? []);
+}
+
 const TERRITORY_IDS_SCHEMA = z
   .array(TerritoryIdSchema)
   .min(1)
@@ -163,24 +195,44 @@ const TERRITORY_IDS_SCHEMA = z
   );
 
 export function registerAvailabilities(server: McpServer, client: ASCClient): void {
-  // ----- Subscription availability -----
+  // ----- Subscription availability (served by the UPFRONT plan availability) -----
 
   server.registerTool(
     'asc_get_subscription_availability',
     {
       title: 'Get the availability of a subscription',
       description:
-        "Fetch a subscription's SubscriptionAvailability — availableInNewTerritories plus the record id to pass to asc_list_subscription_available_territories. Reads through the parent (/v1/subscriptions/{id}/subscriptionAvailability).",
+        "Fetch a subscription's standard availability — availableInNewTerritories plus the record id to pass to asc_list_subscription_available_territories. Reads /v1/subscriptions/{id}/planAvailabilities and returns the UPFRONT plan record, which is what the deprecated SubscriptionAvailability resource mirrored (same territory set, verified live). Any MONTHLY (12-month-commitment) plan record is listed too. Returns a note, not an error, when the subscription has no availability yet.",
       inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
       }),
     },
     async ({ subscriptionId }) => {
       try {
-        const data = await client.request<unknown>(
-          `/v1/subscriptions/${encodeURIComponent(subscriptionId)}/subscriptionAvailability`,
+        const res = await client.request<{ data?: PlanAvailabilityRecord[] }>(
+          `/v1/subscriptions/${encodeURIComponent(subscriptionId)}/planAvailabilities?limit=200`,
         );
-        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+        const records = res.data ?? [];
+        const standard = pickStandardPlanAvailability(records);
+        if (!standard) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Subscription ${subscriptionId} has no UPFRONT plan availability yet — it is not available in any territory. Set one with asc_post_subscription_availability.${records.length ? `\n\nOther plan records:\n${JSON.stringify(records, null, 2)}` : ''}`,
+              },
+            ],
+          };
+        }
+        const others = records.filter((r) => r !== standard);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Standard (UPFRONT) availability of subscription ${subscriptionId}: availableInNewTerritories=${standard.attributes?.availableInNewTerritories}. Pass id ${standard.id} to asc_list_subscription_available_territories.${others.length ? ` Also has ${others.length} other plan record(s) (MONTHLY = 12-month commitment).` : ''}\n\n${JSON.stringify(res, null, 2)}`,
+            },
+          ],
+        };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
       }
@@ -192,7 +244,7 @@ export function registerAvailabilities(server: McpServer, client: ASCClient): vo
     {
       title: 'List territories a subscription is available in',
       description:
-        'List the Territory rows behind a SubscriptionAvailability (bare 3-letter ISO ids). Pass the availability id from asc_get_subscription_availability.',
+        "List the Territory rows (bare 3-letter ISO ids) a subscription is available in. Pass the plan-availability id from asc_get_subscription_availability, or the subscription id itself (the old SubscriptionAvailability id) — the tool then reads that subscription's UPFRONT plan. Uses /v1/subscriptionPlanAvailabilities/{id}/availableTerritories; the deprecated /v1/subscriptionAvailabilities path is no longer called.",
       inputSchema: z.object({
         availabilityId: SubscriptionAvailabilityIdSchema,
         maxItems: z.number().int().positive().max(2000).default(500),
@@ -200,10 +252,25 @@ export function registerAvailabilities(server: McpServer, client: ASCClient): vo
       }),
     },
     async ({ availabilityId, maxItems, raw }) => {
-      const path = `/v1/subscriptionAvailabilities/${encodeURIComponent(
-        availabilityId,
-      )}/availableTerritories?limit=200`;
       try {
+        let planAvailabilityId = availabilityId;
+        if (!isPlanAvailabilityId(availabilityId)) {
+          const standard = await findStandardPlanAvailability(client, availabilityId);
+          if (!standard) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Subscription ${availabilityId} has no UPFRONT plan availability — it is available in 0 territories.`,
+                },
+              ],
+            };
+          }
+          planAvailabilityId = standard.id;
+        }
+        const path = `/v1/subscriptionPlanAvailabilities/${encodeURIComponent(
+          planAvailabilityId,
+        )}/availableTerritories?limit=200`;
         const pages = await paginate(client, path, maxItems);
         const text = raw ? JSON.stringify(pages, null, 2) : digestTerritories(pages);
         return { content: [{ type: 'text', text }] };
@@ -216,9 +283,9 @@ export function registerAvailabilities(server: McpServer, client: ASCClient): vo
   server.registerTool(
     'asc_post_subscription_availability',
     {
-      title: 'Replace the availability of a subscription (POST-only — full replacement)',
+      title: 'Replace the availability of a subscription (full replacement)',
       description:
-        'Create a new SubscriptionAvailability — Apple atomically swaps over to it. There is NO PATCH; POST the FULL territory list (bare 3-letter ISO codes) every time; missing territories get removed. availableInNewTerritories controls whether Apple auto-adds the subscription when new storefronts launch. ⚠️ Removing a territory pulls the subscription from sale there — customer-facing.',
+        "Set where a subscription is sold. Pass the FULL territory list (bare 3-letter ISO codes) every time; missing territories get removed. availableInNewTerritories controls whether Apple auto-adds the subscription when new storefronts launch. Writes the subscription's UPFRONT plan availability (the replacement for the deprecated SubscriptionAvailability): PATCHes the existing record, or POSTs one with planType UPFRONT if the subscription has none. Use asc_post_subscription_plan_availability for the MONTHLY (12-month commitment) plan. ⚠️ Removing a territory pulls the subscription from sale there — customer-facing.",
       inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         availableInNewTerritories: AvailableInNewTerritoriesSchema,
@@ -226,21 +293,38 @@ export function registerAvailabilities(server: McpServer, client: ASCClient): vo
       }),
     },
     async ({ subscriptionId, availableInNewTerritories, territoryIds }) => {
-      const body = buildSubscriptionAvailabilityCreateBody({
-        subscriptionId,
-        availableInNewTerritories,
-        territoryIds,
-      });
       try {
-        const data = await client.request<unknown>('/v1/subscriptionAvailabilities', {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
+        const standard = await findStandardPlanAvailability(client, subscriptionId);
+        const data = standard
+          ? await client.request<unknown>(
+              `/v1/subscriptionPlanAvailabilities/${encodeURIComponent(standard.id)}`,
+              {
+                method: 'PATCH',
+                body: JSON.stringify(
+                  buildSubscriptionPlanAvailabilityPatchBody({
+                    planAvailabilityId: standard.id,
+                    availableInNewTerritories,
+                    territoryIds,
+                  }),
+                ),
+              },
+            )
+          : await client.request<unknown>('/v1/subscriptionPlanAvailabilities', {
+              method: 'POST',
+              body: JSON.stringify(
+                buildSubscriptionPlanAvailabilityCreateBody({
+                  subscriptionId,
+                  planType: STANDARD_PLAN_TYPE,
+                  availableInNewTerritories,
+                  territoryIds,
+                }),
+              ),
+            });
         return {
           content: [
             {
               type: 'text',
-              text: `Replaced availability on subscription ${subscriptionId} (${territoryIds.length} territories, availableInNewTerritories=${availableInNewTerritories}).\n\n${JSON.stringify(data, null, 2)}`,
+              text: `Replaced availability on subscription ${subscriptionId} (${territoryIds.length} territories, availableInNewTerritories=${availableInNewTerritories}) via the UPFRONT plan availability (${standard ? `PATCH ${standard.id}` : 'new record'}).\n\n${JSON.stringify(data, null, 2)}`,
             },
           ],
         };
@@ -396,7 +480,7 @@ export function registerAvailabilities(server: McpServer, client: ASCClient): vo
       inputSchema: z.object({
         subscriptionId: SubscriptionIdSchema,
         planType: SubscriptionPlanTypeSchema.describe(
-          'Plan type this availability applies to: MONTHLY (recurring per-period billing) or UPFRONT (single up-front charge). Immutable after creation.',
+          'Plan type this availability applies to: UPFRONT (the standard plan — the customer pays the full period price up front; every subscription has one, and asc_post_subscription_availability writes it) or MONTHLY (monthly billing with a 12-month commitment). Immutable after creation.',
         ),
         availableInNewTerritories: AvailableInNewTerritoriesSchema.optional(),
         territoryIds: TERRITORY_IDS_SCHEMA,

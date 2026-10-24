@@ -1620,7 +1620,7 @@ export const MarketplaceWebhookIdSchema = z
   .string()
   .min(1)
   .describe(
-    'MarketplaceWebhook ID from /v1/marketplaceWebhooks. Team-level webhook for marketplace apps (alternative app stores) — Apple notifies the marketplace about app updates. endpointUrl + write-only secret (HMAC), same secret semantics as v0.17 app webhooks.',
+    'Marketplace webhook id. By default a regular Webhook id (from asc_list_marketplace_webhooks with marketplaceAppId — the API 4.x replacement). With legacy:true, an id from the deprecated team-level /v1/marketplaceWebhooks list. Secret is write-only either way.',
   );
 
 // ---------------------------------------------------------------------------
@@ -1671,7 +1671,7 @@ export const SubscriptionAvailabilityIdSchema = z
   .string()
   .min(1)
   .describe(
-    'SubscriptionAvailability record id — equals the subscription id (verified live; same "shared numeric identifier" pattern as AppAvailability.id == app id). Get it from asc_get_subscription_availability. Its availableTerritories relationship targets plain Territory rows (bare 3-letter ISO codes).',
+    'Availability record id from asc_get_subscription_availability — the UPFRONT SubscriptionPlanAvailability id (opaque base64). The subscription id itself is also accepted (it was the id of the deprecated SubscriptionAvailability resource). Territories are plain Territory rows (bare 3-letter ISO codes).',
   );
 
 export const InAppPurchaseAvailabilityIdSchema = z

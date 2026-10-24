@@ -149,6 +149,15 @@ The customer-facing **group heading** — what the App Store renders above the p
 - `asc_list_iap_prices` — current price schedule for an IAP (same shape as app prices: manual overrides + auto-derived + base territory).
 - `asc_list_iap_price_points` — valid Apple price tiers for an IAP in a given territory. Same `nearAmount` / `nearCount` narrowing as the app and subscription price-point tools.
 - `asc_post_iap_price_schedule` — replace the entire IAP price schedule (same whole-schedule replace semantics as `asc_post_app_price_schedule`: `acknowledgeReplacesAll: true`, base-territory entry with no `startDate`, base-change ack required). No grandfather mechanism — same as apps.
+- `asc_post_iap` — create a consumable, non-consumable or non-renewing-subscription IAP. **`productId` is permanent** and never reusable on the account, even after a delete. The new IAP starts in `MISSING_METADATA`; the success message lists the remaining steps
+- `asc_patch_iap` — `name` (internal), `reviewNote`, `familySharable`; pass `null` to clear. `productId` and `inAppPurchaseType` are immutable and never sent
+- `asc_delete_iap` — pre-checks state and refuses for IAPs under review or ever approved, pointing at `asc_post_iap_availability` to stop selling a live one; `force: true` skips the check
+
+### Version-scoped IAP & subscription content (`/v2`)
+API 4.x adds `/v2` copies of the IAP, subscription and group localization endpoints and the two promotional-image endpoints. Same resources and attributes as `/v1`, but they attach to a **version** of the product (relationship `version`) rather than the product itself. `/v1` is not deprecated, so the existing localization and image tools stay on it; these are additive. Get the version id from the product's versions list.
+
+- **Localizations**: `asc_{post,get,patch,delete}_{iap,subscription,subscription_group}_version_localization`
+- **Images**: `asc_{upload,post,patch,get,delete}_{iap,subscription}_version_image` — the v2 commit takes `uploaded` only (no `sourceFileChecksum`)
 
 ### In-app product versions (IAPs, subscriptions, subscription groups)
 Since API 4.4.1 every in-app product has two layers. The **product** (`inAppPurchases`, `subscriptions`, `subscriptionGroups`) holds identity and commerce: product ID, type, prices, availability, offers. The tools above work on it. Its **versions** (`inAppPurchaseVersions`, `subscriptionVersions`, `subscriptionGroupVersions`) hold the customer-facing metadata App Review approves: localizations and, for IAPs and subscriptions, images. Each version has a number and a state (`PREPARE_FOR_SUBMISSION` … `APPROVED`, then `REPLACED_WITH_NEW_VERSION` once a newer one is approved). To change approved metadata you create a version, edit it, and submit the version through a review submission. Apple deprecated the product-scoped v1 localization / image endpoints and the standalone IAP / subscription submissions in favour of this model.
@@ -243,9 +252,12 @@ An App Clip record appears when a build containing the clip is uploaded; the API
 ### Availabilities (subscriptions, IAPs, plans)
 Per-territory availability of in-app products — the sibling of App Availability with one key difference: territory linkage uses **bare 3-letter ISO codes** (plain `territories`), not the opaque composites apps use.
 
-- **Subscriptions**: `asc_get_subscription_availability` · `asc_list_subscription_available_territories` · `asc_post_subscription_availability` (POST-only full replacement — send the complete territory list; ⚠️ removed territories go off sale).
+- **Subscriptions**: `asc_get_subscription_availability` · `asc_list_subscription_available_territories` · `asc_post_subscription_availability` (full replacement — send the complete territory list; ⚠️ removed territories go off sale). Since API 4.4 deprecated `SubscriptionAvailability`, these read and write the subscription's **`UPFRONT` plan availability** instead — live data shows it carries the identical territory set, and every subscription has one. Same names and inputs as before.
 - **IAPs**: `asc_get_iap_availability` (reads through the v2 parent path) · `asc_list_iap_available_territories` · `asc_post_iap_availability` (same replace semantics).
-- **Subscription plans** (per plan type `MONTHLY` / `UPFRONT`): `asc_list_subscription_plan_availabilities` · `asc_list_subscription_plan_available_territories` · `asc_post_…` · `asc_patch_…` (the one availability resource with a PATCH).
+- **Subscription plans** (per plan type: `UPFRONT` = the standard plan, paid up front each period; `MONTHLY` = monthly billing with a 12-month commitment): `asc_list_subscription_plan_availabilities` · `asc_list_subscription_plan_available_territories` · `asc_post_…` · `asc_patch_…` (the one availability resource with a PATCH).
+
+### Marketplace webhooks (EU alternative marketplaces)
+`/v1/marketplaceWebhooks` is deprecated. Marketplace notifications are now regular webhooks on the **marketplace app**, subscribed to the three `ALTERNATIVE_DISTRIBUTION_*` events. `asc_list_marketplace_webhooks` / `asc_post_…` / `asc_patch_…` / `asc_delete_…` keep their names and drive `/v1/webhooks` (create and list take `marketplaceAppId`); pass `legacy: true` to list, patch or delete records created on the old team-level endpoint. On an app that is not a marketplace app, Apple rejects these event types with a 409 — the tool says so.
 
 ### Subscription offer signing (in-app redemption)
 The cryptographic signer that makes promo/intro offers redeemable in your iOS app via StoreKit. Uses a **separate** signing key from the ASC API key — issued at App Store Connect → Users and Access → Integrations → In-App Purchase. See the [optional config section](#optional-in-app-purchase-signing-key) for env vars. Built on Apple's official [`@apple/app-store-server-library`](https://github.com/apple/app-store-server-library-node).
