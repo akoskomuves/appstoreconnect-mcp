@@ -150,6 +150,23 @@ The customer-facing **group heading** — what the App Store renders above the p
 - `asc_list_iap_price_points` — valid Apple price tiers for an IAP in a given territory. Same `nearAmount` / `nearCount` narrowing as the app and subscription price-point tools.
 - `asc_post_iap_price_schedule` — replace the entire IAP price schedule (same whole-schedule replace semantics as `asc_post_app_price_schedule`: `acknowledgeReplacesAll: true`, base-territory entry with no `startDate`, base-change ack required). No grandfather mechanism — same as apps.
 
+### In-app product versions (IAPs, subscriptions, subscription groups)
+Since API 4.4.1 every in-app product has two layers. The **product** (`inAppPurchases`, `subscriptions`, `subscriptionGroups`) holds identity and commerce: product ID, type, prices, availability, offers. The tools above work on it. Its **versions** (`inAppPurchaseVersions`, `subscriptionVersions`, `subscriptionGroupVersions`) hold the customer-facing metadata App Review approves: localizations and, for IAPs and subscriptions, images. Each version has a number and a state (`PREPARE_FOR_SUBMISSION` … `APPROVED`, then `REPLACED_WITH_NEW_VERSION` once a newer one is approved). To change approved metadata you create a version, edit it, and submit the version through a review submission. Apple deprecated the product-scoped v1 localization / image endpoints and the standalone IAP / subscription submissions in favour of this model.
+
+- `asc_list_{iap,subscription,subscription_group}_versions` — versions of one product, newest first, with state and localization count; filter by `state`
+- `asc_get_*_version` — one version with its product, localizations and images included
+- `asc_post_*_version` — create a new version (relationships-only body). Versions have no PATCH or DELETE, so it refuses while the product already has a `PREPARE_FOR_SUBMISSION` draft and names it. `dryRun` prints the body and the existing versions
+- `asc_list_*_version_localizations` — the version-scoped localizations (these carry no `state`, unlike the v1 ones)
+- `asc_list_{iap,subscription}_version_images` / `asc_get_{iap,subscription}_version_primary_image` — the version's images (to-many) and its to-one `image`
+
+### In-app purchase offer codes
+Offer codes for consumables, non-consumables and non-renewing subscriptions (API 4.2). They work like the subscription offer codes, with a campaign → one-time-use batches / custom codes hierarchy, and with simpler campaigns: just a name, customer eligibility (`NON_SPENDER`, `ACTIVE_SPENDER`, `CHURNED_SPENDER`) and a price per territory (IAP price points). Nothing can be deleted; PATCH only flips `active`.
+
+- `asc_list_iap_offer_codes` · `asc_get_iap_offer_code` · `asc_list_iap_offer_code_prices`
+- `asc_post_iap_offer_code` — one POST with every territory price inline. Pre-flights a 10-campaign cap and name uniqueness (both carried over from subscriptions as working assumptions) · `asc_patch_iap_offer_code` (`active`)
+- One-time-use batches: `asc_list_*` / `asc_get_*` / `asc_post_*` / `asc_patch_iap_offer_code_one_time_use_codes`, and `asc_export_iap_offer_code_one_time_use_values` (CSV of the redeemable strings)
+- Custom codes: `asc_list_iap_offer_code_custom_codes` · `asc_get_*` · `asc_post_iap_offer_code_custom_code` (refuses a string the campaign already has) · `asc_patch_*`
+
 ### Subscription introductory offers
 Introductory offers target **new** subscribers — the discounted "first window" before the regular price kicks in.
 
@@ -249,6 +266,15 @@ The questionnaire App Review scores an app against — it gates submission, and 
 Two things about this resource are easy to get wrong, so the tools handle them for you. It hangs off **AppInfo, not the version** — age rating is per-app metadata like categories, and `/v1/appStoreVersions/{id}/ageRatingDeclaration` returns 404. And its ID **is** the AppInfo ID, so passing `appId` resolves the target automatically (if an app has several AppInfos across notarization tracks, the tool reports the candidates instead of guessing).
 
 Apple **merges** on write: omitted keys keep their current value, so a partial update is safe — but you can't clear an answer by leaving it out, you have to send the explicit `NONE`/`false`. Overrides only ever raise the rating, never lower it.
+
+### Build uploads
+Upload an `.ipa` / `.pkg` through the API instead of Transporter (API 4.1): create a build upload (app + version + build number + platform) → reserve the file → PUT the chunks to Apple storage → commit with the file's checksum. The commit takes `sourceFileChecksums: { file: { hash, algorithm } }`, a nested object, unlike the flat checksum string screenshots use.
+
+- `asc_upload_build` — the whole flow from a local file (MD5 checksum, UTI from the extension, `dryRun` prints both bodies). Apple then processes the build; follow it with `asc_get_build_upload`
+- `asc_list_build_uploads` — an app's uploads, newest first: version, build, platform, state (`AWAITING_UPLOAD` / `PROCESSING` / `COMPLETE` / `FAILED`, with error and warning counts) and the resulting build. A COMPLETE upload's build id equals its upload id. Slots abandoned mid-upload stay `AWAITING_UPLOAD`
+- `asc_get_build_upload` (full error / warning detail) · `asc_delete_build_upload` (drop a slot; doesn't touch processed builds)
+- Raw steps: `asc_post_build_upload` · `asc_post_build_upload_file` · `asc_upload_asset_chunk` · `asc_patch_build_upload_file` · `asc_list_build_upload_files` · `asc_get_build_upload_file`
+- Build bundles (the app, App Clips and extensions inside a processed build): `asc_list_build_bundles` · `asc_list_build_bundle_file_sizes` (download / install size per device) · `asc_get_build_bundle_app_clip_domain_status` (`cache` or `debug`) · `asc_list_build_bundle_beta_app_clip_invocations`
 
 ### Xcode Cloud (CI/CD)
 The build side of the ship loop: watch runs, read failures, kick builds. Hierarchy: products → workflows → build runs → actions (build/test/archive/analyze) → issues / test results / artifacts. A finished run links the TestFlight builds it produced, handing off to the TestFlight tools.
