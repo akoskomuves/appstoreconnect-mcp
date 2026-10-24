@@ -5,9 +5,10 @@ import {
   digestAlternativeDistributionDomains,
   digestAlternativeDistributionPackageVersions,
   digestMarketplaceWebhooks,
+  digestWebhooks,
 } from '../digest.js';
 import { ASCError } from '../errors.js';
-import { paginate } from '../jsonapi.js';
+import { type JSONAPIResource, paginate } from '../jsonapi.js';
 import {
   AlternativeDistributionDomainIdSchema,
   AlternativeDistributionKeyIdSchema,
@@ -19,6 +20,7 @@ import {
   MarketplaceWebhookIdSchema,
   WebhookSecretSchema,
 } from '../schemas.js';
+import { buildWebhookCreateBody, buildWebhookPatchBody } from './webhooks.js';
 
 // EU DMA / alternative distribution — the surfaces for distributing iOS
 // apps outside the App Store in the EU: from your own website (web
@@ -44,12 +46,62 @@ import {
 //   - MarketplaceWebhooks: team-level webhooks for marketplace apps. Wire
 //     strip: Swift `endpointURL` → wire `endpointUrl`; `secret` is
 //     WRITE-ONLY (same treatment as v0.17 app webhooks).
+//     DEPRECATED by Apple (all four /v1/marketplaceWebhooks operations). The
+//     replacement is the regular per-app webhook (/v1/webhooks) on the
+//     MARKETPLACE app, subscribed to the three ALTERNATIVE_DISTRIBUTION_*
+//     event types — Apple's webhook-events doc describes those as the
+//     notifications that "inform a marketplace about changes to apps it
+//     distributes". The four asc_*_marketplace_webhook tools keep their names
+//     and now drive /v1/webhooks; `legacy: true` reaches the old team-level
+//     records (list / patch / delete) so existing ones can be cleaned up.
 
 const DOMAIN_FIELDS = 'domain,referenceName,createdDate';
 const PACKAGE_VERSION_FIELDS = 'url,urlExpirationDate,version,fileChecksum,state';
 const VARIANT_FIELDS = 'url,urlExpirationDate,alternativeDistributionKeyBlob,fileChecksum';
 const DELTA_FIELDS = 'url,urlExpirationDate,alternativeDistributionKeyBlob,fileChecksum';
 const MARKETPLACE_WEBHOOK_FIELDS = 'endpointUrl';
+const WEBHOOK_FIELDS = 'enabled,eventTypes,name,url,app';
+
+// The webhook event types that replace the deprecated marketplace webhook.
+export const MARKETPLACE_EVENT_TYPES = [
+  'ALTERNATIVE_DISTRIBUTION_PACKAGE_VERSION_CREATED',
+  'ALTERNATIVE_DISTRIBUTION_PACKAGE_AVAILABLE_UPDATED',
+  'ALTERNATIVE_DISTRIBUTION_TERRITORY_AVAILABILITY_UPDATED',
+] as const;
+
+const MarketplaceEventTypeSchema = z.enum(MARKETPLACE_EVENT_TYPES);
+
+// A webhook counts as a marketplace webhook when it subscribes to at least one
+// ALTERNATIVE_DISTRIBUTION_* event. Used to narrow the app's webhook list.
+export function isMarketplaceWebhook(resource: JSONAPIResource): boolean {
+  const events = resource.attributes?.eventTypes;
+  return (
+    Array.isArray(events) &&
+    events.some((e) => (MARKETPLACE_EVENT_TYPES as readonly string[]).includes(String(e)))
+  );
+}
+
+export interface MarketplaceWebhookCreateInput {
+  marketplaceAppId: string;
+  endpointUrl: string;
+  secret: string;
+  name?: string | undefined;
+  eventTypes?: string[] | undefined;
+  enabled?: boolean | undefined;
+}
+
+// The replacement create: a regular Webhook on the marketplace app, all three
+// marketplace event types by default.
+export function buildMarketplaceWebhookV2CreateBody(input: MarketplaceWebhookCreateInput) {
+  return buildWebhookCreateBody({
+    appId: input.marketplaceAppId,
+    name: input.name ?? 'marketplace',
+    url: input.endpointUrl,
+    secret: input.secret,
+    eventTypes: input.eventTypes ?? [...MARKETPLACE_EVENT_TYPES],
+    enabled: input.enabled ?? true,
+  });
+}
 
 interface JSONAPIBody {
   data: {
@@ -172,6 +224,15 @@ function formatASCError(err: unknown): string {
     return `${err.message}\n\n${detail}${gate}`;
   }
   return err instanceof Error ? err.message : String(err);
+}
+
+// A 404 on a regular-webhook path is often an id from the old team-level list.
+function legacyHint(err: unknown, legacy: boolean): string {
+  const text = formatASCError(err);
+  if (!legacy && err instanceof ASCError && err.status === 404) {
+    return `${text}\n\nIf this id came from the old team-level list, retry with legacy:true.`;
+  }
+  return text;
 }
 
 export function registerAlternativeDistribution(server: McpServer, client: ASCClient): void {
@@ -639,26 +700,79 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
     },
   );
 
-  // ----- Marketplace webhooks -----
+  // ----- Marketplace webhooks (now regular webhooks on the marketplace app) -----
+
+  const legacyFlag = z
+    .boolean()
+    .default(false)
+    .describe(
+      'true = act on the DEPRECATED team-level /v1/marketplaceWebhooks record instead of a regular webhook. Use only to read or clean up webhooks created before the migration.',
+    );
 
   server.registerTool(
     'asc_list_marketplace_webhooks',
     {
       title: 'List marketplace webhooks',
       description:
-        'GET /v1/marketplaceWebhooks — team-level webhooks Apple uses to notify a MARKETPLACE app about available app updates. Secret is write-only and never shown.',
+        "List the webhooks that notify a MARKETPLACE app about apps it distributes: GET /v1/apps/{marketplaceAppId}/webhooks, narrowed to webhooks subscribed to an ALTERNATIVE_DISTRIBUTION_* event (Apple's replacement for the deprecated /v1/marketplaceWebhooks). Pass legacy:true (no app id needed) to list the old team-level records instead. Secret is write-only and never shown.",
       inputSchema: z.object({
+        marketplaceAppId: AppIdSchema.optional().describe(
+          'The marketplace app (your alternative app store app). Required unless legacy is true.',
+        ),
+        legacy: legacyFlag,
         raw: z.boolean().default(false),
       }),
     },
-    async ({ raw }) => {
-      const params = new URLSearchParams();
-      params.set('fields[marketplaceWebhooks]', MARKETPLACE_WEBHOOK_FIELDS);
-      params.set('limit', '200');
+    async ({ marketplaceAppId, legacy, raw }) => {
       try {
-        const pages = await paginate(client, `/v1/marketplaceWebhooks?${params.toString()}`, 200);
-        const text = raw ? JSON.stringify(pages, null, 2) : digestMarketplaceWebhooks(pages);
-        return { content: [{ type: 'text', text }] };
+        if (legacy) {
+          const params = new URLSearchParams();
+          params.set('fields[marketplaceWebhooks]', MARKETPLACE_WEBHOOK_FIELDS);
+          params.set('limit', '200');
+          const pages = await paginate(client, `/v1/marketplaceWebhooks?${params.toString()}`, 200);
+          const text = raw ? JSON.stringify(pages, null, 2) : digestMarketplaceWebhooks(pages);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `${text}\n\n(legacy team-level records — /v1/marketplaceWebhooks is deprecated; recreate them with asc_post_marketplace_webhook and delete these with legacy:true)`,
+              },
+            ],
+          };
+        }
+        if (!marketplaceAppId) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Refused: pass marketplaceAppId (marketplace webhooks are now regular webhooks on the marketplace app), or legacy:true for the deprecated team-level list.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        const params = new URLSearchParams();
+        params.set('fields[webhooks]', WEBHOOK_FIELDS);
+        params.set('limit', '200');
+        const all = await paginate(
+          client,
+          `/v1/apps/${encodeURIComponent(marketplaceAppId)}/webhooks?${params.toString()}`,
+          200,
+        );
+        const pages = { ...all, data: all.data.filter(isMarketplaceWebhook) };
+        delete pages.total;
+        const text = raw ? JSON.stringify(pages, null, 2) : digestWebhooks(pages);
+        const hidden = all.data.length - pages.data.length;
+        return {
+          content: [
+            {
+              type: 'text',
+              text: hidden
+                ? `${text}\n\n(${hidden} other webhook(s) on this app without marketplace events — see asc_list_webhooks)`
+                : text,
+            },
+          ],
+        };
       } catch (err) {
         return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
       }
@@ -670,16 +784,33 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
     {
       title: 'Create a marketplace webhook',
       description:
-        'POST /v1/marketplaceWebhooks — both attributes required: endpointUrl (wire key — Swift endpointURL, pinned by tests) + secret (HMAC signing key, WRITE-ONLY — store it on the receiving side first; rotatable via PATCH).',
+        "Create the webhook that notifies a MARKETPLACE app about apps it distributes (new version available, remove a version, remove all versions). POST /v1/webhooks on the marketplace app, subscribed to the ALTERNATIVE_DISTRIBUTION_* events (all three by default) — Apple's replacement for the deprecated POST /v1/marketplaceWebhooks, which this tool no longer calls. secret is the HMAC signing key, WRITE-ONLY: store it on the receiving side first; rotatable via PATCH.",
       inputSchema: z.object({
+        marketplaceAppId: AppIdSchema.describe(
+          'The marketplace app (your alternative app store app) the webhook belongs to.',
+        ),
         endpointUrl: z.string().url().describe('HTTPS endpoint Apple POSTs marketplace events to.'),
         secret: WebhookSecretSchema,
+        name: z.string().min(1).optional().describe('Webhook name. Default "marketplace".'),
+        eventTypes: z
+          .array(MarketplaceEventTypeSchema)
+          .min(1)
+          .optional()
+          .describe('Subset of the three marketplace events. Default: all three.'),
+        enabled: z.boolean().default(true),
       }),
     },
-    async ({ endpointUrl, secret }) => {
-      const body = buildMarketplaceWebhookCreateBody({ endpointUrl, secret });
+    async ({ marketplaceAppId, endpointUrl, secret, name, eventTypes, enabled }) => {
+      const body = buildMarketplaceWebhookV2CreateBody({
+        marketplaceAppId,
+        endpointUrl,
+        secret,
+        name,
+        eventTypes,
+        enabled,
+      });
       try {
-        const data = await client.request<unknown>('/v1/marketplaceWebhooks', {
+        const data = await client.request<unknown>('/v1/webhooks', {
           method: 'POST',
           body: JSON.stringify(body),
         });
@@ -687,7 +818,7 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
           content: [
             {
               type: 'text',
-              text: `Created marketplace webhook.\n\n${JSON.stringify(data, null, 2)}`,
+              text: `Created marketplace webhook on app ${marketplaceAppId} (${body.data.attributes?.eventTypes ? (body.data.attributes.eventTypes as string[]).join(', ') : ''}). Test it with asc_post_webhook_ping.\n\n${JSON.stringify(data, null, 2)}`,
             },
           ],
         };
@@ -702,30 +833,46 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
     {
       title: 'Patch a marketplace webhook',
       description:
-        'PATCH /v1/marketplaceWebhooks/{id} — update endpointUrl and/or rotate the secret (update the receiver first). Pass at least one.',
+        'Update a marketplace webhook: endpointUrl, rotate the secret (update the receiver first), and — for regular webhooks — name, eventTypes, enabled. PATCH /v1/webhooks/{id} by default; legacy:true PATCHes a deprecated /v1/marketplaceWebhooks record (endpointUrl + secret only). Pass at least one field.',
       inputSchema: z.object({
         webhookId: MarketplaceWebhookIdSchema,
         endpointUrl: z.string().url().optional(),
         secret: WebhookSecretSchema.optional(),
+        name: z.string().min(1).optional(),
+        eventTypes: z.array(MarketplaceEventTypeSchema).min(1).optional(),
+        enabled: z.boolean().optional(),
+        legacy: legacyFlag,
       }),
     },
-    async ({ webhookId, endpointUrl, secret }) => {
-      if (endpointUrl === undefined && secret === undefined) {
+    async ({ webhookId, endpointUrl, secret, name, eventTypes, enabled, legacy }) => {
+      if (legacy && (name !== undefined || eventTypes !== undefined || enabled !== undefined)) {
         return {
-          content: [{ type: 'text', text: 'Refused: pass endpointUrl and/or secret.' }],
+          content: [
+            {
+              type: 'text',
+              text: 'Refused: legacy marketplace webhooks only take endpointUrl and secret. Recreate it with asc_post_marketplace_webhook to get name/eventTypes/enabled.',
+            },
+          ],
           isError: true,
         };
       }
-      const body = buildMarketplaceWebhookPatchBody({
-        webhookId,
-        ...(endpointUrl !== undefined ? { endpointUrl } : {}),
-        ...(secret !== undefined ? { secret } : {}),
-      });
+      if ([endpointUrl, secret, name, eventTypes, enabled].every((v) => v === undefined)) {
+        return {
+          content: [{ type: 'text', text: 'Refused: pass at least one field to change.' }],
+          isError: true,
+        };
+      }
+      const body = legacy
+        ? buildMarketplaceWebhookPatchBody({ webhookId, endpointUrl, secret })
+        : buildWebhookPatchBody({ webhookId, url: endpointUrl, secret, name, eventTypes, enabled });
+      const path = legacy
+        ? `/v1/marketplaceWebhooks/${encodeURIComponent(webhookId)}`
+        : `/v1/webhooks/${encodeURIComponent(webhookId)}`;
       try {
-        const data = await client.request<unknown>(
-          `/v1/marketplaceWebhooks/${encodeURIComponent(webhookId)}`,
-          { method: 'PATCH', body: JSON.stringify(body) },
-        );
+        const data = await client.request<unknown>(path, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        });
         return {
           content: [
             {
@@ -735,7 +882,7 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
           ],
         };
       } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+        return { content: [{ type: 'text', text: legacyHint(err, legacy) }], isError: true };
       }
     },
   );
@@ -744,19 +891,22 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
     'asc_delete_marketplace_webhook',
     {
       title: 'Delete a marketplace webhook',
-      description: 'DELETE /v1/marketplaceWebhooks/{id} — stop marketplace update notifications.',
+      description:
+        'Stop marketplace update notifications. DELETE /v1/webhooks/{id} by default; legacy:true deletes a deprecated /v1/marketplaceWebhooks record.',
       inputSchema: z.object({
         webhookId: MarketplaceWebhookIdSchema,
+        legacy: legacyFlag,
       }),
     },
-    async ({ webhookId }) => {
+    async ({ webhookId, legacy }) => {
+      const path = legacy
+        ? `/v1/marketplaceWebhooks/${encodeURIComponent(webhookId)}`
+        : `/v1/webhooks/${encodeURIComponent(webhookId)}`;
       try {
-        await client.request<unknown>(`/v1/marketplaceWebhooks/${encodeURIComponent(webhookId)}`, {
-          method: 'DELETE',
-        });
+        await client.request<unknown>(path, { method: 'DELETE' });
         return { content: [{ type: 'text', text: `Deleted marketplace webhook ${webhookId}.` }] };
       } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+        return { content: [{ type: 'text', text: legacyHint(err, legacy) }], isError: true };
       }
     },
   );

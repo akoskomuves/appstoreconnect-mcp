@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildIapAvailabilityCreateBody,
-  buildSubscriptionAvailabilityCreateBody,
   buildSubscriptionPlanAvailabilityCreateBody,
   buildSubscriptionPlanAvailabilityPatchBody,
+  isPlanAvailabilityId,
+  pickStandardPlanAvailability,
+  STANDARD_PLAN_TYPE,
 } from '../src/domains/availabilities.js';
 
 // These tests pin the JSON:API wire shapes for the availability creates.
@@ -28,30 +30,42 @@ type Body = {
 const rel = (body: Body, key: string) =>
   (body.data.relationships as Record<string, { data: unknown }>)[key]?.data;
 
-describe('buildSubscriptionAvailabilityCreateBody', () => {
-  const body = buildSubscriptionAvailabilityCreateBody({
-    subscriptionId: 'SUB-1',
-    availableInNewTerritories: true,
-    territoryIds: ['USA', 'BRA'],
-  }) as Body;
+// API 4.4 deprecated SubscriptionAvailability. The subscription-availability
+// tools now read and write the UPFRONT plan availability, which live data shows
+// carries the identical territory set (2026-10-24).
+describe('subscription availability → UPFRONT plan migration', () => {
+  // Real id shape: base64 of {"a":"<subscription id>","p":"0"}.
+  const upfrontId = Buffer.from('{"a":"6700000001","p":"0"}').toString('base64');
 
-  it('uses subscriptionAvailabilities as the type', () => {
-    expect(body.data.type).toBe('subscriptionAvailabilities');
+  it('the standard plan type is UPFRONT', () => {
+    expect(STANDARD_PLAN_TYPE).toBe('UPFRONT');
   });
 
-  it('carries availableInNewTerritories (wire key, no is-prefix)', () => {
-    expect(body.data.attributes).toEqual({ availableInNewTerritories: true });
+  it('picks the UPFRONT record and ignores MONTHLY', () => {
+    const records = [
+      { id: 'm', attributes: { planType: 'MONTHLY' } },
+      { id: upfrontId, attributes: { planType: 'UPFRONT', availableInNewTerritories: true } },
+    ];
+    expect(pickStandardPlanAvailability(records)?.id).toBe(upfrontId);
+    expect(pickStandardPlanAvailability([records[0] as (typeof records)[number]])).toBeUndefined();
+    expect(pickStandardPlanAvailability([])).toBeUndefined();
   });
 
-  it('points at the owning subscription', () => {
-    expect(rel(body, 'subscription')).toEqual({ type: 'subscriptions', id: 'SUB-1' });
+  it('tells a plan-availability id from a legacy (subscription) id', () => {
+    expect(isPlanAvailabilityId(upfrontId)).toBe(true);
+    expect(isPlanAvailabilityId('6700000001')).toBe(false);
+    expect(isPlanAvailabilityId('not-base64-json')).toBe(false);
   });
 
-  it('availableTerritories are plain territories with bare ISO ids', () => {
-    expect(rel(body, 'availableTerritories')).toEqual([
-      { type: 'territories', id: 'USA' },
-      { type: 'territories', id: 'BRA' },
-    ]);
+  it('the write path builds an UPFRONT plan create body', () => {
+    const body = buildSubscriptionPlanAvailabilityCreateBody({
+      subscriptionId: 'SUB-1',
+      planType: STANDARD_PLAN_TYPE,
+      availableInNewTerritories: true,
+      territoryIds: ['USA'],
+    }) as Body;
+    expect(body.data.type).toBe('subscriptionPlanAvailabilities');
+    expect(body.data.attributes).toEqual({ planType: 'UPFRONT', availableInNewTerritories: true });
   });
 });
 

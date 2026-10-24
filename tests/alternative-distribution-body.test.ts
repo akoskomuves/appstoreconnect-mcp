@@ -7,6 +7,9 @@ import {
   buildMarketplaceSearchDetailPatchBody,
   buildMarketplaceWebhookCreateBody,
   buildMarketplaceWebhookPatchBody,
+  buildMarketplaceWebhookV2CreateBody,
+  isMarketplaceWebhook,
+  MARKETPLACE_EVENT_TYPES,
 } from '../src/domains/alternative-distribution.js';
 
 // Pin the wire shapes for v1.0 EU DMA / alternative distribution.
@@ -100,5 +103,70 @@ describe('marketplace webhook bodies', () => {
       endpointUrl: 'https://example.com/v2',
     });
     expect(move.data.attributes).toEqual({ endpointUrl: 'https://example.com/v2' });
+  });
+});
+
+// /v1/marketplaceWebhooks is deprecated. Marketplace notifications are now
+// regular webhooks on the MARKETPLACE app, subscribed to the
+// ALTERNATIVE_DISTRIBUTION_* events (Apple's webhook-events documentation).
+describe('marketplace webhook migration → /v1/webhooks', () => {
+  it('creates a regular webhook on the marketplace app with all three events by default', () => {
+    const body = buildMarketplaceWebhookV2CreateBody({
+      marketplaceAppId: 'MKT-APP',
+      endpointUrl: 'https://example.com/mkt',
+      secret: 's',
+    });
+    expect(body.data.type).toBe('webhooks');
+    expect(body.data.attributes).toEqual({
+      name: 'marketplace',
+      url: 'https://example.com/mkt',
+      secret: 's',
+      eventTypes: [
+        'ALTERNATIVE_DISTRIBUTION_PACKAGE_VERSION_CREATED',
+        'ALTERNATIVE_DISTRIBUTION_PACKAGE_AVAILABLE_UPDATED',
+        'ALTERNATIVE_DISTRIBUTION_TERRITORY_AVAILABILITY_UPDATED',
+      ],
+      enabled: true,
+    });
+    expect(body.data.relationships).toEqual({ app: { data: { type: 'apps', id: 'MKT-APP' } } });
+    // The old wire key must not leak into the new body.
+    expect('endpointUrl' in (body.data.attributes ?? {})).toBe(false);
+  });
+
+  it('honours name, an event subset and enabled:false', () => {
+    const body = buildMarketplaceWebhookV2CreateBody({
+      marketplaceAppId: 'MKT-APP',
+      endpointUrl: 'https://example.com/mkt',
+      secret: 's',
+      name: 'catalog',
+      eventTypes: ['ALTERNATIVE_DISTRIBUTION_PACKAGE_VERSION_CREATED'],
+      enabled: false,
+    });
+    expect(body.data.attributes).toMatchObject({
+      name: 'catalog',
+      eventTypes: ['ALTERNATIVE_DISTRIBUTION_PACKAGE_VERSION_CREATED'],
+      enabled: false,
+    });
+  });
+
+  it('the event list is exactly the spec ALTERNATIVE_DISTRIBUTION_* values', () => {
+    expect(MARKETPLACE_EVENT_TYPES.every((e) => e.startsWith('ALTERNATIVE_DISTRIBUTION_'))).toBe(
+      true,
+    );
+    expect(MARKETPLACE_EVENT_TYPES).toHaveLength(3);
+  });
+
+  it('narrows an app webhook list to marketplace webhooks', () => {
+    const mk = (eventTypes: unknown) => ({ type: 'webhooks', id: 'w', attributes: { eventTypes } });
+    expect(isMarketplaceWebhook(mk(['ALTERNATIVE_DISTRIBUTION_PACKAGE_AVAILABLE_UPDATED']))).toBe(
+      true,
+    );
+    expect(
+      isMarketplaceWebhook(
+        mk(['BUILD_UPLOAD_STATE_UPDATED', 'ALTERNATIVE_DISTRIBUTION_PACKAGE_VERSION_CREATED']),
+      ),
+    ).toBe(true);
+    expect(isMarketplaceWebhook(mk(['BUILD_UPLOAD_STATE_UPDATED']))).toBe(false);
+    expect(isMarketplaceWebhook(mk(undefined))).toBe(false);
   });
 });
