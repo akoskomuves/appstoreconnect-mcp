@@ -125,7 +125,7 @@ async function smokeVersions(
   await tool(`asc_list_${kind}_version_localizations`, { versionId: v.id });
   if (kind !== 'subscription_group') {
     await tool(`asc_list_${kind}_version_images`, { versionId: v.id });
-    await tool(`asc_get_${kind}_version_image`, { versionId: v.id });
+    await tool(`asc_get_${kind}_version_primary_image`, { versionId: v.id });
   }
 }
 

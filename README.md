@@ -157,7 +157,7 @@ Since API 4.4.1 every in-app product has two layers. The **product** (`inAppPurc
 - `asc_get_*_version` — one version with its product, localizations and images included
 - `asc_post_*_version` — create a new version (relationships-only body). Versions have no PATCH or DELETE, so it refuses while the product already has a `PREPARE_FOR_SUBMISSION` draft and names it. `dryRun` prints the body and the existing versions
 - `asc_list_*_version_localizations` — the version-scoped localizations (these carry no `state`, unlike the v1 ones)
-- `asc_list_{iap,subscription}_version_images` / `asc_get_{iap,subscription}_version_image` — the version's images (to-many) and its to-one `image`
+- `asc_list_{iap,subscription}_version_images` / `asc_get_{iap,subscription}_version_primary_image` — the version's images (to-many) and its to-one `image`
 
 ### In-app purchase offer codes
 Offer codes for consumables, non-consumables and non-renewing subscriptions (API 4.2). They work like the subscription offer codes, with a campaign → one-time-use batches / custom codes hierarchy, and with simpler campaigns: just a name, customer eligibility (`NON_SPENDER`, `ACTIVE_SPENDER`, `CHURNED_SPENDER`) and a price per territory (IAP price points). Nothing can be deleted; PATCH only flips `active`.

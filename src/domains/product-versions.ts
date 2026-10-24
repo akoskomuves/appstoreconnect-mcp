@@ -482,7 +482,7 @@ function registerKind(server: McpServer, client: ASCClient, kind: ProductVersion
   );
 
   server.registerTool(
-    `asc_get_${prefix}_version_image`,
+    `asc_get_${prefix}_version_primary_image`,
     {
       title: `Get a ${k.label} version's image`,
       description: `Fetch the single image on the to-one \`image\` relationship of a ${k.label} version. Returns { data: null } when none is set. Use asc_list_${prefix}_version_images for the to-many list.`,
