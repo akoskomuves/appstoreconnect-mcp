@@ -1,8 +1,0 @@
----
-"@akoskomuves/appstoreconnect-mcp": minor
----
-
-Move off two deprecated App Store Connect endpoints. Tool names stay the same.
-
-- **Marketplace webhooks.** `/v1/marketplaceWebhooks` is deprecated. `asc_list_marketplace_webhooks`, `asc_post_marketplace_webhook`, `asc_patch_marketplace_webhook` and `asc_delete_marketplace_webhook` now use regular webhooks (`/v1/webhooks`) on the marketplace app, subscribed to the `ALTERNATIVE_DISTRIBUTION_*` events. This is how Apple's webhook documentation describes marketplace notifications. Create and list now take `marketplaceAppId`; create also takes an optional `name`, `eventTypes` (all three by default) and `enabled`. Pass `legacy: true` to list, patch or delete records made on the old team-level endpoint. Live-checked on 2026-10-24: Apple rejects marketplace event types on an app that is not a marketplace app with a 409 ("… event types cannot be added to the webhook"), and the tool now explains that.
-- **Subscription availability.** API 4.4 deprecated `SubscriptionAvailability` in favour of `SubscriptionPlanAvailability`. `asc_get_subscription_availability`, `asc_list_subscription_available_territories` and `asc_post_subscription_availability` now read and write the subscription's `UPFRONT` plan availability. Live-checked on 2026-10-24 on four shipping subscriptions: each has an `UPFRONT` plan whose territory set is identical to the legacy record's. The post tool PATCHes that record, or creates one if it is missing. The territory list tool still accepts the subscription id. The `planType` description is corrected: `UPFRONT` is the standard plan and `MONTHLY` is monthly billing with a 12-month commitment.
