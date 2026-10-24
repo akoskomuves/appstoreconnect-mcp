@@ -7,7 +7,7 @@ import {
   digestMarketplaceWebhooks,
   digestWebhooks,
 } from '../digest.js';
-import { ASCError } from '../errors.js';
+import { ASCError, ascErrorText } from '../errors.js';
 import { type JSONAPIResource, paginate } from '../jsonapi.js';
 import {
   AlternativeDistributionDomainIdSchema,
@@ -224,6 +224,17 @@ function formatASCError(err: unknown): string {
     return `${err.message}\n\n${detail}${gate}`;
   }
   return err instanceof Error ? err.message : String(err);
+}
+
+// Live (2026-10-24): on an app that is not a marketplace app, Apple 409s the
+// create with "ALTERNATIVE_DISTRIBUTION_… event types cannot be added to the
+// webhook". Say what that means instead of leaving the caller to guess.
+export function explainMarketplaceWebhookError(err: unknown): string {
+  const text = formatASCError(err);
+  if (/ALTERNATIVE_DISTRIBUTION_\w+ event types cannot be added/.test(ascErrorText(err))) {
+    return `${text}\n\nApple only accepts marketplace event types on a MARKETPLACE app (an alternative app store app with the marketplace entitlement). Check marketplaceAppId — it must be that app, not one of the apps it distributes.`;
+  }
+  return text;
 }
 
 // A 404 on a regular-webhook path is often an id from the old team-level list.
@@ -823,7 +834,10 @@ export function registerAlternativeDistribution(server: McpServer, client: ASCCl
           ],
         };
       } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+        return {
+          content: [{ type: 'text', text: explainMarketplaceWebhookError(err) }],
+          isError: true,
+        };
       }
     },
   );

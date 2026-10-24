@@ -8,9 +8,11 @@ import {
   buildMarketplaceWebhookCreateBody,
   buildMarketplaceWebhookPatchBody,
   buildMarketplaceWebhookV2CreateBody,
+  explainMarketplaceWebhookError,
   isMarketplaceWebhook,
   MARKETPLACE_EVENT_TYPES,
 } from '../src/domains/alternative-distribution.js';
+import { ASCError } from '../src/errors.js';
 
 // Pin the wire shapes for v1.0 EU DMA / alternative distribution.
 //
@@ -168,5 +170,25 @@ describe('marketplace webhook migration → /v1/webhooks', () => {
     ).toBe(true);
     expect(isMarketplaceWebhook(mk(['BUILD_UPLOAD_STATE_UPDATED']))).toBe(false);
     expect(isMarketplaceWebhook(mk(undefined))).toBe(false);
+  });
+});
+
+describe('explainMarketplaceWebhookError', () => {
+  it('explains the live 409 for marketplace events on a non-marketplace app', () => {
+    const err = new ASCError(409, 'App Store Connect API 409 on POST /v1/webhooks', {
+      errors: [
+        {
+          code: 'ENTITY_ERROR.ATTRIBUTE.INVALID',
+          detail:
+            'ALTERNATIVE_DISTRIBUTION_PACKAGE_VERSION_CREATED event types cannot be added to the webhook',
+        },
+      ],
+    });
+    expect(explainMarketplaceWebhookError(err)).toContain('MARKETPLACE app');
+  });
+
+  it('passes other errors through unchanged', () => {
+    const err = new ASCError(403, 'forbidden', { errors: [{ detail: 'nope' }] });
+    expect(explainMarketplaceWebhookError(err)).not.toContain('MARKETPLACE app');
   });
 });

@@ -38,6 +38,7 @@ import { registerDiagnostics } from './domains/diagnostics.js';
 import { registerEncryptionDeclarations } from './domains/encryption-declarations.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIapLocalizations } from './domains/iap-localizations.js';
+import { registerIapProducts } from './domains/iap-products.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
 import { registerNominations } from './domains/nominations.js';
 import { registerOfferCodes } from './domains/offer-codes.js';
@@ -60,6 +61,7 @@ import { registerSubscriptionLocalizations } from './domains/subscription-locali
 import { registerSubscriptions } from './domains/subscriptions.js';
 import { registerTerritories } from './domains/territories.js';
 import { registerVersionExperiments } from './domains/version-experiments.js';
+import { registerVersionedContent } from './domains/versioned-content.js';
 import { registerWebhooks } from './domains/webhooks.js';
 import { registerWinBackOffers } from './domains/win-back-offers.js';
 import { registerXcodeCloud } from './domains/xcode-cloud.js';
@@ -220,6 +222,8 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerAlternativeDistribution(server, client);
   registerAgeRating(server, client);
   registerPpp(server, client);
+  registerIapProducts(server, client);
+  registerVersionedContent(server, client);
 
   return server;
 }
