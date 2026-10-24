@@ -206,6 +206,23 @@ The last manual steps between "metadata is ready" and "build is live":
 - `asc_post_iap_submission` / `asc_post_subscription_submission` / `asc_post_subscription_group_submission` — submit an IAP / subscription / subscription group's pending metadata changes for review **standalone**, without a version release. Wire gotcha handled: the IAP one relates via `inAppPurchaseV2`.
 - `asc_get_subscription_grace_period` / `asc_patch_…` — billing grace period per app: `optIn` / `sandboxOptIn`, duration (3 / 16 / 28 days), `renewalType` (all renewals vs paid-to-paid only). Keeps lapsed subscribers entitled while Apple retries payment.
 
+### App Clips
+An App Clip record appears when a build containing the clip is uploaded; the API cannot create one. Everything below hangs off it.
+
+- **Clips**: `asc_list_app_clips` (per app, `bundleId` filter) · `asc_get_app_clip`.
+- **Default experience** (the card for Safari banners, Messages and the default link; one per version): `asc_list_app_clip_default_experiences` · `asc_get_…` · `asc_post_…` (`action`, release version, or `templateDefaultExperienceId` to copy last version's card) · `asc_patch_…` · `asc_delete_…`.
+- **Version link**: `asc_get_app_store_version_app_clip_default_experience` / `asc_patch_…` (from the version) · `asc_get_app_clip_default_experience_release_version` / `asc_patch_…` (from the experience). Apple's API can't unlink, only re-link.
+- **Localizations**: `asc_list_app_clip_default_experience_localizations` · `asc_get_…` · `asc_post_…` (locale + subtitle) · `asc_patch_…` · `asc_delete_…`.
+- **Header image** (one per localization): `asc_upload_app_clip_header_image` (composite: reserve → PUT chunks → commit with MD5) · `asc_get_app_clip_header_image` (by image or localization) · raw `asc_post_*` / `asc_patch_*` · `asc_delete_*`.
+- **App Review detail**: `asc_get_app_clip_app_store_review_detail` (by detail or experience) · `asc_post_…` / `asc_patch_…` (invocation URLs).
+- **Advanced experiences** (per-URL cards: App Clip Codes, NFC, QR, Maps place cards): `asc_list_app_clip_advanced_experiences` (status / place status / action filters) · `asc_get_…` · `asc_upload_app_clip_advanced_experience_image` first, then `asc_post_app_clip_advanced_experience` (link, `isPoweredBy`, default language, header image, localizations inline, optional `place`) · `asc_patch_…` (`removed: true` takes it down; `localizations` replaces them all) · raw image `asc_get_*` / `asc_post_*` / `asc_patch_*`.
+- **TestFlight invocations**: `asc_get_beta_app_clip_invocation` · `asc_post_…` (build bundle ID, URL, titles inline) · `asc_patch_…` · `asc_delete_…` · `asc_{post,patch,delete}_beta_app_clip_invocation_localization`.
+
+### Background Assets (Apple-hosted asset packs)
+- **Asset packs**: `asc_list_background_assets` (per app; archived / identifier / locale / platform filters; shows the version live on internal beta, external beta and App Store) · `asc_get_background_asset` · `asc_post_background_asset` (`assetPackIdentifier`, fixed after create) · `asc_patch_background_asset` (`archived` only).
+- **Versions**: `asc_list_background_asset_versions` (state + per-track release-state filters) · `asc_get_background_asset_version` · `asc_post_background_asset_version` (Apple assigns the number) · `asc_get_background_asset_version_release` (`track`: internalBeta / externalBeta / appStore).
+- **Files**: `asc_upload_background_asset_file` (composite: ASSET archive or MANIFEST → reserve → PUT chunks → commit) · `asc_list_background_asset_upload_files` · `asc_get_…` · raw `asc_post_*` / `asc_patch_*`. The commit sends `sourceFileChecksums.file` (MD5 by default, SHA_256 accepted); the singular `sourceFileChecksum` is deprecated on this resource.
+
 ### Availabilities (subscriptions, IAPs, plans)
 Per-territory availability of in-app products — the sibling of App Availability with one key difference: territory linkage uses **bare 3-letter ISO codes** (plain `territories`), not the opaque composites apps use.
 
