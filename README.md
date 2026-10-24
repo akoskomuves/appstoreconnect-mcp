@@ -246,6 +246,16 @@ Pitch a release to Apple's editorial team for App Store featuring (Today tab, cu
 - `asc_list_nominations` (filter by app / state / type) · `asc_get_nomination` · `asc_post_nomination` (defaults to a reviewable **DRAFT** — `submitted:false`) · `asc_patch_nomination` (edit the draft; `submitted:true` **sends it to Apple** — no un-submit, only `archived:true`) · `asc_delete_nomination`.
 - The pitch rides in `description` + `notes`; `publishStartDate`/`publishEndDate` frame the relevance window; `supplementalMaterialsUris` carry press-kit/TestFlight links; `launchInSelectMarketsFirst` is the wire key (Markets, not the UI's "storefronts" wording).
 
+### Game Center: details, groups, achievements, leaderboards
+The core Game Center model on Apple's v2 paths (every /v1 achievement / leaderboard / set CRUD path is deprecated). An app has one Game Center detail; achievements, leaderboards and leaderboard sets belong to that detail, or to a Game Center group when several apps share Game Center data. Each item has versions that go through App Review, and each version has localizations with an image.
+
+- **Detail and groups**: `asc_get_app_game_center_detail` (an app without Game Center returns nothing, not an error) · `asc_get_*` / `asc_post_*` / `asc_patch_game_center_detail` · groups `asc_{list,get,post,patch,delete}_game_center_group(s)` · `asc_list_game_center_group_details` · `asc_get_game_center_detail_group`.
+- **Achievements, leaderboards, leaderboard sets**: list / get / post / patch / delete for each. Create sends the first version inline. Pass the owner as exactly one of `gameCenterDetailId` or `gameCenterGroupId`.
+- **Versions → localizations → images**: list / get / post per family, localizations with get / post / patch / delete, and a composite image upload (reserve → PUT chunks → `uploaded: true`) plus raw reserve / commit / delete.
+- **Ordering** replaces the owner's whole list in the order you give, so the tools refuse a list that adds or drops items. **Set membership**: add, replace (reorder) or remove leaderboards in a set; member localizations get list / post / patch / delete.
+- **Moderation and submissions**: `asc_list_game_center_leaderboard_score_moderations` · `asc_patch_game_center_score_moderation` (block a score) · `asc_list_game_center_blocked_players` · `asc_patch_game_center_detail_player` (block or unblock a player) · `asc_post_game_center_leaderboard_entry_submission` / `asc_post_game_center_player_achievement_submission` (server-side score and achievement reports). As of 2026-10-24 Apple answers 404 on the blocked-players and score-moderation reads although they are in the spec.
+- Deletes are pre-checked against version state, with `force: true` to skip the check.
+
 ### Provisioning & code signing
 The Developer-portal surface (fastlane `match`/`sigh`/`cert` territory). **Role gate:** needs an **Admin** (or Account Holder) API key — App Manager/Developer keys get 403 here (the tools explain it).
 
