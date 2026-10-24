@@ -223,6 +223,23 @@ The last manual steps between "metadata is ready" and "build is live":
 - `asc_post_iap_submission` / `asc_post_subscription_submission` / `asc_post_subscription_group_submission` — submit an IAP / subscription / subscription group's pending metadata changes for review **standalone**, without a version release. Wire gotcha handled: the IAP one relates via `inAppPurchaseV2`.
 - `asc_get_subscription_grace_period` / `asc_patch_…` — billing grace period per app: `optIn` / `sandboxOptIn`, duration (3 / 16 / 28 days), `renewalType` (all renewals vs paid-to-paid only). Keeps lapsed subscribers entitled while Apple retries payment.
 
+### App Clips
+An App Clip record appears when a build containing the clip is uploaded; the API cannot create one. Everything below hangs off it.
+
+- **Clips**: `asc_list_app_clips` (per app, `bundleId` filter) · `asc_get_app_clip`.
+- **Default experience** (the card for Safari banners, Messages and the default link; one per version): `asc_list_app_clip_default_experiences` · `asc_get_…` · `asc_post_…` (`action`, release version, or `templateDefaultExperienceId` to copy last version's card) · `asc_patch_…` · `asc_delete_…`.
+- **Version link**: `asc_get_app_store_version_app_clip_default_experience` / `asc_patch_…` (from the version) · `asc_get_app_clip_default_experience_release_version` / `asc_patch_…` (from the experience). Apple's API can't unlink, only re-link.
+- **Localizations**: `asc_list_app_clip_default_experience_localizations` · `asc_get_…` · `asc_post_…` (locale + subtitle) · `asc_patch_…` · `asc_delete_…`.
+- **Header image** (one per localization): `asc_upload_app_clip_header_image` (composite: reserve → PUT chunks → commit with MD5) · `asc_get_app_clip_header_image` (by image or localization) · raw `asc_post_*` / `asc_patch_*` · `asc_delete_*`.
+- **App Review detail**: `asc_get_app_clip_app_store_review_detail` (by detail or experience) · `asc_post_…` / `asc_patch_…` (invocation URLs).
+- **Advanced experiences** (per-URL cards: App Clip Codes, NFC, QR, Maps place cards): `asc_list_app_clip_advanced_experiences` (status / place status / action filters) · `asc_get_…` · `asc_upload_app_clip_advanced_experience_image` first, then `asc_post_app_clip_advanced_experience` (link, `isPoweredBy`, default language, header image, localizations inline, optional `place`) · `asc_patch_…` (`removed: true` takes it down; `localizations` replaces them all) · raw image `asc_get_*` / `asc_post_*` / `asc_patch_*`.
+- **TestFlight invocations**: `asc_get_beta_app_clip_invocation` · `asc_post_…` (build bundle ID, URL, titles inline) · `asc_patch_…` · `asc_delete_…` · `asc_{post,patch,delete}_beta_app_clip_invocation_localization`.
+
+### Background Assets (Apple-hosted asset packs)
+- **Asset packs**: `asc_list_background_assets` (per app; archived / identifier / locale / platform filters; shows the version live on internal beta, external beta and App Store) · `asc_get_background_asset` · `asc_post_background_asset` (`assetPackIdentifier`, fixed after create) · `asc_patch_background_asset` (`archived` only).
+- **Versions**: `asc_list_background_asset_versions` (state + per-track release-state filters) · `asc_get_background_asset_version` · `asc_post_background_asset_version` (Apple assigns the number) · `asc_get_background_asset_version_release` (`track`: internalBeta / externalBeta / appStore).
+- **Files**: `asc_upload_background_asset_file` (composite: ASSET archive or MANIFEST → reserve → PUT chunks → commit) · `asc_list_background_asset_upload_files` · `asc_get_…` · raw `asc_post_*` / `asc_patch_*`. The commit sends `sourceFileChecksums.file` (MD5 by default, SHA_256 accepted); the singular `sourceFileChecksum` is deprecated on this resource.
+
 ### Availabilities (subscriptions, IAPs, plans)
 Per-territory availability of in-app products — the sibling of App Availability with one key difference: territory linkage uses **bare 3-letter ISO codes** (plain `territories`), not the opaque composites apps use.
 
@@ -272,6 +289,25 @@ Pitch a release to Apple's editorial team for App Store featuring (Today tab, cu
 - `asc_list_nominations` (filter by app / state / type) · `asc_get_nomination` · `asc_post_nomination` (defaults to a reviewable **DRAFT** — `submitted:false`) · `asc_patch_nomination` (edit the draft; `submitted:true` **sends it to Apple** — no un-submit, only `archived:true`) · `asc_delete_nomination`.
 - The pitch rides in `description` + `notes`; `publishStartDate`/`publishEndDate` frame the relevance window; `supplementalMaterialsUris` carry press-kit/TestFlight links; `launchInSelectMarketsFirst` is the wire key (Markets, not the UI's "storefronts" wording).
 
+### Game Center: details, groups, achievements, leaderboards
+The core Game Center model on Apple's v2 paths (every /v1 achievement / leaderboard / set CRUD path is deprecated). An app has one Game Center detail; achievements, leaderboards and leaderboard sets belong to that detail, or to a Game Center group when several apps share Game Center data. Each item has versions that go through App Review, and each version has localizations with an image.
+
+- **Detail and groups**: `asc_get_app_game_center_detail` (an app without Game Center returns nothing, not an error) · `asc_get_*` / `asc_post_*` / `asc_patch_game_center_detail` · groups `asc_{list,get,post,patch,delete}_game_center_group(s)` · `asc_list_game_center_group_details` · `asc_get_game_center_detail_group`.
+- **Achievements, leaderboards, leaderboard sets**: list / get / post / patch / delete for each. Create sends the first version inline. Pass the owner as exactly one of `gameCenterDetailId` or `gameCenterGroupId`.
+- **Versions → localizations → images**: list / get / post per family, localizations with get / post / patch / delete, and a composite image upload (reserve → PUT chunks → `uploaded: true`) plus raw reserve / commit / delete.
+- **Ordering** replaces the owner's whole list in the order you give, so the tools refuse a list that adds or drops items. **Set membership**: add, replace (reorder) or remove leaderboards in a set; member localizations get list / post / patch / delete.
+- **Moderation and submissions**: `asc_list_game_center_leaderboard_score_moderations` · `asc_patch_game_center_score_moderation` (block a score) · `asc_list_game_center_blocked_players` · `asc_patch_game_center_detail_player` (block or unblock a player) · `asc_post_game_center_leaderboard_entry_submission` / `asc_post_game_center_player_achievement_submission` (server-side score and achievement reports). As of 2026-10-24 Apple answers 404 on the blocked-players and score-moderation reads although they are in the spec.
+- Deletes are pre-checked against version state, with `force: true` to skip the check.
+### Game Center: activities, challenges, matchmaking
+The player-facing Game Center surfaces. Activities and challenges belong to an app's Game Center detail (pass `appId` and the tools resolve it) or to a Game Center group shared across apps. Their content lives on versions that ship with App Review: edit a `PREPARE_FOR_SUBMISSION` version, not the live one.
+
+- **Activities**: `asc_list_game_center_activities` · `asc_get_*` / `asc_post_*` / `asc_patch_*` (`archived: true` retires a live one) / `asc_delete_game_center_activity` · `asc_{add,remove}_game_center_activity_{achievements,leaderboards}` (v2 ids).
+- **Challenges**: `asc_list_game_center_challenges` (referenceName / archived filters) · `asc_get_*` / `asc_post_*` / `asc_patch_*` / `asc_delete_game_center_challenge` · `asc_set_game_center_challenge_leaderboard` (v2 leaderboard).
+- **Versions → localizations → images** (same tools for both, `activity` or `challenge` in the name): `asc_list_*_versions` · `asc_get_*_version` · `asc_post_*_version` (activity versions also `asc_patch_game_center_activity_version` for `fallbackUrl`) · `asc_list_*_localizations` + get / post / patch / delete · `asc_get_*_image` (by id, by localization, or a version's default image) · `asc_upload_*_image` (composite: reserve → PUT chunks → `uploaded: true`, no checksum) + raw post / patch / delete.
+- **App versions**: `asc_list_game_center_app_versions` (one per App Store version; `enabled` filter; `compatibilityVersionsOf` lists compatible ones) · `asc_get_*` · `asc_post_*` · `asc_patch_game_center_app_version` (⚠️ `enabled: false` turns Game Center off for that version) · `asc_{add,remove}_game_center_app_version_compatibility`.
+- **Matchmaking** (team-wide, not per app): rule sets `asc_{list,get,post,patch,delete}_game_center_matchmaking_rule_set(s)` · rules and teams `asc_{list,post,patch,delete}_game_center_matchmaking_{rules,teams}` (listed through their rule set) · queues `asc_{list,get,post,patch,delete}_game_center_matchmaking_queue(s)` (⚠️ deleting a queue a shipped game names breaks its matchmaking) · `asc_test_game_center_matchmaking_rule_set` (dry-runs made-up requests through a rule set and returns the matches) · `asc_get_game_center_matchmaking_{queue,rule}_metrics` (requests, queue sizes, sessions, rule results and errors as time series).
+- Rule expressions are JMESPath-based: literals go in backticks (``requests[0].secondsInQueue >= `5` ``). A bare number is a 409 compile error.
+
 ### Provisioning & code signing
 The Developer-portal surface (fastlane `match`/`sigh`/`cert` territory). **Role gate:** needs an **Admin** (or Account Holder) API key — App Manager/Developer keys get 403 here (the tools explain it).
 
@@ -280,6 +316,22 @@ The Developer-portal surface (fastlane `match`/`sigh`/`cert` territory). **Role 
 - **Certificates**: `asc_list_certificates` · `asc_get_certificate` (base64 DER content) · `asc_post_certificate` (from a PEM CSR — the private key never goes to Apple) · `asc_delete_certificate` (⚠️ DELETE = **revoke**; CI signing with it breaks immediately).
 - **Profiles**: `asc_list_profiles` · `asc_get_profile` (`profileContent` = the actual base64 `.mobileprovision`) · `asc_post_profile` · `asc_delete_profile`. No PATCH — profiles are immutable; rotate by delete + re-create.
 - **Devices**: `asc_list_devices` · `asc_post_device` (⚠️ effectively permanent — devices can only be disabled, never deleted, and count against the 100-per-class yearly limit) · `asc_patch_device` (rename, ENABLED/DISABLED).
+- **Pass Type IDs** (Apple Wallet): `asc_list_pass_type_ids` · `asc_get_pass_type_id` · `asc_list_pass_type_id_certificates` · `asc_post_pass_type_id` (identifier immutable) · `asc_patch_pass_type_id` (rename only) · `asc_delete_pass_type_id` (⚠️ revokes its certificates; passes already in wallets stop updating).
+- **Merchant IDs** (Apple Pay): `asc_list_merchant_ids` · `asc_get_merchant_id` · `asc_list_merchant_id_certificates` · `asc_post_merchant_id` (identifier immutable) · `asc_patch_merchant_id` (rename only) · `asc_delete_merchant_id` (⚠️ Apple Pay breaks for every app and site using it).
+
+### Users & Access
+The team behind the account. **Reads are free; every write that changes the team is confirm-gated.** Needs an **Admin** API key.
+
+> 🔒 **The `confirm: true` gate.** `asc_patch_user`, `asc_delete_user`, `asc_add_user_visible_apps`, `asc_set_user_visible_apps`, `asc_remove_user_visible_apps`, `asc_post_user_invitation` and `asc_delete_user_invitation` send **nothing** to Apple unless the call passes `confirm: true`. Without it they look the person up and return a refusal that names them (name, login, id, current roles) and spells out the exact change: roles lost and gained, apps lost by name, Account Holder and ADMIN warnings. A removed user or a changed role locks a real person out, so there is no default and no `force` — only an explicit `confirm: true` after the account owner has approved that exact change.
+
+- **Users**: `asc_list_users` (username / roles / visible-app filters) · `asc_get_user` · `asc_list_user_visible_apps` · 🔒 `asc_patch_user` (`roles` and `visibleAppIds` **replace** the current lists) · 🔒 `asc_delete_user`.
+- **Visible apps**: 🔒 `asc_add_user_visible_apps` · 🔒 `asc_set_user_visible_apps` (replace) · 🔒 `asc_remove_user_visible_apps`. No effect while the user has `allAppsVisible` or an all-app role.
+- **Invitations**: `asc_list_user_invitations` · `asc_get_user_invitation` · `asc_list_user_invitation_visible_apps` · 🔒 `asc_post_user_invitation` (sends the email) · 🔒 `asc_delete_user_invitation` (cancel). No PATCH — cancel and re-invite.
+- **Actors**: `asc_list_actors` (Apple requires the ids, e.g. from a review submission's `submittedByActor`; ids look like `USER:<uuid>` / `API_KEY:<key id>`) · `asc_get_actor`.
+
+### Legal agreements
+- **EULA** (customer-visible on the product page): `asc_get_app_end_user_license_agreement` (reports "standard EULA" when the app has no custom one) · `asc_get_end_user_license_agreement` · `asc_list_end_user_license_agreement_territories` · `asc_post_end_user_license_agreement` · `asc_patch_end_user_license_agreement` (text and/or replace territories) · `asc_delete_end_user_license_agreement` (back to Apple's standard EULA).
+- **TestFlight beta license**: `asc_list_beta_license_agreements` · `asc_get_beta_license_agreement` · `asc_get_app_beta_license_agreement` · `asc_get_beta_license_agreement_app` · `asc_patch_beta_license_agreement`. One per app, created by Apple — no create or delete.
 
 ### Sandbox testers
 StoreKit test accounts, for exercising the monetization surface end-to-end. Testers are created in the ASC UI; the API manages their settings.
