@@ -63,7 +63,7 @@ const WEBHOOK_DELIVERY_FIELDS =
   'createdDate,deliveryState,errorMessage,redelivery,sentDate,request,response,event';
 const WEBHOOK_EVENT_FIELDS = 'eventType,payload,ping,createdDate';
 
-interface JSONAPIBody {
+export interface JSONAPIBody {
   data: {
     type: string;
     id?: string;
