@@ -38,12 +38,15 @@ import { registerCustomProductPages } from './domains/custom-product-pages.js';
 import { registerCustomerReviews } from './domains/customer-reviews.js';
 import { registerDiagnostics } from './domains/diagnostics.js';
 import { registerEncryptionDeclarations } from './domains/encryption-declarations.js';
+import { registerGameCenterPlay } from './domains/game-center-play.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIapLocalizations } from './domains/iap-localizations.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
+import { registerLegalAgreements } from './domains/legal-agreements.js';
 import { registerNominations } from './domains/nominations.js';
 import { registerOfferCodes } from './domains/offer-codes.js';
 import { registerOfferSigning } from './domains/offer-signing.js';
+import { registerPassMerchantIds } from './domains/pass-merchant-ids.js';
 import { registerPhasedRelease } from './domains/phased-release.js';
 import { registerPpp } from './domains/ppp.js';
 import { registerPreviews } from './domains/previews.js';
@@ -61,6 +64,7 @@ import { registerSubscriptionGroupLocalizations } from './domains/subscription-g
 import { registerSubscriptionLocalizations } from './domains/subscription-localizations.js';
 import { registerSubscriptions } from './domains/subscriptions.js';
 import { registerTerritories } from './domains/territories.js';
+import { registerUsersAccess } from './domains/users-access.js';
 import { registerVersionExperiments } from './domains/version-experiments.js';
 import { registerWebhooks } from './domains/webhooks.js';
 import { registerWinBackOffers } from './domains/win-back-offers.js';
@@ -221,9 +225,13 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerAccessibilityDeclarations(server, client);
   registerAlternativeDistribution(server, client);
   registerAgeRating(server, client);
+  registerGameCenterPlay(server, client);
   registerPpp(server, client);
   registerAppClips(server, client);
   registerBackgroundAssets(server, client);
+  registerUsersAccess(server, client);
+  registerLegalAgreements(server, client);
+  registerPassMerchantIds(server, client);
 
   return server;
 }
