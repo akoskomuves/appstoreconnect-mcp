@@ -254,6 +254,22 @@ The Developer-portal surface (fastlane `match`/`sigh`/`cert` territory). **Role 
 - **Certificates**: `asc_list_certificates` · `asc_get_certificate` (base64 DER content) · `asc_post_certificate` (from a PEM CSR — the private key never goes to Apple) · `asc_delete_certificate` (⚠️ DELETE = **revoke**; CI signing with it breaks immediately).
 - **Profiles**: `asc_list_profiles` · `asc_get_profile` (`profileContent` = the actual base64 `.mobileprovision`) · `asc_post_profile` · `asc_delete_profile`. No PATCH — profiles are immutable; rotate by delete + re-create.
 - **Devices**: `asc_list_devices` · `asc_post_device` (⚠️ effectively permanent — devices can only be disabled, never deleted, and count against the 100-per-class yearly limit) · `asc_patch_device` (rename, ENABLED/DISABLED).
+- **Pass Type IDs** (Apple Wallet): `asc_list_pass_type_ids` · `asc_get_pass_type_id` · `asc_list_pass_type_id_certificates` · `asc_post_pass_type_id` (identifier immutable) · `asc_patch_pass_type_id` (rename only) · `asc_delete_pass_type_id` (⚠️ revokes its certificates; passes already in wallets stop updating).
+- **Merchant IDs** (Apple Pay): `asc_list_merchant_ids` · `asc_get_merchant_id` · `asc_list_merchant_id_certificates` · `asc_post_merchant_id` (identifier immutable) · `asc_patch_merchant_id` (rename only) · `asc_delete_merchant_id` (⚠️ Apple Pay breaks for every app and site using it).
+
+### Users & Access
+The team behind the account. **Reads are free; every write that changes the team is confirm-gated.** Needs an **Admin** API key.
+
+> 🔒 **The `confirm: true` gate.** `asc_patch_user`, `asc_delete_user`, `asc_add_user_visible_apps`, `asc_set_user_visible_apps`, `asc_remove_user_visible_apps`, `asc_post_user_invitation` and `asc_delete_user_invitation` send **nothing** to Apple unless the call passes `confirm: true`. Without it they look the person up and return a refusal that names them (name, login, id, current roles) and spells out the exact change: roles lost and gained, apps lost by name, Account Holder and ADMIN warnings. A removed user or a changed role locks a real person out, so there is no default and no `force` — only an explicit `confirm: true` after the account owner has approved that exact change.
+
+- **Users**: `asc_list_users` (username / roles / visible-app filters) · `asc_get_user` · `asc_list_user_visible_apps` · 🔒 `asc_patch_user` (`roles` and `visibleAppIds` **replace** the current lists) · 🔒 `asc_delete_user`.
+- **Visible apps**: 🔒 `asc_add_user_visible_apps` · 🔒 `asc_set_user_visible_apps` (replace) · 🔒 `asc_remove_user_visible_apps`. No effect while the user has `allAppsVisible` or an all-app role.
+- **Invitations**: `asc_list_user_invitations` · `asc_get_user_invitation` · `asc_list_user_invitation_visible_apps` · 🔒 `asc_post_user_invitation` (sends the email) · 🔒 `asc_delete_user_invitation` (cancel). No PATCH — cancel and re-invite.
+- **Actors**: `asc_list_actors` (Apple requires the ids, e.g. from a review submission's `submittedByActor`; ids look like `USER:<uuid>` / `API_KEY:<key id>`) · `asc_get_actor`.
+
+### Legal agreements
+- **EULA** (customer-visible on the product page): `asc_get_app_end_user_license_agreement` (reports "standard EULA" when the app has no custom one) · `asc_get_end_user_license_agreement` · `asc_list_end_user_license_agreement_territories` · `asc_post_end_user_license_agreement` · `asc_patch_end_user_license_agreement` (text and/or replace territories) · `asc_delete_end_user_license_agreement` (back to Apple's standard EULA).
+- **TestFlight beta license**: `asc_list_beta_license_agreements` · `asc_get_beta_license_agreement` · `asc_get_app_beta_license_agreement` · `asc_get_beta_license_agreement_app` · `asc_patch_beta_license_agreement`. One per app, created by Apple — no create or delete.
 
 ### Sandbox testers
 StoreKit test accounts, for exercising the monetization surface end-to-end. Testers are created in the ASC UI; the API manages their settings.
