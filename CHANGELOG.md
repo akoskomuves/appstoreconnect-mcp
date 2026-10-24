@@ -1,5 +1,42 @@
 # appstoreconnect-mcp
 
+## 1.15.0
+
+### Minor Changes
+
+- 45273d9: Add App Clips and Background Assets (52 new tools).
+
+  App Clips: list an app's clips; default experiences (create, copy from a template, link to a version from either side), their localizations, header image upload, and the App Review detail; advanced experiences with inline localizations, Maps place cards and their image upload; TestFlight invocations and their localized titles.
+
+  Background Assets: Apple-hosted asset packs per app, their versions, the release state on each track (internal beta, external beta, App Store), and file upload (asset archive or manifest) with a composite reserve → upload → commit tool. The commit uses `sourceFileChecksums.file`, because the singular `sourceFileChecksum` is deprecated on this resource.
+
+  Both image uploads and the asset-pack file upload reuse the existing chunked-upload helper.
+
+- aec5af9: Move off two deprecated App Store Connect endpoints. Tool names stay the same.
+
+  - **Marketplace webhooks.** `/v1/marketplaceWebhooks` is deprecated. `asc_list_marketplace_webhooks`, `asc_post_marketplace_webhook`, `asc_patch_marketplace_webhook` and `asc_delete_marketplace_webhook` now use regular webhooks (`/v1/webhooks`) on the marketplace app, subscribed to the `ALTERNATIVE_DISTRIBUTION_*` events. This is how Apple's webhook documentation describes marketplace notifications. Create and list now take `marketplaceAppId`; create also takes an optional `name`, `eventTypes` (all three by default) and `enabled`. Pass `legacy: true` to list, patch or delete records made on the old team-level endpoint. Live-checked on 2026-10-24: Apple rejects marketplace event types on an app that is not a marketplace app with a 409 ("… event types cannot be added to the webhook"), and the tool now explains that.
+  - **Subscription availability.** API 4.4 deprecated `SubscriptionAvailability` in favour of `SubscriptionPlanAvailability`. `asc_get_subscription_availability`, `asc_list_subscription_available_territories` and `asc_post_subscription_availability` now read and write the subscription's `UPFRONT` plan availability. Live-checked on 2026-10-24 on four shipping subscriptions: each has an `UPFRONT` plan whose territory set is identical to the legacy record's. The post tool PATCHes that record, or creates one if it is missing. The territory list tool still accepts the subscription id. The `planType` description is corrected: `UPFRONT` is the standard plan and `MONTHLY` is monthly billing with a 12-month commitment.
+
+- a7a0e6f: Game Center core (API 4.5.1, non-deprecated v2 paths): 81 new tools for Game Center details, groups, achievements, leaderboards and leaderboard sets — items, versions, localizations, images (composite upload + raw reserve/commit), ordering, set membership and member localizations, score moderation, blocked players, and server-side score / achievement submissions. Deletes are pre-checked against version state with a `force` escape. Live-smoke corrections (2026-10-24): an app without Game Center answers 200 + data:null; live achievements can have 0 points; `assetDeliveryState` is a struct; the leaderboard-set fieldset must list `gameCenterLeaderboards`; `blockedPlayers` and `gameCenterScoreModerations` answer 404 PATH_ERROR (in the spec, not switched on yet).
+- 9633fab: Add Game Center play coverage (69 tools): activities and challenges with their versions, localizations and images (composite image upload), Game Center app versions with compatibility linkage, and matchmaking rule sets, rules, teams, queues, rule-set tests and queue/rule metrics. Only non-deprecated paths are used (the `*VersionReleases` resources and the v1 achievement/leaderboard relationships are skipped in favour of the version resources and `*V2` relationships).
+- aec5af9: Add in-app purchase create, update and delete (`asc_post_iap`, `asc_patch_iap`, `asc_delete_iap`), using `POST /v2/inAppPurchases` and `PATCH` / `DELETE /v2/inAppPurchases/{id}`. Delete checks the state first and refuses for IAPs under review or already approved; `force: true` skips the check.
+
+  Add the `/v2` version-scoped content endpoints: localizations for IAPs, subscriptions and subscription groups, and promotional images for IAPs and subscriptions (22 tools, `asc_*_version_localization` and `asc_*_version_image`). They add to the `/v1` endpoints rather than replace them. They use the same resources but attach to a product version instead of the product, and `/v1` is not deprecated, so the existing tools are unchanged. Live-checked on 2026-10-24: `/v2` GETs return the same records as `/v1`.
+
+- 930bf59: Add in-app product versions, in-app purchase offer codes and build uploads. 43 new tools.
+
+  - **Versions** (API 4.4.1): list / get / create versions of in-app purchases, subscriptions and subscription groups, plus each version's localizations and images. A version holds the metadata App Review approves; the product keeps identity and prices. The tool descriptions explain how the two layers relate. Version creation refuses while a `PREPARE_FOR_SUBMISSION` draft exists, since versions cannot be deleted.
+  - **IAP offer codes** (API 4.2): campaigns, prices, one-time-use batches (with CSV export) and custom codes for consumables, non-consumables and non-renewing subscriptions. Mirrors the subscription offer-code tools, including the campaign cap and name-collision pre-flight.
+  - **Build uploads** (API 4.1): `asc_upload_build` uploads an `.ipa` / `.pkg` from a local file (create → reserve → PUT chunks → commit with MD5), plus the raw steps, upload listing with state and errors, and build-bundle reads (per-device file sizes, App Clip domain status, TestFlight App Clip invocations).
+
+  Live-checked on 2026-10-24: version-scoped localizations have no `state` field and version images report `assetDeliveryState` (the v1 field names return 400); the build-upload list needs `include=build` to return the build; a COMPLETE upload's build id equals its upload id.
+
+- 9eb7d13: Add Users & Access, legal agreements, and Pass Type / Merchant IDs (38 tools).
+
+  - **Users & Access**: users, visible apps, invitations and actors. Reads are free. Every write that changes the team (change roles or app access, remove a user, invite, cancel an invitation) refuses and sends nothing unless the call passes `confirm: true`; the refusal names the person and spells out the exact change (roles lost and gained, apps lost, Account Holder and ADMIN warnings).
+  - **Legal agreements**: the app's custom EULA (create, read, update text and territories, delete back to Apple's standard EULA) and the TestFlight beta license agreement (read and update text). An app with no custom EULA is reported as "standard EULA", not as an error.
+  - **Pass Type IDs and Merchant IDs**: list, get, list certificates, register, rename and delete, with the same Admin-key 403 hint as the provisioning tools.
+
 ## 1.14.0
 
 ### Minor Changes
