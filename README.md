@@ -246,6 +246,16 @@ Pitch a release to Apple's editorial team for App Store featuring (Today tab, cu
 - `asc_list_nominations` (filter by app / state / type) · `asc_get_nomination` · `asc_post_nomination` (defaults to a reviewable **DRAFT** — `submitted:false`) · `asc_patch_nomination` (edit the draft; `submitted:true` **sends it to Apple** — no un-submit, only `archived:true`) · `asc_delete_nomination`.
 - The pitch rides in `description` + `notes`; `publishStartDate`/`publishEndDate` frame the relevance window; `supplementalMaterialsUris` carry press-kit/TestFlight links; `launchInSelectMarketsFirst` is the wire key (Markets, not the UI's "storefronts" wording).
 
+### Game Center: activities, challenges, matchmaking
+The player-facing Game Center surfaces. Activities and challenges belong to an app's Game Center detail (pass `appId` and the tools resolve it) or to a Game Center group shared across apps. Their content lives on versions that ship with App Review: edit a `PREPARE_FOR_SUBMISSION` version, not the live one.
+
+- **Activities**: `asc_list_game_center_activities` · `asc_get_*` / `asc_post_*` / `asc_patch_*` (`archived: true` retires a live one) / `asc_delete_game_center_activity` · `asc_{add,remove}_game_center_activity_{achievements,leaderboards}` (v2 ids).
+- **Challenges**: `asc_list_game_center_challenges` (referenceName / archived filters) · `asc_get_*` / `asc_post_*` / `asc_patch_*` / `asc_delete_game_center_challenge` · `asc_set_game_center_challenge_leaderboard` (v2 leaderboard).
+- **Versions → localizations → images** (same tools for both, `activity` or `challenge` in the name): `asc_list_*_versions` · `asc_get_*_version` · `asc_post_*_version` (activity versions also `asc_patch_game_center_activity_version` for `fallbackUrl`) · `asc_list_*_localizations` + get / post / patch / delete · `asc_get_*_image` (by id, by localization, or a version's default image) · `asc_upload_*_image` (composite: reserve → PUT chunks → `uploaded: true`, no checksum) + raw post / patch / delete.
+- **App versions**: `asc_list_game_center_app_versions` (one per App Store version; `enabled` filter; `compatibilityVersionsOf` lists compatible ones) · `asc_get_*` · `asc_post_*` · `asc_patch_game_center_app_version` (⚠️ `enabled: false` turns Game Center off for that version) · `asc_{add,remove}_game_center_app_version_compatibility`.
+- **Matchmaking** (team-wide, not per app): rule sets `asc_{list,get,post,patch,delete}_game_center_matchmaking_rule_set(s)` · rules and teams `asc_{list,post,patch,delete}_game_center_matchmaking_{rules,teams}` (listed through their rule set) · queues `asc_{list,get,post,patch,delete}_game_center_matchmaking_queue(s)` (⚠️ deleting a queue a shipped game names breaks its matchmaking) · `asc_test_game_center_matchmaking_rule_set` (dry-runs made-up requests through a rule set and returns the matches) · `asc_get_game_center_matchmaking_{queue,rule}_metrics` (requests, queue sizes, sessions, rule results and errors as time series).
+- Rule expressions are JMESPath-based: literals go in backticks (``requests[0].secondsInQueue >= `5` ``). A bare number is a 409 compile error.
+
 ### Provisioning & code signing
 The Developer-portal surface (fastlane `match`/`sigh`/`cert` territory). **Role gate:** needs an **Admin** (or Account Holder) API key — App Manager/Developer keys get 403 here (the tools explain it).
 

@@ -36,6 +36,7 @@ import { registerCustomProductPages } from './domains/custom-product-pages.js';
 import { registerCustomerReviews } from './domains/customer-reviews.js';
 import { registerDiagnostics } from './domains/diagnostics.js';
 import { registerEncryptionDeclarations } from './domains/encryption-declarations.js';
+import { registerGameCenterPlay } from './domains/game-center-play.js';
 import { registerIaps } from './domains/iap.js';
 import { registerIapLocalizations } from './domains/iap-localizations.js';
 import { registerIntroOffers } from './domains/intro-offers.js';
@@ -219,6 +220,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerAccessibilityDeclarations(server, client);
   registerAlternativeDistribution(server, client);
   registerAgeRating(server, client);
+  registerGameCenterPlay(server, client);
   registerPpp(server, client);
 
   return server;
