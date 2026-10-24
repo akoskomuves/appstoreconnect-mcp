@@ -12,6 +12,7 @@ import { registerAgeRating } from './domains/age-rating.js';
 import { registerAlternativeDistribution } from './domains/alternative-distribution.js';
 import { registerAnalyticsReports } from './domains/analytics-reports.js';
 import { registerAppAvailability } from './domains/app-availability.js';
+import { registerAppClips } from './domains/app-clips.js';
 import { registerAppEventScreenshots } from './domains/app-event-screenshots.js';
 import { registerAppEventVideoClips } from './domains/app-event-video-clips.js';
 import { registerAppEvents } from './domains/app-events.js';
@@ -24,6 +25,7 @@ import { registerAsoCatalog } from './domains/aso-catalog.js';
 import { registerAssetLibrary } from './domains/asset-library.js';
 import { registerAssetUpload } from './domains/asset-upload.js';
 import { registerAvailabilities } from './domains/availabilities.js';
+import { registerBackgroundAssets } from './domains/background-assets.js';
 import { registerBetaFeedback } from './domains/beta-feedback.js';
 import { registerBetaGroups } from './domains/beta-groups.js';
 import { registerBetaLocalizations } from './domains/beta-localizations.js';
@@ -220,6 +222,8 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerAlternativeDistribution(server, client);
   registerAgeRating(server, client);
   registerPpp(server, client);
+  registerAppClips(server, client);
+  registerBackgroundAssets(server, client);
 
   return server;
 }
