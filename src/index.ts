@@ -11,6 +11,7 @@ import { registerAccessibilityDeclarations } from './domains/accessibility-decla
 import { registerAgeRating } from './domains/age-rating.js';
 import { registerAlternativeDistribution } from './domains/alternative-distribution.js';
 import { registerAnalyticsReports } from './domains/analytics-reports.js';
+import { registerAndroidAppMappings } from './domains/android-app-mappings.js';
 import { registerAppAvailability } from './domains/app-availability.js';
 import { registerAppClips } from './domains/app-clips.js';
 import { registerAppEventScreenshots } from './domains/app-event-screenshots.js';
@@ -59,6 +60,9 @@ import { registerProductVersions } from './domains/product-versions.js';
 import { registerPromoOffers } from './domains/promo-offers.js';
 import { registerPromotedPurchases } from './domains/promoted-purchases.js';
 import { registerProvisioning } from './domains/provisioning.js';
+import { registerRelatedReads } from './domains/related-reads.js';
+import { registerRelationshipLinkages } from './domains/relationship-linkages.js';
+import { registerResourceUpdates } from './domains/resource-updates.js';
 import { registerReviewAssets } from './domains/review-assets.js';
 import { registerReviewDetails } from './domains/review-details.js';
 import { registerReviewSubmissions } from './domains/review-submissions.js';
@@ -244,6 +248,10 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerUsersAccess(server, client);
   registerLegalAgreements(server, client);
   registerPassMerchantIds(server, client);
+  registerRelatedReads(server, client);
+  registerRelationshipLinkages(server, client);
+  registerAndroidAppMappings(server, client);
+  registerResourceUpdates(server, client);
 
   return server;
 }

@@ -7,6 +7,7 @@ import { paginate } from '../jsonapi.js';
 import {
   AppStoreReviewAttachmentIdSchema,
   AppStoreReviewDetailIdSchema,
+  AppStoreVersionIdSchema,
   FileNameSchema,
   FileSizeSchema,
   InAppPurchaseAppStoreReviewScreenshotIdSchema,
@@ -124,6 +125,8 @@ interface AssetResourceConfig {
   // appStoreReviewAttachments has no `state` field (its state lives in the
   // `assetDeliveryState` struct) and 400s on the shared list.
   listFields?: string;
+  // What deleting one means, when the generic wording does not fit.
+  deleteNote?: string;
 }
 
 const LIST_FIELDS = 'fileName,fileSize,sourceFileChecksum,state';
@@ -411,7 +414,7 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
     `asc_delete_${cfg.toolBase}`,
     {
       title: `Delete a ${cfg.singular}`,
-      description: `DELETE a ${cfg.singular} by ID → 204. ${isToOne ? `Removes the ${cfg.parentLabel}'s single review screenshot — the ${cfg.parentLabel} then needs a new one before it can be submitted.` : `Removes one image from the ${cfg.parentLabel}'s set.`}`,
+      description: `DELETE a ${cfg.singular} by ID → 204. ${cfg.deleteNote ? cfg.deleteNote : isToOne ? `Removes the ${cfg.parentLabel}'s single review screenshot — the ${cfg.parentLabel} then needs a new one before it can be submitted.` : `Removes one image from the ${cfg.parentLabel}'s set.`}`,
       inputSchema: z.object({ assetId: cfg.resourceIdSchema }),
     },
     async ({ assetId }) => {
@@ -490,6 +493,23 @@ const CONFIGS: AssetResourceConfig[] = [
     // No `state` field on this resource — its delivery state is the
     // assetDeliveryState struct (digestReviewAssets reads state from either).
     listFields: 'fileName,fileSize,sourceFileChecksum,assetDeliveryState',
+  },
+  {
+    // Routing app coverage: the .geojson file that says where a navigation
+    // (routing) app works. To-one per App Store version, same three-step
+    // upload as the review screenshots.
+    resourceType: 'routingAppCoverages',
+    relKey: 'appStoreVersion',
+    relType: 'appStoreVersions',
+    cardinality: 'to-one',
+    toolBase: 'routing_app_coverage',
+    singular: 'routing app coverage file (.geojson)',
+    parentLabel: 'App Store version',
+    parentIdSchema: AppStoreVersionIdSchema,
+    resourceIdSchema: z.string().min(1).describe('routingAppCoverages ID.'),
+    parentSubPath: (id) => `/v1/appStoreVersions/${encodeURIComponent(id)}/routingAppCoverage`,
+    deleteNote:
+      "Removes the version's routing coverage file. A routing app needs one before the version can be submitted.",
   },
 ];
 

@@ -350,6 +350,21 @@ StoreKit test accounts, for exercising the monetization surface end-to-end. Test
 
 - `asc_list_sandbox_testers` · `asc_patch_sandbox_tester` (territory, `interruptPurchases`, accelerated `subscriptionRenewalRate` — a subscription month renews every 3–60 minutes) · `asc_post_sandbox_testers_clear_purchase_history` (sandbox-only wipe so purchase flows can be re-tested; resets intro-offer eligibility too).
 
+### Related reads, linkages & app settings
+The rest of API 4.5.1's related-resource reads, relationship writes and single PATCH/DELETEs on resources the other tools already cover.
+
+- `asc_get_related` — one tool for 48 related-resource GETs, keyed `"<parent>.<relationship>"`: a build's app / preReleaseVersion / buildBetaDetail / icons / individualTesters, a beta tester's apps / groups / builds, a profile's devices / certificates, a bundle ID's capabilities / profiles, an app's `ciProduct`, a CI product's repositories, a review submission's items, offer-code prices and more (the tool description lists every key). To-one reads say "none linked" when Apple answers `data: null`.
+- By-id reads next to the existing list tools: `asc_get_analytics_report` / `_instance` / `_segment` · `asc_get_alternative_distribution_package_{delta,variant,version}` · `asc_get_ci_product` · `asc_get_ci_build_action` · `asc_get_ci_issue` · `asc_get_ci_test_result` · `asc_get_scm_provider` · `asc_get_scm_pull_request` · `asc_get_iap_content` · `asc_get_app_price_point_v3`.
+- App info: `asc_get_app_info_category` (one of the six category slots) · `asc_list_app_info_territory_age_ratings`.
+- Pricing: `asc_list_app_price_schedule_prices` / `asc_list_iap_price_schedule_prices` (manual or automatic, by territory) · `asc_list_price_point_equalizations` (app, IAP or subscription; `adjusted` reads the monthly-plan adjusted equalizations — Apple accepts only `planType: MONTHLY` there).
+- TestFlight metrics: `asc_get_beta_tester_usages` (app, beta group, or one tester + app; app/group results are always grouped per tester because Apple requires a `groupBy` or filter) · `asc_get_beta_group_public_link_usages` · `asc_get_build_beta_usages`.
+- `asc_get_app_performance_overview` — `GET /v1/apps/{id}/performanceOverviews` (API 4.5, `application/vnd.apple.xcode-overview+json`).
+- Linkages (`POST` adds, `DELETE` removes only the listed ids, `PATCH` replaces in order): `asc_add/remove_build_beta_groups` · `asc_add/remove_build_individual_testers` · `asc_add/remove_beta_tester_beta_groups` · `asc_add/remove_beta_tester_builds` · `asc_remove_beta_tester_apps` · `asc_remove_app_beta_testers` · `asc_add/remove_app_store_version_localization_search_keywords` · `asc_add/remove_app_custom_product_page_localization_search_keywords` · `asc_set_app_screenshot_set_order` · `asc_set_app_preview_set_order` · `asc_remove_subscription_prices` · `asc_remove_subscription_introductory_offers`.
+- `asc_post_app_store_version_promotion` — apply a winning product page optimization treatment to a version.
+- Android → iOS app mappings: `asc_list_android_to_ios_app_mappings` · `asc_get_…` · `asc_post_…` (Play package name + app-signing SHA-256 fingerprints) · `asc_patch_…` · `asc_delete_…`.
+- Routing app coverage (the `.geojson` file of a navigation app, to-one per version): `asc_get_routing_app_coverage` · `asc_upload_routing_app_coverage` (composite) · `asc_post_…` / `asc_patch_…` · `asc_delete_…`.
+- Settings: `asc_patch_app` (App Store Server Notification URLs + versions, content rights, primary locale, streamlined purchasing) · `asc_patch_app_custom_product_page_version` (deep link) · `asc_patch_certificate` (`activated`) · `asc_patch_review_submission_item` (`resolved` / `removed`) · `asc_delete_ci_workflow` · `asc_delete_ci_product`.
+
 ### Territories
 - `asc_list_territories` — all 175 App Store territories
 
