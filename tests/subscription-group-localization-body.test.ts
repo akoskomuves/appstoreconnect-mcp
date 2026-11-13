@@ -5,13 +5,13 @@ import {
 } from '../src/domains/subscription-group-localizations.js';
 
 // Pin the wire shape for:
-//   POST  /v1/subscriptionGroupLocalizations
-//   PATCH /v1/subscriptionGroupLocalizations/{id}
+//   POST  /v2/subscriptionGroupLocalizations
+//   PATCH /v2/subscriptionGroupLocalizations/{id}
 //
 // Apple's quirks driving these assertions:
-//   1. name + locale REQUIRED at create; customAppName optional. The parent
-//      relationship key is `subscriptionGroup` (NOT `group`, which is what
-//      Subscription uses for the same parent — the two resources disagree).
+//   1. name + locale REQUIRED at create; customAppName optional. The parent is
+//      the subscriptionGroupVersion under relationship key `version`; the v1
+//      parent (`subscriptionGroup`) is what Apple removes in early 2027.
 //   2. PATCH accepts name + customAppName only. Locale is the immutable
 //      lookup key and `state` is server-managed; neither may be emitted.
 
@@ -25,25 +25,21 @@ type Body = {
 };
 
 describe('buildSubscriptionGroupLocalizationCreateBody', () => {
-  it('uses the subscriptionGroup relationship key, not group', () => {
-    // Subscription relates to the same parent under `group`; this resource
-    // uses `subscriptionGroup`. Getting it wrong is a 409 with no hint.
+  it('parents on the group version via `version`', () => {
     const body = buildSubscriptionGroupLocalizationCreateBody({
-      groupId: 'GRP-1',
+      versionId: 'GRPV-1',
       name: 'MeritValue Premium',
       locale: 'en-US',
     }) as Body;
     expect(body.data.type).toBe('subscriptionGroupLocalizations');
-    const rels = body.data.relationships as {
-      subscriptionGroup: { data: { type: string; id: string } };
-    };
-    expect(rels.subscriptionGroup.data).toEqual({ type: 'subscriptionGroups', id: 'GRP-1' });
-    expect((body.data.relationships as Record<string, unknown>).group).toBeUndefined();
+    const rels = body.data.relationships as Record<string, { data: unknown }>;
+    expect(Object.keys(rels)).toEqual(['version']);
+    expect(rels.version?.data).toEqual({ type: 'subscriptionGroupVersions', id: 'GRPV-1' });
   });
 
   it('sends name + locale and omits customAppName when absent', () => {
     const body = buildSubscriptionGroupLocalizationCreateBody({
-      groupId: 'GRP-1',
+      versionId: 'GRPV-1',
       name: 'MeritValue Premium',
       locale: 'en-US',
     }) as Body;
@@ -52,7 +48,7 @@ describe('buildSubscriptionGroupLocalizationCreateBody', () => {
 
   it('includes customAppName when supplied', () => {
     const body = buildSubscriptionGroupLocalizationCreateBody({
-      groupId: 'GRP-1',
+      versionId: 'GRPV-1',
       name: 'MeritValue Premium',
       locale: 'de-DE',
       customAppName: 'MeritValue',
@@ -66,7 +62,7 @@ describe('buildSubscriptionGroupLocalizationCreateBody', () => {
 
   it('never sends an id on create', () => {
     const body = buildSubscriptionGroupLocalizationCreateBody({
-      groupId: 'GRP-1',
+      versionId: 'GRPV-1',
       name: 'N',
       locale: 'en-US',
     }) as Body;

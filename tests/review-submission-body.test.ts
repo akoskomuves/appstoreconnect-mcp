@@ -90,7 +90,8 @@ describe('buildReviewSubmissionPatchBody', () => {
 describe('buildReviewSubmissionItemCreateBody', () => {
   const body = buildReviewSubmissionItemCreateBody({
     reviewSubmissionId: 'RS-1',
-    appStoreVersionId: 'V-1',
+    itemType: 'appStoreVersion',
+    itemId: 'V-1',
   }) as Body;
 
   it('uses reviewSubmissionItems type', () => {

@@ -5,16 +5,15 @@ import {
 } from '../src/domains/iap-localizations.js';
 
 // Pin the wire shape for the two writable IAP-localization endpoints:
-//   POST  /v1/inAppPurchaseLocalizations
-//   PATCH /v1/inAppPurchaseLocalizations/{id}
+//   POST  /v2/inAppPurchaseLocalizations
+//   PATCH /v2/inAppPurchaseLocalizations/{id}
 //
 // Apple's quirks driving these assertions:
 //   1. Same structural shape as SubscriptionLocalization (name + locale
-//      required, description optional, state server-managed, locale
-//      immutable post-create).
-//   2. WIRE-KEY GOTCHA: the parent relationship is named `inAppPurchaseV2`
-//      (with V2 suffix) but the resource type it references is
-//      `inAppPurchases` (no V2). Easy to conflate.
+//      required, description optional, locale immutable post-create).
+//   2. The v2 create's parent is the inAppPurchaseVersion, relationship key
+//      `version`. The v1 parent (`inAppPurchaseV2` → 'inAppPurchases') is what
+//      Apple removes in early 2027, so it must not come back.
 
 type Body = {
   data: {
@@ -26,9 +25,9 @@ type Body = {
 };
 
 describe('buildIapLocalizationCreateBody', () => {
-  it('uses inAppPurchaseLocalizations type with required name + locale + inAppPurchaseV2 rel', () => {
+  it('uses inAppPurchaseLocalizations type with required name + locale', () => {
     const body = buildIapLocalizationCreateBody({
-      iapId: 'IAP-1',
+      versionId: 'IAPV-1',
       name: 'Coins',
       locale: 'en-US',
     }) as Body;
@@ -36,26 +35,20 @@ describe('buildIapLocalizationCreateBody', () => {
     expect(body.data.attributes).toEqual({ name: 'Coins', locale: 'en-US' });
   });
 
-  it('uses parent relationship name `inAppPurchaseV2` (with V2 suffix) but resource type `inAppPurchases` (no V2)', () => {
+  it('parents on the IAP version via `version`, never the removed v1 inAppPurchaseV2 rel', () => {
     const body = buildIapLocalizationCreateBody({
-      iapId: 'IAP-1',
+      versionId: 'IAPV-1',
       name: 'Coins',
       locale: 'en-US',
     }) as Body;
-    const rels = body.data.relationships as Record<string, unknown>;
-    // Relationship key carries V2.
-    expect('inAppPurchaseV2' in rels).toBe(true);
-    // Resource type does NOT carry V2.
-    const iapRel = rels.inAppPurchaseV2 as { data: { type: string; id: string } };
-    expect(iapRel.data).toEqual({ type: 'inAppPurchases', id: 'IAP-1' });
-    // Common wrong shapes that this guards against:
-    expect('inAppPurchase' in rels).toBe(false);
-    expect('iap' in rels).toBe(false);
+    const rels = body.data.relationships as Record<string, { data: unknown }>;
+    expect(Object.keys(rels)).toEqual(['version']);
+    expect(rels.version?.data).toEqual({ type: 'inAppPurchaseVersions', id: 'IAPV-1' });
   });
 
   it('OMITS description when not provided (encodeIfPresent)', () => {
     const body = buildIapLocalizationCreateBody({
-      iapId: 'IAP-1',
+      versionId: 'IAPV-1',
       name: 'Coins',
       locale: 'en-US',
     }) as Body;
@@ -65,7 +58,7 @@ describe('buildIapLocalizationCreateBody', () => {
 
   it('emits description when provided', () => {
     const body = buildIapLocalizationCreateBody({
-      iapId: 'IAP-1',
+      versionId: 'IAPV-1',
       name: 'Coins',
       locale: 'en-US',
       description: '100 in-game coins.',

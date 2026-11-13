@@ -160,7 +160,7 @@ API 4.x adds `/v2` copies of the IAP, subscription and group localization endpoi
 - **Images**: `asc_{upload,post,patch,get,delete}_{iap,subscription}_version_image` — the v2 commit takes `uploaded` only (no `sourceFileChecksum`)
 
 ### In-app product versions (IAPs, subscriptions, subscription groups)
-Since API 4.4.1 every in-app product has two layers. The **product** (`inAppPurchases`, `subscriptions`, `subscriptionGroups`) holds identity and commerce: product ID, type, prices, availability, offers. The tools above work on it. Its **versions** (`inAppPurchaseVersions`, `subscriptionVersions`, `subscriptionGroupVersions`) hold the customer-facing metadata App Review approves: localizations and, for IAPs and subscriptions, images. Each version has a number and a state (`PREPARE_FOR_SUBMISSION` … `APPROVED`, then `REPLACED_WITH_NEW_VERSION` once a newer one is approved). To change approved metadata you create a version, edit it, and submit the version through a review submission. Apple deprecated the product-scoped v1 localization / image endpoints and the standalone IAP / subscription submissions in favour of this model.
+Since API 4.4.1 every in-app product has two layers. The **product** (`inAppPurchases`, `subscriptions`, `subscriptionGroups`) holds identity and commerce: product ID, type, prices, availability, offers. The tools above work on it. Its **versions** (`inAppPurchaseVersions`, `subscriptionVersions`, `subscriptionGroupVersions`) hold the customer-facing metadata App Review approves: localizations and, for IAPs and subscriptions, images. Each version has a number and a state (`PREPARE_FOR_SUBMISSION` … `APPROVED`, then `REPLACED_WITH_NEW_VERSION` once a newer one is approved). To change approved metadata you create a version, edit it, and submit the version through a review submission. Apple deprecated the product-scoped v1 localization / image endpoints and the standalone IAP / subscription submissions in favour of this model, and **removes them beginning in early 2027**. Since 1.17 the product-id tools (`asc_*_iap_localization`, `asc_*_subscription_localization`, `asc_*_subscription_group_localization`, `asc_*_iap_image`, `asc_*_subscription_image`, the three `asc_post_*_submission` tools) run on the version model: writes land on the latest editable version, refuse while a version is in review, and on an approved version refuse unless you pass `createVersionIfNeeded: true` (or pick one with `versionId`). Localization edits check the version first and explain the lock instead of failing with Apple's 409.
 
 - `asc_list_{iap,subscription,subscription_group}_versions` — versions of one product, newest first, with state and localization count; filter by `state`
 - `asc_get_*_version` — one version with its product, localizations and images included
@@ -205,6 +205,28 @@ Win-back offers target **lapsed** subscribers — customers who previously subsc
 - `asc_patch_subscription_win_back_offer` — update the mutable attributes only: eligibility, `startDate`/`endDate`, `priority`, and `promotionIntent`. To change identity, mode, duration, periods, or prices, delete and re-create.
 - `asc_delete_subscription_win_back_offer` — DELETE → 204.
 
+### Retention messages & offers
+App Store Connect API 4.6 lets you speak to subscribers **who start to cancel** an auto-renewable subscription. A **retention message** is a header (up to 66 characters) and body (up to 144) per locale, optionally with an image from the App Asset Library; **retention offers** are discounts for the same subscription shown alongside it. Both are customer-facing. A message (internal `referenceName`, at most 10 per app) holds **versions**; a version holds the localized text and has to pass **App Review** (it is a `retentionMessageVersion` review-submission item) before anyone sees it. Versions have no number and cannot be edited or deleted after submission, so changing approved text means a new version. The wiring lives on the subscription: it has at most one assigned message, and a separate set of the offers it **presents** (creating an offer does not present it). Offers allow at most 10 active per subscription per `targetSubscriptionPlanType`, and only their two eligibility fields can change after creation.
+
+- `asc_list_retention_messages` / `asc_get_retention_message` — an app's messages with their version states and assigned subscriptions.
+- `asc_post_retention_message` — create a message. Pre-flights the 10-per-app cap and duplicate `referenceName`; `dryRun` shows the body.
+- `asc_delete_retention_message` — refuses while the message is assigned to a subscription or has a version in review or approved; `force: true` skips the pre-check.
+- `asc_list_retention_message_subscriptions` — the subscriptions a message is assigned to.
+- `asc_list_retention_message_versions` / `asc_get_retention_message_version` — versions with state, localization count and image placement.
+- `asc_post_retention_message_version` — create a version (optionally with an `appAssetLibraryPlacements` image). Refuses while a `PREPARE_FOR_SUBMISSION` draft already exists.
+- `asc_get_retention_message_version_placement` — the version's image placement, or none.
+- Submit a version with `asc_post_review_submission_item` (`itemType: "retentionMessageVersion"`), then `asc_patch_review_submission`.
+- `asc_list_retention_message_version_localizations` / `asc_get_retention_message_localization` — the localized header and body.
+- `asc_post_retention_message_localization` / `asc_patch_retention_message_localization` — write a locale's header and body. Refuses a new locale on an `APPROVED` version; the locale itself can't change.
+- `asc_delete_retention_message_localization` — refuses when the version is in review or approved; `force: true` skips the pre-check.
+- `asc_list_subscription_retention_offers` — every retention offer of a subscription; `asc_list_subscription_retention_message_offers` — the ones it presents.
+- `asc_get_retention_offer` / `asc_list_retention_offer_prices` — one offer and its per-territory prices.
+- `asc_post_retention_offer` — create an offer with its prices in one POST (one subscription price point per territory, no territory field). Refuses a duplicate `offerId`.
+- `asc_patch_retention_offer` — change the eligibility (minimum paid months: 1–24, 36, 48, 60; months between offers: 2–24).
+- `asc_delete_retention_offer` — refuses while the offer is presented; `force: true` skips the pre-check.
+- `asc_get_subscription_retention_message` / `asc_set_subscription_retention_message` — read or assign a subscription's message (assigning replaces the current one; the API has no un-assign).
+- `asc_add_subscription_retention_message_offers` / `asc_remove_subscription_retention_message_offers` — choose which offers are presented with the message.
+
 ### App Asset Library (screenshots, previews, event assets)
 App Store Connect API 4.5.1 replaced screenshot sets, preview sets and in-app event screenshots / video clips with one **App Asset Library** per app. You upload an image or video once, then **place** it: one placement puts one asset on one localization (version, Custom Product Page, experiment treatment or in-app event) in one `placementType` + device `placementGroup` slot. The same asset can be placed on many localizations. The library's id is the app id.
 
@@ -229,7 +251,8 @@ The last manual steps between "metadata is ready" and "build is live":
 
 - `asc_get_app_store_review_detail` / `asc_post_…` / `asc_patch_…` — the What-to-tell-App-Review card of a version: contact person, demo account (name/password/required), notes. To-one per version; Apple merges on PATCH.
 - `asc_post_app_store_version_release_request` — ⚠️ release an approved (`PENDING_DEVELOPER_RELEASE`) version to the public App Store **now** — the "Release this version" click, automated. Only for manually-released versions; no undo.
-- `asc_post_iap_submission` / `asc_post_subscription_submission` / `asc_post_subscription_group_submission` — submit an IAP / subscription / subscription group's pending metadata changes for review **standalone**, without a version release. Wire gotcha handled: the IAP one relates via `inAppPurchaseV2`.
+- `asc_post_iap_submission` / `asc_post_subscription_submission` / `asc_post_subscription_group_submission` — submit an IAP / subscription / subscription group's latest editable **version** for review, without a version release. Apple removes the old standalone submission endpoints in early 2027, so these now create a review submission on `appId` (required: Apple has no link from a product back to its app), add the version as an item and submit it. If the app already has a draft review submission they refuse rather than send whatever else it holds; pass `reviewSubmissionId` to add the item to that draft instead.
+- `asc_post_review_submission_item` takes `itemType` + `itemId` for every item kind Apple accepts (up to 200 per submission): App Store versions, custom product page versions, in-app events, experiments, Asset Library images and videos, Background Assets, Game Center versions, retention message versions, and in-app purchase / subscription / subscription group versions. `appStoreVersionId` alone still works.
 - `asc_get_subscription_grace_period` / `asc_patch_…` — billing grace period per app: `optIn` / `sandboxOptIn`, duration (3 / 16 / 28 days), `renewalType` (all renewals vs paid-to-paid only). Keeps lapsed subscribers entitled while Apple retries payment.
 
 ### App Clips

@@ -38,11 +38,15 @@ import {
 //     the product-scoped v1 endpoints (/v1/inAppPurchaseLocalizations,
 //     /v1/subscriptionLocalizations, /v1/subscriptionGroupLocalizations,
 //     /v1/inAppPurchaseImages, /v1/subscriptionImages) in favour of /v2 ones
-//     whose create body relates to `version`. The v1 tools still work.
+//     whose create body relates to `version`, and removes them beginning in
+//     early 2027 (Apple developer email, 2026-11; spec 4.6 does not flag them).
+//     Since 1.17 the product-id tools (asc_*_iap_localization,
+//     asc_*_subscription_localization, asc_*_iap_image, …) run on the /v2
+//     resources too, via product-version-resolve.ts.
 //   - Submission moved to reviewSubmissions: a reviewSubmissionItem with an
 //     inAppPurchaseVersion / subscriptionVersion / subscriptionGroupVersion
-//     relationship. The standalone inAppPurchaseSubmissions /
-//     subscriptionSubmissions / subscriptionGroupSubmissions are deprecated.
+//     relationship. asc_post_{iap,subscription,subscription_group}_submission
+//     now do that flow instead of the removed standalone endpoints.
 //
 // The create body is relationships-only: the parent product, nothing else.
 // There is no PATCH and no DELETE on any of the three version resources.
@@ -177,6 +181,11 @@ export function buildProductVersionListQuery(
 
 export function productVersionListPath(kind: ProductVersionKind, parentId: string): string {
   return KINDS[kind].listPath(parentId);
+}
+
+/** Wire type + collection path of a kind's version resource (e.g. 'inAppPurchaseVersions'). */
+export function productVersionResource(kind: ProductVersionKind): { type: string; path: string } {
+  return { type: KINDS[kind].type, path: KINDS[kind].path };
 }
 
 // ----- Digests -----

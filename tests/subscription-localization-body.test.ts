@@ -30,23 +30,25 @@ type Body = {
 };
 
 describe('buildSubscriptionLocalizationCreateBody', () => {
-  it('uses subscriptionLocalizations type with required name + locale + subscription rel', () => {
+  it('uses subscriptionLocalizations type with required name + locale + version rel', () => {
     const body = buildSubscriptionLocalizationCreateBody({
-      subscriptionId: 'SUB-1',
+      versionId: 'SUBV-1',
       name: 'Pro Plan',
       locale: 'en-US',
     }) as Body;
     expect(body.data.type).toBe('subscriptionLocalizations');
     expect(body.data.attributes).toEqual({ name: 'Pro Plan', locale: 'en-US' });
     const rels = body.data.relationships as {
-      subscription: { data: { type: string; id: string } };
+      version: { data: { type: string; id: string } };
     };
-    expect(rels.subscription.data).toEqual({ type: 'subscriptions', id: 'SUB-1' });
+    expect(rels.version.data).toEqual({ type: 'subscriptionVersions', id: 'SUBV-1' });
+    // The v1 parent Apple removes in early 2027 must not come back.
+    expect('subscription' in rels).toBe(false);
   });
 
   it('OMITS description when not provided (encodeIfPresent)', () => {
     const body = buildSubscriptionLocalizationCreateBody({
-      subscriptionId: 'SUB-1',
+      versionId: 'SUBV-1',
       name: 'Pro',
       locale: 'en-US',
     }) as Body;
@@ -56,7 +58,7 @@ describe('buildSubscriptionLocalizationCreateBody', () => {
 
   it('emits description when provided', () => {
     const body = buildSubscriptionLocalizationCreateBody({
-      subscriptionId: 'SUB-1',
+      versionId: 'SUBV-1',
       name: 'Pro',
       locale: 'en-US',
       description: 'Unlock all features.',
