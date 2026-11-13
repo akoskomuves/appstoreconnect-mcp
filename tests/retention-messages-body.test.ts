@@ -5,7 +5,6 @@ import {
   buildRetentionMessageLocalizationCreateBody,
   buildRetentionMessageLocalizationPatchBody,
   buildRetentionMessageOffersLinkageBody,
-  buildRetentionMessageReviewItemBody,
   buildRetentionMessageVersionCreateBody,
   buildRetentionOfferCreateBody,
   buildRetentionOfferListQuery,
@@ -220,18 +219,6 @@ describe('linkage bodies', () => {
         { type: 'retentionOffers', id: 'A' },
         { type: 'retentionOffers', id: 'B' },
       ],
-    });
-  });
-
-  it('review submission item uses the retentionMessageVersion slot', () => {
-    expect(buildRetentionMessageReviewItemBody('RS1', 'V1')).toEqual({
-      data: {
-        type: 'reviewSubmissionItems',
-        relationships: {
-          reviewSubmission: { data: { type: 'reviewSubmissions', id: 'RS1' } },
-          retentionMessageVersion: { data: { type: 'retentionMessageVersions', id: 'V1' } },
-        },
-      },
     });
   });
 });

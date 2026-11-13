@@ -215,7 +215,7 @@ App Store Connect API 4.6 lets you speak to subscribers **who start to cancel** 
 - `asc_list_retention_message_versions` / `asc_get_retention_message_version` — versions with state, localization count and image placement.
 - `asc_post_retention_message_version` — create a version (optionally with an `appAssetLibraryPlacements` image). Refuses while a `PREPARE_FOR_SUBMISSION` draft already exists.
 - `asc_get_retention_message_version_placement` — the version's image placement, or none.
-- `asc_post_retention_message_version_review_item` — add a version to a review submission.
+- Submit a version with `asc_post_review_submission_item` (`itemType: "retentionMessageVersion"`), then `asc_patch_review_submission`.
 - `asc_list_retention_message_version_localizations` / `asc_get_retention_message_localization` — the localized header and body.
 - `asc_post_retention_message_localization` / `asc_patch_retention_message_localization` — write a locale's header and body. Refuses a new locale on an `APPROVED` version; the locale itself can't change.
 - `asc_delete_retention_message_localization` — refuses when the version is in review or approved; `force: true` skips the pre-check.

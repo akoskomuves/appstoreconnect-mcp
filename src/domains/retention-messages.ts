@@ -17,7 +17,6 @@ import {
   LocaleSchema,
   OfferModeSchema,
   PricePointIdSchema,
-  ReviewSubmissionIdSchema,
   SubscriptionIdSchema,
   SubscriptionOfferDurationSchema,
   SubscriptionPlanTypeSchema,
@@ -78,7 +77,7 @@ import { relCount } from './product-versions.js';
 //
 // Review: every retention message version goes through App Review before
 // customers see it, as a reviewSubmissionItem with a `retentionMessageVersion`
-// relationship (asc_post_retention_message_version_review_item here).
+// relationship (asc_post_review_submission_item with itemType retentionMessageVersion).
 //
 // Retention offers are distinct from the other three subscription offer types:
 // introductory (new subscribers), promotional (existing/lapsed, via signed
@@ -186,7 +185,7 @@ const ForceSchema = z
   );
 
 const REVIEW_NOTE =
-  'Every retention message version goes through App Review before customers see it: add it to a review submission with asc_post_retention_message_version_review_item.';
+  'Every retention message version goes through App Review before customers see it: add it to a review submission with asc_post_review_submission_item (itemType: retentionMessageVersion).';
 
 const MODEL_NOTE =
   'Retention messages (API 4.6) are shown to subscribers who start to cancel an auto-renewable subscription: a header + body (optionally an image) per locale, optionally presented with discounted retention offers. Customer-facing. A message (internal referenceName, max 10 per app) holds versions; a version holds the localized text and goes through App Review; a subscription is assigned at most one message.';
@@ -411,31 +410,6 @@ export function buildRetentionMessageOffersLinkageBody(
   retentionOfferIds: string[],
 ): RetentionMessageOffersLinkageBody {
   return { data: retentionOfferIds.map((id) => ({ type: 'retentionOffers' as const, id })) };
-}
-
-export interface RetentionMessageReviewItemBody {
-  data: {
-    type: 'reviewSubmissionItems';
-    relationships: {
-      reviewSubmission: { data: Ref };
-      retentionMessageVersion: { data: Ref };
-    };
-  };
-}
-
-export function buildRetentionMessageReviewItemBody(
-  reviewSubmissionId: string,
-  versionId: string,
-): RetentionMessageReviewItemBody {
-  return {
-    data: {
-      type: 'reviewSubmissionItems',
-      relationships: {
-        reviewSubmission: { data: { type: 'reviewSubmissions', id: reviewSubmissionId } },
-        retentionMessageVersion: { data: { type: 'retentionMessageVersions', id: versionId } },
-      },
-    },
-  };
 }
 
 // ----- Pre-check gates (pure, so tests can pin them) -----
@@ -1001,30 +975,6 @@ export function registerRetentionMessages(server: McpServer, client: ASCClient):
         const data = await client.request<unknown>(
           `/v1/retentionMessageVersions/${enc(versionId)}/placement?include=image,video`,
         );
-        return textResult(JSON.stringify(data, null, 2));
-      } catch (err) {
-        return errorResult(err);
-      }
-    },
-  );
-
-  server.registerTool(
-    'asc_post_retention_message_version_review_item',
-    {
-      title: 'Submit a retention message version for review',
-      description:
-        'Add a retention message version to a review submission (POST /v1/reviewSubmissionItems with the retentionMessageVersion relationship). All retention message versions go through App Review before customers see them. Create or find the submission with the review-submission tools, add this item, then submit the submission with asc_patch_review_submission. Track progress with asc_get_retention_message_version.',
-      inputSchema: z.object({
-        reviewSubmissionId: ReviewSubmissionIdSchema,
-        versionId: RetentionMessageVersionIdSchema,
-      }),
-    },
-    async ({ reviewSubmissionId, versionId }) => {
-      try {
-        const data = await client.request<unknown>('/v1/reviewSubmissionItems', {
-          method: 'POST',
-          body: JSON.stringify(buildRetentionMessageReviewItemBody(reviewSubmissionId, versionId)),
-        });
         return textResult(JSON.stringify(data, null, 2));
       } catch (err) {
         return errorResult(err);
