@@ -27,6 +27,14 @@ import {
   readFileSizeBytes,
   summarizeUpload,
 } from './asset-upload.js';
+import {
+  CreateVersionIfNeededInput,
+  resolveVersionForRead,
+  resolveVersionForWrite,
+  VersionIdInput,
+  VersionResolutionError,
+} from './product-version-resolve.js';
+import type { ProductVersionKind } from './product-versions.js';
 
 // IAP + subscription review assets — the two review SCREENSHOT resources close a
 // real correctness gap: Apple requires a review screenshot on an IAP/subscription
@@ -98,6 +106,7 @@ export function buildAssetCommitBody(p: AssetCommitParams): JSONAPIBody {
 }
 
 function formatASCError(err: unknown): string {
+  if (err instanceof VersionResolutionError) return `Refused: ${err.message}`;
   if (err instanceof ASCError) {
     const detail =
       typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2);
@@ -127,15 +136,49 @@ interface AssetResourceConfig {
   listFields?: string;
   // What deleting one means, when the generic wording does not fit.
   deleteNote?: string;
+  // Version-scoped (v2) image: the tools keep taking the PRODUCT id, resolve
+  // its version, and use /v2/<resourceType> with a `version` parent. Apple
+  // removes the product-scoped /v1 IAP and subscription image endpoints
+  // beginning in early 2027. v2 images have no checksum and no `state`
+  // (assetDeliveryState instead); their commit takes `uploaded` only.
+  version?: { kind: ProductVersionKind; type: string };
 }
+
+const V2_IMAGE_LIST_FIELDS = 'fileName,fileSize,assetDeliveryState';
 
 const LIST_FIELDS = 'fileName,fileSize,sourceFileChecksum,state';
 
 function collectionPath(cfg: AssetResourceConfig): string {
-  return `/v1/${cfg.resourceType}`;
+  return `/${cfg.version ? 'v2' : 'v1'}/${cfg.resourceType}`;
 }
 function itemPath(cfg: AssetResourceConfig, id: string): string {
-  return `/v1/${cfg.resourceType}/${encodeURIComponent(id)}`;
+  return `/${cfg.version ? 'v2' : 'v1'}/${cfg.resourceType}/${encodeURIComponent(id)}`;
+}
+
+// Extra inputs on the version-scoped image tools.
+function versionInputs(cfg: AssetResourceConfig, write: boolean) {
+  if (!cfg.version) return {};
+  return write
+    ? { versionId: VersionIdInput, createVersionIfNeeded: CreateVersionIfNeededInput }
+    : { versionId: VersionIdInput };
+}
+
+interface VersionArgs {
+  versionId?: string | undefined;
+  createVersionIfNeeded?: boolean | undefined;
+}
+
+// Reserve parent + any note about the version used. Non-versioned configs
+// reserve straight under the product.
+async function reserveParent(
+  client: ASCClient,
+  cfg: AssetResourceConfig,
+  parentId: string,
+  args: VersionArgs,
+): Promise<{ relKey: string; relType: string; id: string; note: string }> {
+  if (!cfg.version) return { relKey: cfg.relKey, relType: cfg.relType, id: parentId, note: '' };
+  const v = await resolveVersionForWrite(client, cfg.version.kind, parentId, args);
+  return { relKey: 'version', relType: cfg.version.type, id: v.versionId, note: v.note };
 }
 
 // Does the to-one parent already have this asset? Returns the existing id or null.
@@ -159,16 +202,31 @@ function registerReads(server: McpServer, client: ASCClient, cfg: AssetResourceC
         description: `List the ${cfg.singular}s attached to a ${cfg.parentLabel}. Each row carries fileName, fileSize, upload state, and whether the reservation has been committed (sourceFileChecksum present).`,
         inputSchema: z.object({
           parentId: cfg.parentIdSchema,
+          ...versionInputs(cfg, false),
           maxItems: z.number().int().positive().max(2000).default(500),
           raw: z.boolean().default(false),
         }),
       },
-      async ({ parentId, maxItems, raw }) => {
+      async (args) => {
+        const { parentId, maxItems, raw } = args;
         const params = new URLSearchParams();
-        params.set(`fields[${cfg.resourceType}]`, cfg.listFields ?? LIST_FIELDS);
+        params.set(
+          `fields[${cfg.resourceType}]`,
+          cfg.version ? V2_IMAGE_LIST_FIELDS : (cfg.listFields ?? LIST_FIELDS),
+        );
         params.set('limit', '200');
-        const path = `${cfg.parentSubPath(parentId)}?${params.toString()}`;
         try {
+          const base = cfg.version
+            ? `/v1/${cfg.version.type}/${encodeURIComponent(
+                await resolveVersionForRead(
+                  client,
+                  cfg.version.kind,
+                  parentId,
+                  (args as VersionArgs).versionId,
+                ),
+              )}/images`
+            : cfg.parentSubPath(parentId);
+          const path = `${base}?${params.toString()}`;
           const pages = await paginate(client, path, maxItems);
           const text = raw
             ? JSON.stringify(pages, null, 2)
@@ -232,13 +290,15 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
           : ''),
       inputSchema: z.object({
         parentId: cfg.parentIdSchema,
+        ...versionInputs(cfg, true),
         localFilePath: LocalFilePathSchema,
         fileName: FileNameSchema.optional().describe(
           'Override the file name sent to Apple. Defaults to basename(localFilePath).',
         ),
       }),
     },
-    async ({ parentId, localFilePath, fileName }) => {
+    async (args) => {
+      const { parentId, localFilePath, fileName } = args;
       const resolvedPath = expandHomePath(localFilePath);
       try {
         if (isToOne) {
@@ -257,11 +317,12 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
         }
         const fileSize = await readFileSizeBytes(resolvedPath);
         const name = fileName ?? resolvedPath.split('/').pop() ?? 'asset';
+        const parent = await reserveParent(client, cfg, parentId, args as VersionArgs);
         const reserveBody = buildAssetReserveBody({
           resourceType: cfg.resourceType,
-          relKey: cfg.relKey,
-          relType: cfg.relType,
-          parentId,
+          relKey: parent.relKey,
+          relType: parent.relType,
+          parentId: parent.id,
           fileName: name,
           fileSize,
         });
@@ -276,14 +337,15 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
           throw new Error('Reserve response missing uploadOperations[] — cannot upload');
         }
         const executed = await executeAllUploadOperations(operations, resolvedPath);
-        const checksum = await computeFileMd5Hex(resolvedPath);
+        // v2 images take no checksum: their update request has `uploaded` only.
+        const checksum = cfg.version ? undefined : await computeFileMd5Hex(resolvedPath);
         const commit = await client.request<unknown>(itemPath(cfg, assetId), {
           method: 'PATCH',
           body: JSON.stringify(
             buildAssetCommitBody({
               resourceType: cfg.resourceType,
               id: assetId,
-              sourceFileChecksum: checksum,
+              ...(checksum !== undefined ? { sourceFileChecksum: checksum } : {}),
               uploaded: true,
             }),
           ),
@@ -292,7 +354,7 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
           content: [
             {
               type: 'text',
-              text: `Uploaded ${name} → ${cfg.singular} ${assetId}.\n\n${summarizeUpload(resolvedPath, executed)}\n\nCommit response:\n${JSON.stringify(commit, null, 2)}`,
+              text: `${parent.note ? `${parent.note}\n` : ''}Uploaded ${name} → ${cfg.singular} ${assetId}.\n\n${summarizeUpload(resolvedPath, executed)}\n\nCommit response:\n${JSON.stringify(commit, null, 2)}`,
             },
           ],
         };
@@ -312,11 +374,13 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
         (isToOne ? ` To-one — refuses if one already exists.` : ''),
       inputSchema: z.object({
         parentId: cfg.parentIdSchema,
+        ...versionInputs(cfg, true),
         fileName: FileNameSchema,
         fileSize: FileSizeSchema,
       }),
     },
-    async ({ parentId, fileName, fileSize }) => {
+    async (args) => {
+      const { parentId, fileName, fileSize } = args;
       try {
         if (isToOne) {
           const existing = await existingToOneId(client, cfg, parentId);
@@ -332,14 +396,15 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
             };
           }
         }
+        const parent = await reserveParent(client, cfg, parentId, args as VersionArgs);
         const data = await client.request<unknown>(collectionPath(cfg), {
           method: 'POST',
           body: JSON.stringify(
             buildAssetReserveBody({
               resourceType: cfg.resourceType,
-              relKey: cfg.relKey,
-              relType: cfg.relType,
-              parentId,
+              relKey: parent.relKey,
+              relType: parent.relType,
+              parentId: parent.id,
               fileName,
               fileSize,
             }),
@@ -371,7 +436,9 @@ function registerWrites(server: McpServer, client: ASCClient, cfg: AssetResource
         uploaded: z.boolean().optional(),
       }),
     },
-    async ({ assetId, sourceFileChecksum, uploaded }) => {
+    async ({ assetId, sourceFileChecksum: givenChecksum, uploaded }) => {
+      // v2 images have no checksum attribute; Apple would 409 on it.
+      const sourceFileChecksum = cfg.version ? undefined : givenChecksum;
       if (sourceFileChecksum === undefined && uploaded === undefined) {
         return {
           content: [
@@ -440,6 +507,7 @@ const CONFIGS: AssetResourceConfig[] = [
     parentIdSchema: InAppPurchaseIdSchema,
     resourceIdSchema: InAppPurchaseImageIdSchema,
     parentSubPath: (id) => `/v2/inAppPurchases/${encodeURIComponent(id)}/images`,
+    version: { kind: 'iap', type: 'inAppPurchaseVersions' },
   },
   {
     resourceType: 'inAppPurchaseAppStoreReviewScreenshots',
@@ -465,6 +533,7 @@ const CONFIGS: AssetResourceConfig[] = [
     parentIdSchema: SubscriptionIdSchema,
     resourceIdSchema: SubscriptionImageIdSchema,
     parentSubPath: (id) => `/v1/subscriptions/${encodeURIComponent(id)}/images`,
+    version: { kind: 'subscription', type: 'subscriptionVersions' },
   },
   {
     resourceType: 'subscriptionAppStoreReviewScreenshots',

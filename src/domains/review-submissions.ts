@@ -15,6 +15,12 @@ import {
   SubscriptionGroupIdSchema,
   SubscriptionIdSchema,
 } from '../schemas.js';
+import { EDITABLE_VERSION_STATES, pickLatestVersion } from './product-version-resolve.js';
+import {
+  type ProductVersionKind,
+  productVersionListPath,
+  productVersionResource,
+} from './product-versions.js';
 
 // Apple's V2 review submission surface. Replaces the legacy V1
 // /v1/appStoreVersionSubmissions endpoint (single-version-only) with a
@@ -111,19 +117,47 @@ export function buildReviewSubmissionPatchBody(input: ReviewSubmissionPatchInput
   };
 }
 
+// ReviewSubmissionItemCreateRequest is polymorphic: the reviewSubmission rel
+// plus EXACTLY ONE item rel from this set (spec 4.6). Relationship key →
+// wire type. Note appStoreVersionExperiment and appStoreVersionExperimentV2
+// are two keys for the same `appStoreVersionExperiments` type.
+export const REVIEW_SUBMISSION_ITEM_TYPES = {
+  appStoreVersion: 'appStoreVersions',
+  appCustomProductPageVersion: 'appCustomProductPageVersions',
+  appStoreVersionExperiment: 'appStoreVersionExperiments',
+  appStoreVersionExperimentV2: 'appStoreVersionExperiments',
+  appEvent: 'appEvents',
+  appAssetLibraryImage: 'appAssetLibraryImages',
+  appAssetLibraryVideo: 'appAssetLibraryVideos',
+  backgroundAssetVersion: 'backgroundAssetVersions',
+  gameCenterAchievementVersion: 'gameCenterAchievementVersions',
+  gameCenterActivityVersion: 'gameCenterActivityVersions',
+  gameCenterChallengeVersion: 'gameCenterChallengeVersions',
+  gameCenterLeaderboardSetVersion: 'gameCenterLeaderboardSetVersions',
+  gameCenterLeaderboardVersion: 'gameCenterLeaderboardVersions',
+  inAppPurchaseVersion: 'inAppPurchaseVersions',
+  subscriptionVersion: 'subscriptionVersions',
+  subscriptionGroupVersion: 'subscriptionGroupVersions',
+  retentionMessageVersion: 'retentionMessageVersions',
+} as const;
+
+export type ReviewSubmissionItemType = keyof typeof REVIEW_SUBMISSION_ITEM_TYPES;
+
+const ReviewSubmissionItemTypeSchema = z
+  .enum(Object.keys(REVIEW_SUBMISSION_ITEM_TYPES) as [ReviewSubmissionItemType])
+  .describe(
+    'What the item is. For in-app purchases and subscriptions pass the VERSION (inAppPurchaseVersion / subscriptionVersion / subscriptionGroupVersion), not the product: find it with asc_list_iap_versions / asc_list_subscription_versions / asc_list_subscription_group_versions.',
+  );
+
 export interface ReviewSubmissionItemCreateInput {
   reviewSubmissionId: string;
-  appStoreVersionId: string;
+  itemType: ReviewSubmissionItemType;
+  itemId: string;
 }
 
 export function buildReviewSubmissionItemCreateBody(
   input: ReviewSubmissionItemCreateInput,
 ): JSONAPIBody {
-  // ReviewSubmissionItemCreateRequest: reviewSubmission rel REQUIRED;
-  // exactly ONE item-type rel required from the polymorphic set
-  // (appStoreVersion / appCustomProductPageVersion / appEvent / etc.).
-  // v0.11 only exposes the appStoreVersion slot; the other slots will be
-  // wrapped when those domains ship.
   return {
     data: {
       type: 'reviewSubmissionItems',
@@ -131,40 +165,50 @@ export function buildReviewSubmissionItemCreateBody(
         reviewSubmission: {
           data: { type: 'reviewSubmissions', id: input.reviewSubmissionId },
         },
-        appStoreVersion: {
-          data: { type: 'appStoreVersions', id: input.appStoreVersionId },
+        [input.itemType]: {
+          data: { type: REVIEW_SUBMISSION_ITEM_TYPES[input.itemType], id: input.itemId },
         },
       },
     },
   };
 }
 
-// Standalone item submissions — a different surface from reviewSubmissionItems.
-// Each is a POST-only resource that sends ONE in-app item's pending metadata
-// changes to App Review on its own, without bundling into a version release:
-// inAppPurchaseSubmissions / subscriptionSubmissions / subscriptionGroupSubmissions.
-// All three are relationships-only bodies. WIRE-KEY GOTCHA (same family as the
-// review-assets factory): the IAP one uses relationship key `inAppPurchaseV2`,
-// not `inAppPurchase`, while the data.type stays 'inAppPurchases'.
-export interface StandaloneItemSubmissionInput {
-  resourceType: string;
-  relKey: string;
-  relType: string;
-  itemId: string;
-}
+// Submitting an in-app product. Apple removes the standalone
+// inAppPurchaseSubmissions / subscriptionSubmissions /
+// subscriptionGroupSubmissions endpoints "beginning in early 2027"; their
+// replacement is a reviewSubmission whose item is the product's VERSION. The
+// three asc_post_*_submission tools keep their names and do that flow.
+//
+// The one trap: a reviewSubmission is per app, and an app can already have a
+// draft (READY_FOR_REVIEW) one holding other items, e.g. the next app
+// version. Submitting that draft would send those items too. So without an
+// explicit reviewSubmissionId the tool only ever submits a submission it
+// created itself, and refuses when a draft already exists.
+export type SubmissionTarget =
+  | { action: 'add-to-given'; reviewSubmissionId: string }
+  | { action: 'create' }
+  | { action: 'refuse'; reason: string };
 
-export function buildStandaloneItemSubmissionBody(
-  input: StandaloneItemSubmissionInput,
-): JSONAPIBody {
+export function decideSubmissionTarget(
+  openDraftIds: string[],
+  reviewSubmissionId?: string | undefined,
+): SubmissionTarget {
+  if (reviewSubmissionId) return { action: 'add-to-given', reviewSubmissionId };
+  if (openDraftIds.length === 0) return { action: 'create' };
   return {
-    data: {
-      type: input.resourceType,
-      relationships: {
-        [input.relKey]: { data: { type: input.relType, id: input.itemId } },
-      },
-    },
+    action: 'refuse',
+    reason: `This app already has a draft review submission (${openDraftIds.join(', ')}). Submitting it would also send whatever else it holds, so the tool won't do that on its own. Pass reviewSubmissionId to add this item to that draft, then submit the draft with asc_patch_review_submission action: "submit" once it holds everything you mean to send.`,
   };
 }
+
+const SUBMIT_KIND: Record<
+  ProductVersionKind,
+  { itemType: ReviewSubmissionItemType; label: string }
+> = {
+  iap: { itemType: 'inAppPurchaseVersion', label: 'in-app purchase' },
+  subscription: { itemType: 'subscriptionVersion', label: 'subscription' },
+  subscriptionGroup: { itemType: 'subscriptionGroupVersion', label: 'subscription group' },
+};
 
 function formatASCError(err: unknown): string {
   if (err instanceof ASCError) {
@@ -312,20 +356,39 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
   server.registerTool(
     'asc_post_review_submission_item',
     {
-      title: 'Add an App Store version to a review submission',
+      title: 'Add an item to a review submission',
       description:
-        'Add an App Store version as an item under a draft review submission. The parent submission must be in READY_FOR_REVIEW state (drafts only — once submitted, the item set is frozen). One item per call. ' +
-        "v0.11 only exposes the appStoreVersion slot; Apple's ReviewSubmissionItem is polymorphic and also accepts IAPs, in-app events, custom product page versions, and experiments — those slots will be wrapped when those domains ship in v0.12+.",
+        'Add one item to a draft review submission (READY_FOR_REVIEW; once submitted the item set is frozen). One item per call, up to 200 items per submission; for more, create another submission. ' +
+        'Pass itemType + itemId: an App Store version, custom product page version, in-app event, product page experiment, Asset Library image or video, Background Assets version, Game Center achievement / activity / challenge / leaderboard / leaderboard set version, retention message version, or an in-app purchase / subscription / subscription group VERSION. ' +
+        'In-app purchases and subscriptions are submitted this way now; Apple removes the standalone submission endpoints in early 2027. appStoreVersionId alone still works as shorthand for itemType appStoreVersion.',
       inputSchema: z.object({
         reviewSubmissionId: ReviewSubmissionIdSchema,
-        appStoreVersionId: AppStoreVersionIdSchema,
+        itemType: ReviewSubmissionItemTypeSchema.optional(),
+        itemId: z.string().min(1).optional().describe('ID of the item named by itemType.'),
+        appStoreVersionId: AppStoreVersionIdSchema.optional().describe(
+          'Shorthand for itemType: "appStoreVersion" + itemId.',
+        ),
       }),
     },
-    async ({ reviewSubmissionId, appStoreVersionId }) => {
-      const body = buildReviewSubmissionItemCreateBody({
-        reviewSubmissionId,
-        appStoreVersionId,
-      });
+    async ({ reviewSubmissionId, itemType, itemId, appStoreVersionId }) => {
+      const resolved =
+        itemType && itemId
+          ? { itemType, itemId }
+          : !itemType && !itemId && appStoreVersionId
+            ? { itemType: 'appStoreVersion' as const, itemId: appStoreVersionId }
+            : null;
+      if (!resolved) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Refused: pass itemType + itemId together, or appStoreVersionId on its own.',
+            },
+          ],
+          isError: true,
+        };
+      }
+      const body = buildReviewSubmissionItemCreateBody({ reviewSubmissionId, ...resolved });
       try {
         const data = await client.request<unknown>('/v1/reviewSubmissionItems', {
           method: 'POST',
@@ -335,7 +398,7 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
           content: [
             {
               type: 'text',
-              text: `Added App Store version ${appStoreVersionId} to review submission ${reviewSubmissionId}.\n\n${JSON.stringify(data, null, 2)}`,
+              text: `Added ${resolved.itemType} ${resolved.itemId} to review submission ${reviewSubmissionId}.\n\n${JSON.stringify(data, null, 2)}`,
             },
           ],
         };
@@ -375,114 +438,183 @@ export function registerReviewSubmissions(server: McpServer, client: ASCClient):
     },
   );
 
-  // ----- Standalone item submissions (no version release required) -----
+  // ----- In-app product submission (via a review submission) -----
 
-  server.registerTool(
-    'asc_post_iap_submission',
-    {
-      title: 'Submit an in-app purchase for review (standalone)',
-      description:
-        "POST an inAppPurchaseSubmission — sends an IAP's pending metadata changes (price, localizations, review screenshot) to App Review on their own, without a version release. The IAP must have complete metadata including its review screenshot (asc_upload_iap_review_screenshot). Irreversible once submitted — Apple reviews the pending changes as-is.",
-      inputSchema: z.object({
-        iapId: InAppPurchaseIdSchema,
-      }),
-    },
-    async ({ iapId }) => {
-      const body = buildStandaloneItemSubmissionBody({
-        resourceType: 'inAppPurchaseSubmissions',
-        // GOTCHA: the relationship key is inAppPurchaseV2, the type 'inAppPurchases'.
-        relKey: 'inAppPurchaseV2',
-        relType: 'inAppPurchases',
-        itemId: iapId,
-      });
-      try {
-        const data = await client.request<unknown>('/v1/inAppPurchaseSubmissions', {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Submitted IAP ${iapId} for review.\n\n${JSON.stringify(data, null, 2)}`,
-            },
-          ],
+  for (const [kind, toolName, idKey, idSchema] of [
+    ['iap', 'asc_post_iap_submission', 'iapId', InAppPurchaseIdSchema],
+    ['subscription', 'asc_post_subscription_submission', 'subscriptionId', SubscriptionIdSchema],
+    [
+      'subscriptionGroup',
+      'asc_post_subscription_group_submission',
+      'subscriptionGroupId',
+      SubscriptionGroupIdSchema,
+    ],
+  ] as const) {
+    const { itemType, label } = SUBMIT_KIND[kind];
+    server.registerTool(
+      toolName,
+      {
+        title: `Submit a ${label} for review`,
+        description:
+          `Send a ${label}'s pending metadata (its latest editable version) to App Review. ` +
+          `Apple removes the old standalone ${label} submission endpoint in early 2027, so this now goes through a review submission: the tool finds the ${label}'s latest version, creates a review submission on appId, adds the version as an item and submits it. ` +
+          'If the app already has a draft review submission, the tool refuses rather than submit whatever else that draft holds; pass reviewSubmissionId to add the item to that draft instead (it is then NOT submitted; submit the draft yourself with asc_patch_review_submission). ' +
+          (kind === 'subscriptionGroup'
+            ? ''
+            : `The ${label} needs complete metadata, including its review screenshot. `) +
+          'Irreversible once submitted.',
+        inputSchema: z.object({
+          [idKey]: idSchema,
+          appId: AppIdSchema.describe(
+            `The app the ${label} belongs to. Required: Apple has no link from a ${label} back to its app.`,
+          ),
+          versionId: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(`Submit this ${label} version instead of the latest one.`),
+          reviewSubmissionId: ReviewSubmissionIdSchema.optional().describe(
+            'Add the version to this existing draft submission instead of creating and submitting a new one.',
+          ),
+          platform: PlatformSchema.optional().describe(
+            'Platform for a newly created review submission. Defaults to all platforms the app supports.',
+          ),
+        }),
+      },
+      async (args) => {
+        const input = args as {
+          appId: string;
+          versionId?: string | undefined;
+          reviewSubmissionId?: string | undefined;
+          platform?: 'IOS' | 'MAC_OS' | 'TV_OS' | 'WATCH_OS' | 'VISION_OS' | undefined;
         };
-      } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
-      }
-    },
-  );
+        const productId = (args as Record<string, string>)[idKey] as string;
+        try {
+          let versionId = input.versionId;
+          if (!versionId) {
+            const latest = pickLatestVersion(
+              (
+                await paginate(
+                  client,
+                  `${productVersionListPath(kind, productId)}?fields[${productVersionResource(kind).type}]=version,state&limit=200`,
+                  2000,
+                )
+              ).data.map((r) => ({
+                id: r.id,
+                version: typeof r.attributes?.version === 'number' ? r.attributes.version : null,
+                state: typeof r.attributes?.state === 'string' ? r.attributes.state : null,
+              })),
+            );
+            if (!latest || !EDITABLE_VERSION_STATES.has(latest.state ?? '')) {
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: latest
+                      ? `Refused: nothing to submit. The ${label} ${productId}'s latest version (${latest.id}) is ${latest.state}. To change approved metadata, create a new version, edit it, then submit.`
+                      : `Refused: the ${label} ${productId} has no version to submit.`,
+                  },
+                ],
+                isError: true,
+              };
+            }
+            versionId = latest.id;
+          }
 
-  server.registerTool(
-    'asc_post_subscription_submission',
-    {
-      title: 'Submit a subscription for review (standalone)',
-      description:
-        "POST a subscriptionSubmission — sends a subscription's pending metadata changes to App Review without a version release. The subscription needs complete metadata including its review screenshot (asc_upload_subscription_review_screenshot). Irreversible once submitted.",
-      inputSchema: z.object({
-        subscriptionId: SubscriptionIdSchema,
-      }),
-    },
-    async ({ subscriptionId }) => {
-      const body = buildStandaloneItemSubmissionBody({
-        resourceType: 'subscriptionSubmissions',
-        relKey: 'subscription',
-        relType: 'subscriptions',
-        itemId: subscriptionId,
-      });
-      try {
-        const data = await client.request<unknown>('/v1/subscriptionSubmissions', {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Submitted subscription ${subscriptionId} for review.\n\n${JSON.stringify(data, null, 2)}`,
-            },
-          ],
-        };
-      } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
-      }
-    },
-  );
+          const drafts = input.reviewSubmissionId
+            ? []
+            : (
+                await paginate(
+                  client,
+                  `/v1/reviewSubmissions?filter[app]=${encodeURIComponent(input.appId)}&filter[state]=READY_FOR_REVIEW${input.platform ? `&filter[platform]=${input.platform}` : ''}&fields[reviewSubmissions]=state&limit=200`,
+                  200,
+                )
+              ).data.map((r) => r.id);
+          const target = decideSubmissionTarget(drafts, input.reviewSubmissionId);
+          if (target.action === 'refuse') {
+            return {
+              content: [{ type: 'text', text: `Refused: ${target.reason}` }],
+              isError: true,
+            };
+          }
 
-  server.registerTool(
-    'asc_post_subscription_group_submission',
-    {
-      title: 'Submit a subscription group for review (standalone)',
-      description:
-        "POST a subscriptionGroupSubmission — sends a subscription group's pending changes (group localizations + member subscriptions' metadata) to App Review without a version release. Irreversible once submitted.",
-      inputSchema: z.object({
-        subscriptionGroupId: SubscriptionGroupIdSchema,
-      }),
-    },
-    async ({ subscriptionGroupId }) => {
-      const body = buildStandaloneItemSubmissionBody({
-        resourceType: 'subscriptionGroupSubmissions',
-        relKey: 'subscriptionGroup',
-        relType: 'subscriptionGroups',
-        itemId: subscriptionGroupId,
-      });
-      try {
-        const data = await client.request<unknown>('/v1/subscriptionGroupSubmissions', {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
-        return {
-          content: [
+          let submissionId: string;
+          if (target.action === 'add-to-given') {
+            submissionId = target.reviewSubmissionId;
+          } else {
+            const created = await client.request<{ data?: { id?: string } }>(
+              '/v1/reviewSubmissions',
+              {
+                method: 'POST',
+                body: JSON.stringify(
+                  buildReviewSubmissionCreateBody({
+                    appId: input.appId,
+                    ...(input.platform !== undefined ? { platform: input.platform } : {}),
+                  }),
+                ),
+              },
+            );
+            const id = created.data?.id;
+            if (!id) throw new Error('Creating the review submission returned no id.');
+            submissionId = id;
+          }
+
+          try {
+            await client.request<unknown>('/v1/reviewSubmissionItems', {
+              method: 'POST',
+              body: JSON.stringify(
+                buildReviewSubmissionItemCreateBody({
+                  reviewSubmissionId: submissionId,
+                  itemType,
+                  itemId: versionId,
+                }),
+              ),
+            });
+          } catch (err) {
+            const left =
+              target.action === 'create'
+                ? `\n\nThe empty draft review submission ${submissionId} was created and is left in place; add an item to it or ignore it.`
+                : '';
+            return {
+              content: [{ type: 'text', text: `${formatASCError(err)}${left}` }],
+              isError: true,
+            };
+          }
+
+          if (target.action === 'add-to-given') {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Added ${label} version ${versionId} to draft review submission ${submissionId}. It is not submitted yet: submit the draft with asc_patch_review_submission action: "submit".`,
+                },
+              ],
+            };
+          }
+          const submitted = await client.request<unknown>(
+            `/v1/reviewSubmissions/${encodeURIComponent(submissionId)}`,
             {
-              type: 'text',
-              text: `Submitted subscription group ${subscriptionGroupId} for review.\n\n${JSON.stringify(data, null, 2)}`,
+              method: 'PATCH',
+              body: JSON.stringify(
+                buildReviewSubmissionPatchBody({
+                  reviewSubmissionId: submissionId,
+                  action: 'submit',
+                }),
+              ),
             },
-          ],
-        };
-      } catch (err) {
-        return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
-      }
-    },
-  );
+          );
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Submitted ${label} ${productId} (version ${versionId}) for review in review submission ${submissionId}.\n\n${JSON.stringify(submitted, null, 2)}`,
+              },
+            ],
+          };
+        } catch (err) {
+          return { content: [{ type: 'text', text: formatASCError(err) }], isError: true };
+        }
+      },
+    );
+  }
 }

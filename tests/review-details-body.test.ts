@@ -5,7 +5,6 @@ import {
   buildReviewDetailCreateBody,
   buildReviewDetailPatchBody,
 } from '../src/domains/review-details.js';
-import { buildStandaloneItemSubmissionBody } from '../src/domains/review-submissions.js';
 
 // Wire-shape pins for the v1.5 ship-loop resources.
 // Load-bearing rules:
@@ -13,11 +12,10 @@ import { buildStandaloneItemSubmissionBody } from '../src/domains/review-submiss
 //      every attribute is optional (a bare card is valid).
 //   2. PATCH bodies carry the resource id (Apple 409s without it) and only
 //      caller-supplied attributes — Apple merges.
-//   3. appStoreVersionReleaseRequests and the standalone item submissions are
-//      relationships-only creates: no attributes block at all.
-//   4. WIRE-KEY GOTCHA: inAppPurchaseSubmissions uses relationship key
-//      `inAppPurchaseV2` while the target data.type stays 'inAppPurchases' —
-//      same trap as the IAP review screenshot in review-assets.
+//   3. appStoreVersionReleaseRequests are relationships-only creates: no
+//      attributes block at all. (The standalone IAP / subscription submission
+//      bodies that used to be pinned here are gone: those tools now submit
+//      through review submissions, see review-submission-body.test.ts.)
 
 type Body = {
   data: {
@@ -88,31 +86,5 @@ describe('buildGracePeriodPatchBody', () => {
     expect(body.data.id).toBe('GRACE-1');
     expect(body.data.type).toBe('subscriptionGracePeriods');
     expect(body.data.attributes).toEqual({ optIn: true, duration: 'SIXTEEN_DAYS' });
-  });
-});
-
-describe('buildStandaloneItemSubmissionBody', () => {
-  it('IAP submission uses relKey inAppPurchaseV2 with data.type inAppPurchases', () => {
-    const body = buildStandaloneItemSubmissionBody({
-      resourceType: 'inAppPurchaseSubmissions',
-      relKey: 'inAppPurchaseV2',
-      relType: 'inAppPurchases',
-      itemId: 'IAP-1',
-    }) as Body;
-    expect(body.data.type).toBe('inAppPurchaseSubmissions');
-    expect(rel(body, 'inAppPurchaseV2')).toEqual({ type: 'inAppPurchases', id: 'IAP-1' });
-    expect('inAppPurchase' in (body.data.relationships ?? {})).toBe(false);
-    expect('attributes' in body.data).toBe(false);
-  });
-
-  it('subscription-group submission links the group', () => {
-    const body = buildStandaloneItemSubmissionBody({
-      resourceType: 'subscriptionGroupSubmissions',
-      relKey: 'subscriptionGroup',
-      relType: 'subscriptionGroups',
-      itemId: 'GROUP-1',
-    }) as Body;
-    expect(body.data.type).toBe('subscriptionGroupSubmissions');
-    expect(rel(body, 'subscriptionGroup')).toEqual({ type: 'subscriptionGroups', id: 'GROUP-1' });
   });
 });

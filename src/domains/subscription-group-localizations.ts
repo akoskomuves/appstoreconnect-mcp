@@ -11,6 +11,17 @@ import {
   SubscriptionGroupLocalizationIdSchema,
   SubscriptionGroupLocalizationNameSchema,
 } from '../schemas.js';
+import {
+  CreateVersionIfNeededInput,
+  evaluateVersionLockGate,
+  fetchLocalizationVersionState,
+  formatVersionLockRefusal,
+  resolveVersionForRead,
+  resolveVersionForWrite,
+  VersionIdInput,
+  VersionResolutionError,
+  WRITE_VERSION_NOTE,
+} from './product-version-resolve.js';
 
 // SubscriptionGroupLocalization is the CUSTOMER-FACING name of a subscription
 // group — the heading Apple renders above the plan choices in the App Store
@@ -32,10 +43,17 @@ import {
 //
 // Attributes at create: name + locale required, customAppName optional.
 // At patch: name + customAppName mutable; locale is the immutable lookup key.
-// `state` (PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED)
-// is server-managed and rejected from write bodies.
+//
+// VERSION-SCOPED since 1.17: Apple removes /v1/subscriptionGroupLocalizations
+// beginning in early 2027. The tools keep their names and inputs but use the
+// /v2 resource, whose parent is a subscriptionGroupVersion (relationship key
+// `version`). A localization keeps the same id in v1 and v2 (live-verified
+// 2026-11-13), so get / patch / delete only change path; create and list
+// resolve the group's version (product-version-resolve.ts). The v2 resource
+// has no `state`: review status lives on the version.
 
-const GROUP_LOCALIZATION_FIELDS = 'name,customAppName,locale,state';
+// v2 localizations 400 on `state` in the fieldset.
+const GROUP_LOCALIZATION_FIELDS = 'name,customAppName,locale';
 
 interface JSONAPIBody {
   data: {
@@ -47,7 +65,8 @@ interface JSONAPIBody {
 }
 
 export interface SubscriptionGroupLocalizationCreateInput {
-  groupId: string;
+  /** The subscriptionGroupVersion the localization belongs to. */
+  versionId: string;
   name: string;
   locale: string;
   customAppName?: string | undefined;
@@ -66,9 +85,7 @@ export function buildSubscriptionGroupLocalizationCreateBody(
       type: 'subscriptionGroupLocalizations',
       attributes,
       relationships: {
-        subscriptionGroup: {
-          data: { type: 'subscriptionGroups', id: input.groupId },
-        },
+        version: { data: { type: 'subscriptionGroupVersions', id: input.versionId } },
       },
     },
   };
@@ -102,6 +119,7 @@ export function buildSubscriptionGroupLocalizationPatchBody(
 }
 
 function formatASCError(err: unknown): string {
+  if (err instanceof VersionResolutionError) return `Refused: ${err.message}`;
   if (err instanceof ASCError) {
     const detail =
       typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2);
@@ -116,21 +134,21 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
     {
       title: 'List subscription group localizations',
       description:
-        'List the customer-facing GROUP display names configured for a subscription group, one row per locale, with state (PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED). Use to see which locales already have a group heading before adding more. Not to be confused with asc_list_subscription_localizations, which is the copy for one product inside the group.',
+        "List the customer-facing GROUP display names of a subscription group's latest version (or versionId), one row per locale. Review status lives on the version (asc_list_subscription_group_versions). Use to see which locales already have a group heading before adding more. Not to be confused with asc_list_subscription_localizations, which is the copy for one product inside the group.",
       inputSchema: z.object({
         groupId: SubscriptionGroupIdSchema,
+        versionId: VersionIdInput,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
       }),
     },
-    async ({ groupId, maxItems, raw }) => {
+    async ({ groupId, versionId, maxItems, raw }) => {
       const params = new URLSearchParams();
       params.set('fields[subscriptionGroupLocalizations]', GROUP_LOCALIZATION_FIELDS);
       params.set('limit', '200');
-      const path = `/v1/subscriptionGroups/${encodeURIComponent(
-        groupId,
-      )}/subscriptionGroupLocalizations?${params.toString()}`;
       try {
+        const vid = await resolveVersionForRead(client, 'subscriptionGroup', groupId, versionId);
+        const path = `/v1/subscriptionGroupVersions/${encodeURIComponent(vid)}/localizations?${params.toString()}`;
         const pages = await paginate(client, path, maxItems);
         const text = raw
           ? JSON.stringify(pages, null, 2)
@@ -147,7 +165,7 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
     {
       title: 'Get a subscription group localization',
       description:
-        'Fetch a single SubscriptionGroupLocalization by ID. Returns name + customAppName + locale + state.',
+        'Fetch a single SubscriptionGroupLocalization by ID. Returns name + customAppName + locale.',
       inputSchema: z.object({
         subscriptionGroupLocalizationId: SubscriptionGroupLocalizationIdSchema,
       }),
@@ -155,7 +173,7 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
     async ({ subscriptionGroupLocalizationId }) => {
       try {
         const data = await client.request<unknown>(
-          `/v1/subscriptionGroupLocalizations/${encodeURIComponent(
+          `/v2/subscriptionGroupLocalizations/${encodeURIComponent(
             subscriptionGroupLocalizationId,
           )}`,
         );
@@ -173,23 +191,27 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
       description:
         'Give a subscription group its CUSTOMER-FACING heading for ONE locale. Required: groupId + name + locale. Optional: customAppName (overrides how the app name reads inside the subscription sheet — usually omit it). ' +
         'This is the name customers see above the plan choices in the App Store subscription sheet and in Settings -> Subscriptions, so it should read as a product ("MeritValue Premium"), not as an internal label. ' +
-        'The (group, locale) pair must be unique, and locale is immutable afterwards. A group with no localization at all cannot be submitted for review.',
+        "The (version, locale) pair must be unique, and locale is immutable afterwards. A group with no localization at all cannot be submitted for review. Lands on the group's latest editable version. " +
+        WRITE_VERSION_NOTE,
       inputSchema: z.object({
         groupId: SubscriptionGroupIdSchema,
+        versionId: VersionIdInput,
+        createVersionIfNeeded: CreateVersionIfNeededInput,
         name: SubscriptionGroupLocalizationNameSchema,
         locale: LocaleSchema,
         customAppName: SubscriptionCustomAppNameSchema.optional(),
       }),
     },
     async (input) => {
-      const body = buildSubscriptionGroupLocalizationCreateBody({
-        groupId: input.groupId,
-        name: input.name,
-        locale: input.locale,
-        ...(input.customAppName !== undefined ? { customAppName: input.customAppName } : {}),
-      });
       try {
-        const data = await client.request<unknown>('/v1/subscriptionGroupLocalizations', {
+        const v = await resolveVersionForWrite(client, 'subscriptionGroup', input.groupId, input);
+        const body = buildSubscriptionGroupLocalizationCreateBody({
+          versionId: v.versionId,
+          name: input.name,
+          locale: input.locale,
+          ...(input.customAppName !== undefined ? { customAppName: input.customAppName } : {}),
+        });
+        const data = await client.request<unknown>('/v2/subscriptionGroupLocalizations', {
           method: 'POST',
           body: JSON.stringify(body),
         });
@@ -197,7 +219,7 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
           content: [
             {
               type: 'text',
-              text: `Created SubscriptionGroupLocalization (group ${input.groupId}, locale ${input.locale}, name "${input.name}").\n\n${JSON.stringify(data, null, 2)}`,
+              text: `${v.note ? `${v.note}\n` : ''}Created SubscriptionGroupLocalization (group ${input.groupId}, locale ${input.locale}, name "${input.name}").\n\n${JSON.stringify(data, null, 2)}`,
             },
           ],
         };
@@ -213,7 +235,7 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
       title: 'Patch a subscription group localization',
       description:
         'Update name and/or customAppName on an existing SubscriptionGroupLocalization. Both optional; the tool refuses an empty PATCH. Pass customAppName: null to CLEAR an existing override (Apple marks the attribute nullable) — omitting it leaves the current value alone. Locale is immutable and state is server-managed. ' +
-        'Apple locks this copy once it is live, the same way it locks SubscriptionLocalization: expect 409 ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE on an approved group whose app is shipping. Unlike the subscription-localization tool there is NO client-side pre-check here, because the constraint has not been confirmed live for this resource — Apple is the authority and its refusal is surfaced with the recovery path.',
+        "** VERSION LOCK: ** Apple locks copy on an APPROVED version. The tool reads the localization's version state first and refuses with the way forward (create a new group version, edit its copy, submit it). Pass force:true to skip the pre-check and let Apple judge.",
       inputSchema: z.object({
         subscriptionGroupLocalizationId: SubscriptionGroupLocalizationIdSchema,
         name: SubscriptionGroupLocalizationNameSchema.optional(),
@@ -222,6 +244,10 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
           .describe(
             'Per-locale app-name override. Pass null to clear it and go back to inheriting the real App Store app name.',
           ),
+        force: z
+          .boolean()
+          .default(false)
+          .describe('Skip the version-state pre-check and let Apple decide.'),
       }),
     },
     async (input) => {
@@ -236,6 +262,23 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
           isError: true,
         };
       }
+      if (!input.force) {
+        const gate = evaluateVersionLockGate(
+          'subscriptionGroup',
+          await fetchLocalizationVersionState(
+            client,
+            'subscriptionGroup',
+            'subscriptionGroupLocalizations',
+            input.subscriptionGroupLocalizationId,
+          ),
+        );
+        if (!gate.allow) {
+          return {
+            content: [{ type: 'text', text: formatVersionLockRefusal(gate) }],
+            isError: true,
+          };
+        }
+      }
       const body = buildSubscriptionGroupLocalizationPatchBody({
         subscriptionGroupLocalizationId: input.subscriptionGroupLocalizationId,
         ...(input.name !== undefined ? { name: input.name } : {}),
@@ -243,7 +286,7 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
       });
       try {
         const data = await client.request<unknown>(
-          `/v1/subscriptionGroupLocalizations/${encodeURIComponent(
+          `/v2/subscriptionGroupLocalizations/${encodeURIComponent(
             input.subscriptionGroupLocalizationId,
           )}`,
           { method: 'PATCH', body: JSON.stringify(body) },
@@ -266,10 +309,8 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
               {
                 type: 'text',
                 text:
-                  'Apple refused the PATCH: this group heading is locked in its current state.\n\n' +
-                  "App Store Connect's web UI can still edit it (the change rides along with the next review cycle); the REST API cannot. " +
-                  'Edit it at App Store Connect -> your app -> Subscriptions -> the group -> Localizations. ' +
-                  'Adding a NEW locale with asc_post_subscription_group_localization still works while the group is live.\n\n' +
+                  'Apple refused the PATCH: this group heading is locked because its version is approved or in review. ' +
+                  'Create a new group version (asc_post_subscription_group_version, or createVersionIfNeeded: true on asc_post_subscription_group_localization), edit the heading there, then submit it.\n\n' +
                   formatASCError(err),
               },
             ],
@@ -294,7 +335,7 @@ export function registerSubscriptionGroupLocalizations(server: McpServer, client
     async ({ subscriptionGroupLocalizationId }) => {
       try {
         await client.request<unknown>(
-          `/v1/subscriptionGroupLocalizations/${encodeURIComponent(
+          `/v2/subscriptionGroupLocalizations/${encodeURIComponent(
             subscriptionGroupLocalizationId,
           )}`,
           { method: 'DELETE' },

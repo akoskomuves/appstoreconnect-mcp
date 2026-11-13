@@ -11,6 +11,14 @@ import {
   InAppPurchaseLocalizationIdSchema,
   LocaleSchema,
 } from '../schemas.js';
+import {
+  CreateVersionIfNeededInput,
+  resolveVersionForRead,
+  resolveVersionForWrite,
+  VersionIdInput,
+  VersionResolutionError,
+  WRITE_VERSION_NOTE,
+} from './product-version-resolve.js';
 
 // InAppPurchaseLocalization carries the customer-facing name + description
 // Apple shows in the App Store under an IAP product, per locale. Same
@@ -23,15 +31,16 @@ import {
 //   - name: 30 characters per locale
 //   - description: 45 characters per locale
 //
-// Server-side `state` attribute: PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW
-// / APPROVED / REJECTED. Read-only; reflects Apple-side review status.
-//
-// Wire-key relationship note: the parent rel is named `inAppPurchaseV2` on
-// the wire (not `inAppPurchase` or `iap`) and points at the v2 IAP resource
-// type `inAppPurchases` — the resource type does NOT carry the V2 suffix
-// even though the relationship key does.
+// VERSION-SCOPED since 1.17: Apple removes /v1/inAppPurchaseLocalizations
+// beginning in early 2027. The tools keep their names and inputs but use the
+// /v2 resource, whose parent is an inAppPurchaseVersion (relationship key
+// `version`). A localization keeps the same id in v1 and v2 (live-verified
+// 2026-11-13), so get / patch / delete only change path. Create and list
+// resolve the IAP's version (product-version-resolve.ts). The v2 resource has
+// no `state`: review status lives on the version.
 
-const IAP_LOCALIZATION_FIELDS = 'name,locale,description,state';
+// v2 localizations 400 on `state` in the fieldset.
+const IAP_LOCALIZATION_FIELDS = 'name,locale,description';
 
 interface JSONAPIBody {
   data: {
@@ -43,7 +52,8 @@ interface JSONAPIBody {
 }
 
 export interface IapLocalizationCreateInput {
-  iapId: string;
+  /** The inAppPurchaseVersion the localization belongs to. */
+  versionId: string;
   name: string;
   locale: string;
   description?: string | undefined;
@@ -60,12 +70,7 @@ export function buildIapLocalizationCreateBody(input: IapLocalizationCreateInput
       type: 'inAppPurchaseLocalizations',
       attributes,
       relationships: {
-        // Wire-key gotcha: the relationship name is `inAppPurchaseV2`
-        // (with V2 suffix), but the resource type it points at is
-        // `inAppPurchases` (no V2). Don't conflate them.
-        inAppPurchaseV2: {
-          data: { type: 'inAppPurchases', id: input.iapId },
-        },
+        version: { data: { type: 'inAppPurchaseVersions', id: input.versionId } },
       },
     },
   };
@@ -93,6 +98,7 @@ export function buildIapLocalizationPatchBody(input: IapLocalizationPatchInput):
 }
 
 function formatASCError(err: unknown): string {
+  if (err instanceof VersionResolutionError) return `Refused: ${err.message}`;
   if (err instanceof ASCError) {
     const detail =
       typeof err.details === 'string' ? err.details : JSON.stringify(err.details, null, 2);
@@ -107,23 +113,21 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
     {
       title: 'List IAP localizations',
       description:
-        "List InAppPurchaseLocalizations under an IAP. Each row carries locale + name + description + state. v2 IAPs only — legacy v1 IAPs aren't supported on this surface. Use asc_list_iaps to find an IAP ID first.",
+        "List the localizations (locale + name + description) of an IAP's latest version, or of versionId. Review status lives on the version (asc_list_iap_versions), not on each localization. Use asc_list_iaps to find an IAP ID first.",
       inputSchema: z.object({
         iapId: InAppPurchaseIdSchema,
+        versionId: VersionIdInput,
         maxItems: z.number().int().positive().max(2000).default(500),
         raw: z.boolean().default(false),
       }),
     },
-    async ({ iapId, maxItems, raw }) => {
+    async ({ iapId, versionId, maxItems, raw }) => {
       const params = new URLSearchParams();
       params.set('fields[inAppPurchaseLocalizations]', IAP_LOCALIZATION_FIELDS);
       params.set('limit', '200');
-      // The list path comes off the v2 IAP resource at
-      // /v2/inAppPurchases/{id}/inAppPurchaseLocalizations.
-      const path = `/v2/inAppPurchases/${encodeURIComponent(
-        iapId,
-      )}/inAppPurchaseLocalizations?${params.toString()}`;
       try {
+        const vid = await resolveVersionForRead(client, 'iap', iapId, versionId);
+        const path = `/v1/inAppPurchaseVersions/${encodeURIComponent(vid)}/localizations?${params.toString()}`;
         const pages = await paginate(client, path, maxItems);
         const text = raw ? JSON.stringify(pages, null, 2) : digestIapLocalizations(pages);
         return { content: [{ type: 'text', text }] };
@@ -138,13 +142,13 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
     {
       title: 'Get an IAP localization',
       description:
-        'Fetch a single InAppPurchaseLocalization by ID. Returns name + description + locale + state.',
+        'Fetch a single InAppPurchaseLocalization by ID. Returns name + description + locale.',
       inputSchema: z.object({
         iapLocalizationId: InAppPurchaseLocalizationIdSchema,
       }),
     },
     async ({ iapLocalizationId }) => {
-      const path = `/v1/inAppPurchaseLocalizations/${encodeURIComponent(iapLocalizationId)}`;
+      const path = `/v2/inAppPurchaseLocalizations/${encodeURIComponent(iapLocalizationId)}`;
       try {
         const data = await client.request<unknown>(path, { method: 'GET' });
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
@@ -159,23 +163,27 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
     {
       title: 'Create an IAP localization',
       description:
-        'Create an InAppPurchaseLocalization for ONE v2 IAP + ONE locale. Required: iapId (v2 IAP only — legacy v1 not supported) + name (30 chars) + locale. Optional: description (45 chars). (IAP, locale) must be unique. Locale immutable post-create.',
+        "Create an InAppPurchaseLocalization for ONE IAP + ONE locale, on the IAP's latest editable version. Required: iapId + name (30 chars) + locale. Optional: description (45 chars). (version, locale) must be unique; locale immutable post-create. " +
+        WRITE_VERSION_NOTE,
       inputSchema: z.object({
         iapId: InAppPurchaseIdSchema,
+        versionId: VersionIdInput,
+        createVersionIfNeeded: CreateVersionIfNeededInput,
         name: IapLocalizationNameSchema,
         locale: LocaleSchema,
         description: IapLocalizationDescriptionSchema.optional(),
       }),
     },
     async (input) => {
-      const body = buildIapLocalizationCreateBody({
-        iapId: input.iapId,
-        name: input.name,
-        locale: input.locale,
-        ...(input.description !== undefined ? { description: input.description } : {}),
-      });
       try {
-        const data = await client.request<unknown>('/v1/inAppPurchaseLocalizations', {
+        const v = await resolveVersionForWrite(client, 'iap', input.iapId, input);
+        const body = buildIapLocalizationCreateBody({
+          versionId: v.versionId,
+          name: input.name,
+          locale: input.locale,
+          ...(input.description !== undefined ? { description: input.description } : {}),
+        });
+        const data = await client.request<unknown>('/v2/inAppPurchaseLocalizations', {
           method: 'POST',
           body: JSON.stringify(body),
         });
@@ -183,7 +191,7 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
           content: [
             {
               type: 'text',
-              text: `Created InAppPurchaseLocalization (iap ${input.iapId}, locale ${input.locale}).\n\n${JSON.stringify(data, null, 2)}`,
+              text: `${v.note ? `${v.note}\n` : ''}Created InAppPurchaseLocalization (iap ${input.iapId}, locale ${input.locale}).\n\n${JSON.stringify(data, null, 2)}`,
             },
           ],
         };
@@ -225,7 +233,7 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
       });
       try {
         const data = await client.request<unknown>(
-          `/v1/inAppPurchaseLocalizations/${encodeURIComponent(input.iapLocalizationId)}`,
+          `/v2/inAppPurchaseLocalizations/${encodeURIComponent(input.iapLocalizationId)}`,
           { method: 'PATCH', body: JSON.stringify(body) },
         );
         return {
@@ -255,7 +263,7 @@ export function registerIapLocalizations(server: McpServer, client: ASCClient): 
     async ({ iapLocalizationId }) => {
       try {
         await client.request<unknown>(
-          `/v1/inAppPurchaseLocalizations/${encodeURIComponent(iapLocalizationId)}`,
+          `/v2/inAppPurchaseLocalizations/${encodeURIComponent(iapLocalizationId)}`,
           { method: 'DELETE' },
         );
         return {

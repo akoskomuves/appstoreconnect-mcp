@@ -1,84 +1,45 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateSubscriptionLocalizationGate } from '../src/domains/subscription-localizations.js';
+import { evaluateVersionLockGate } from '../src/domains/product-version-resolve.js';
 import { ASCError, ascErrorText } from '../src/errors.js';
 
-// Apple's gate on SubscriptionLocalization PATCH, confirmed live 2026-09-13:
+// The localization edit lock, confirmed live 2026-09-13:
 //
 //   409 ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE
 //   "Cannot edit SubscriptionLocalization when it is in ACTIVE state"
 //
-// ACTIVE appears in NEITHER public enum (SubscriptionLocalizationState is
-// PREPARE_FOR_SUBMISSION / WAITING_FOR_REVIEW / APPROVED / REJECTED;
-// Subscription.state has no ACTIVE at all), and the list endpoint reported the
-// affected locales as APPROVED right before the refusal. So the gate is
-// deliberately conservative: it refuses only on the combination actually
-// observed — APPROVED copy under a locked parent — and passes everything else
-// through to Apple.
+// ACTIVE is in no public enum. Since 1.17 the pre-check reads the state of the
+// localization's VERSION instead, which explains the lock directly: copy on an
+// approved version is frozen, and the fix is a new version.
 
-describe('evaluateSubscriptionLocalizationGate', () => {
-  it('refuses APPROVED copy under a live (APPROVED) subscription — the confirmed case', () => {
-    const g = evaluateSubscriptionLocalizationGate('APPROVED', 'APPROVED');
-    expect(g.allow).toBe(false);
-    expect(g.reason).toContain('APPROVED');
-    expect(g.next).toContain('web UI');
+describe('evaluateVersionLockGate', () => {
+  it('refuses copy on an approved version and points at a new version', () => {
+    for (const st of ['APPROVED', 'REPLACED_WITH_NEW_VERSION']) {
+      const g = evaluateVersionLockGate('subscription', st);
+      expect(g.allow).toBe(false);
+      expect(g.reason).toContain('new version');
+      expect(g.reason).toContain('asc_post_subscription_version');
+    }
   });
 
-  it.each([
-    'WAITING_FOR_REVIEW',
-    'IN_REVIEW',
-    'PENDING_BINARY_APPROVAL',
-  ])('refuses APPROVED copy while the parent is in %s', (parentState) => {
-    expect(evaluateSubscriptionLocalizationGate(parentState, 'APPROVED').allow).toBe(false);
+  it('refuses while the version is in review', () => {
+    for (const st of ['WAITING_FOR_REVIEW', 'IN_REVIEW', 'ACCEPTED']) {
+      expect(evaluateVersionLockGate('iap', st).allow).toBe(false);
+    }
   });
 
-  it.each([
-    'MISSING_METADATA',
-    'READY_TO_SUBMIT',
-    'DEVELOPER_ACTION_NEEDED',
-    'REJECTED',
-    'DEVELOPER_REMOVED_FROM_SALE',
-    'REMOVED_FROM_SALE',
-  ])('allows APPROVED copy when the parent is in editable state %s', (parentState) => {
-    expect(evaluateSubscriptionLocalizationGate(parentState, 'APPROVED').allow).toBe(true);
+  it('allows editable versions', () => {
+    for (const st of [
+      'PREPARE_FOR_SUBMISSION',
+      'READY_FOR_REVIEW',
+      'REJECTED',
+      'DEVELOPER_REJECTED',
+    ]) {
+      expect(evaluateVersionLockGate('subscriptionGroup', st).allow).toBe(true);
+    }
   });
 
-  it.each([
-    'PREPARE_FOR_SUBMISSION',
-    'WAITING_FOR_REVIEW',
-    'REJECTED',
-  ])('allows %s copy even under a live subscription — never-shipped copy is still editable', (localizationState) => {
-    expect(evaluateSubscriptionLocalizationGate('APPROVED', localizationState).allow).toBe(true);
-  });
-
-  it('passes through when the parent state could not be fetched', () => {
-    expect(evaluateSubscriptionLocalizationGate(undefined, 'APPROVED').allow).toBe(true);
-  });
-
-  it('passes through when the localization state could not be fetched', () => {
-    expect(evaluateSubscriptionLocalizationGate('APPROVED', undefined).allow).toBe(true);
-  });
-
-  it('passes through on a state Apple has not published yet', () => {
-    expect(evaluateSubscriptionLocalizationGate('SOME_NEW_STATE', 'APPROVED').allow).toBe(true);
-    // ACTIVE itself is the undocumented value Apple names in the error. If it
-    // ever surfaces as a readable localization state, it is not APPROVED and
-    // so falls through to Apple rather than being guessed at here.
-    expect(evaluateSubscriptionLocalizationGate('APPROVED', 'ACTIVE').allow).toBe(true);
-  });
-
-  it('is bypassable — a refusal on an undocumented constraint must not be the last word', () => {
-    // force:true skips the state fetch entirely, so the gate sees two
-    // undefineds and passes through. The concrete case this protects: a
-    // subscription APPROVED but not yet live (on manual hold alongside an app
-    // version) with APPROVED copy — Apple would take that PATCH, and three of
-    // the four locked parent states are extrapolation, not observation.
-    expect(evaluateSubscriptionLocalizationGate(undefined, undefined).allow).toBe(true);
-  });
-
-  it('reports both states back for the refusal message', () => {
-    const g = evaluateSubscriptionLocalizationGate('APPROVED', 'APPROVED');
-    expect(g.parentState).toBe('APPROVED');
-    expect(g.localizationState).toBe('APPROVED');
+  it('passes through when the state could not be read', () => {
+    expect(evaluateVersionLockGate('subscription', undefined).allow).toBe(true);
   });
 });
 
