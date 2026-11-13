@@ -63,6 +63,7 @@ import { registerProvisioning } from './domains/provisioning.js';
 import { registerRelatedReads } from './domains/related-reads.js';
 import { registerRelationshipLinkages } from './domains/relationship-linkages.js';
 import { registerResourceUpdates } from './domains/resource-updates.js';
+import { registerRetentionMessages } from './domains/retention-messages.js';
 import { registerReviewAssets } from './domains/review-assets.js';
 import { registerReviewDetails } from './domains/review-details.js';
 import { registerReviewSubmissions } from './domains/review-submissions.js';
@@ -189,6 +190,7 @@ function buildServer(meta: PackageMeta, client: ASCClient, config: Config): McpS
   registerIntroOffers(server, client);
   registerPromoOffers(server, client);
   registerWinBackOffers(server, client);
+  registerRetentionMessages(server, client);
   registerOfferCodes(server, client);
   registerOfferSigning(server, config.iap);
   registerTerritories(server, client);
