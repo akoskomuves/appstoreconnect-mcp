@@ -2,7 +2,7 @@
 "@akoskomuves/appstoreconnect-mcp": minor
 ---
 
-Add retention messages and retention offers from App Store Connect API 4.6 (26 new tools).
+Add retention messages and retention offers from App Store Connect API 4.6 (25 new tools).
 
 When a subscriber starts to cancel an auto-renewable subscription, Apple can show them a retention message (a localized header and body, optionally with an image) and discounted retention offers for the same subscription. The new tools cover the whole surface: creating and deleting messages, their versions and localized text, the version's image placement, creating, editing and deleting offers and reading their prices, assigning a message to a subscription, and choosing which offers it presents. Every version has to pass App Review before customers see it: add it to a review submission with `asc_post_review_submission_item` (`itemType: "retentionMessageVersion"`).
 
